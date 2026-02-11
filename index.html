@@ -175,7 +175,7 @@
         
         h1 {
             font-family: 'Syne', sans-serif;
-            font-size: 5rem;
+            font-size: clamp(2.5rem, 6vw, 5rem);
             font-weight: 800;
             line-height: 1.1;
             margin-bottom: 1.5rem;
@@ -184,6 +184,10 @@
             -webkit-text-fill-color: transparent;
             background-clip: text;
             animation: fadeInUp 0.8s ease 0.2s backwards;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            max-width: 100%;
+            padding: 0 1rem;
         }
         
         @keyframes fadeInUp {
@@ -586,24 +590,92 @@
         
         @media (max-width: 768px) {
             header {
-                padding: 1.5rem 2rem;
+                padding: 1rem 1rem;
+                flex-direction: column;
+                gap: 1rem;
+            }
+            
+            .logo {
+                font-size: 1.5rem;
+            }
+            
+            nav {
+                gap: 1rem;
+            }
+            
+            nav a {
+                font-size: 0.8rem;
             }
             
             h1 {
-                font-size: 3rem;
+                font-size: clamp(1.8rem, 5vw, 2.5rem) !important;
+                line-height: 1.2;
+                word-wrap: break-word;
+                overflow-wrap: break-word;
+                max-width: 100%;
+                padding: 0 0.5rem;
             }
             
             .hero {
-                padding: 4rem 2rem 2rem;
+                padding: 5rem 1rem 2rem;
+            }
+            
+            .hero p {
+                font-size: 1rem;
+                padding: 0 1rem;
             }
             
             .cta-buttons {
                 flex-direction: column;
+                padding: 0 2rem;
+            }
+            
+            .btn-primary, .btn-secondary {
+                width: 100%;
+                text-align: center;
+                padding: 1rem 1.5rem;
+            }
+            
+            .upload-section {
+                margin: 2rem 1rem;
+                padding: 2rem 1rem;
+            }
+            
+            .features, .pricing {
+                padding: 3rem 1rem;
             }
             
             .features-grid,
             .pricing-grid {
                 grid-template-columns: 1fr;
+                padding: 0 1rem;
+            }
+            
+            footer {
+                padding: 2rem 1rem;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            h1 {
+                font-size: clamp(1.5rem, 6vw, 2rem) !important;
+            }
+            
+            .hero-badge {
+                font-size: 0.75rem;
+                padding: 0.4rem 1rem;
+            }
+            
+            .upload-icon {
+                font-size: 3rem;
+            }
+            
+            .pricing-card {
+                padding: 1.5rem 1rem;
+            }
+            
+            .price {
+                font-size: 2.5rem;
             }
         }
     </style>
