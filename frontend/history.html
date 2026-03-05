@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>History - ResumeAI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        primary: '#FF4D00',
+                        secondary: '#00F0FF',
+                        dark: '#0A0E1A',
+                        'dark-2': '#141925',
+                        'dark-3': '#1E2433',
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-dark text-white font-sans">
+    <!-- Header -->
+    <header class="fixed top-0 left-0 right-0 z-50 bg-dark-2/80 backdrop-blur-md border-b border-dark-3">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="flex justify-between items-center h-16">
+                <a href="/" class="flex items-center space-x-2">
+                    <span class="text-2xl">🧠</span>
+                    <span class="text-xl font-bold gradient-text" style="background: linear-gradient(135deg, #FF4D00, #00F0FF); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">ResumeAI</span>
+                </a>
+                <nav class="flex items-center space-x-6">
+                    <a href="/" class="text-gray-400 hover:text-white transition">Home</a>
+                    <a href="/dashboard.html" class="text-gray-400 hover:text-white transition">Dashboard</a>
+                    <a href="/history.html" class="text-white font-medium">History</a>
+                    <a href="#" class="px-4 py-2 bg-dark-3 hover:bg-dark-3 border border-dark-3 rounded-full transition">Logout</a>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="pt-24 pb-12 px-4">
+        <div class="max-w-7xl mx-auto">
+            <div class="flex justify-between items-center mb-8">
+                <h1 class="text-4xl font-bold">Analysis History</h1>
+                <button onclick="window.location.href='/'" class="px-6 py-3 bg-primary hover:bg-primary/90 text-white font-semibold rounded-full transition">
+                    Analyze New Resume
+                </button>
+            </div>
+
+            <!-- Search & Filter -->
+            <div class="bg-dark-2 p-6 rounded-2xl border border-dark-3 mb-8">
+                <div class="flex flex-col md:flex-row gap-4">
+                    <input type="text" placeholder="Search by filename..." class="flex-1 px-4 py-3 bg-dark-3 border border-dark-3 rounded-xl focus:outline-none focus:border-primary transition">
+                    <select class="px-4 py-3 bg-dark-3 border border-dark-3 rounded-xl focus:outline-none focus:border-primary transition">
+                        <option>All Scores</option>
+                        <option>Excellent (80-100)</option>
+                        <option>Good (60-79)</option>
+                        <option>Fair (40-59)</option>
+                        <option>Poor (<40)</option>
+                    </select>
+                    <select class="px-4 py-3 bg-dark-3 border border-dark-3 rounded-xl focus:outline-none focus:border-primary transition">
+                        <option>All Time</option>
+                        <option>This Month</option>
+                        <option>Last 3 Months</option>
+                        <option>Last Year</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- History List -->
+            <div class="bg-dark-2 rounded-2xl border border-dark-3 overflow-hidden">
+                <div class="divide-y divide-dark-3">
+                    <!-- Item 1 -->
+                    <div class="p-6 hover:bg-dark-3/50 transition">
+                        <div class="flex justify-between items-start">
+                            <div class="flex-1">
+                                <div class="flex items-center space-x-3 mb-2">
+                                    <h3 class="font-semibold text-lg">Software Engineer Resume.pdf</h3>
+                                    <span class="px-3 py-1 bg-green-500/20 text-green-400 text-sm rounded-full">Excellent</span>
+                                </div>
+                                <p class="text-gray-400 text-sm mb-4">Analyzed on March 3, 2026 at 2:30 PM</p>
+                                <div class="flex flex-wrap gap-2">
+                                    <span class="px-3 py-1 bg-dark-3 rounded-full text-sm">ATS Optimization</span>
+                                    <span class="px-3 py-1 bg-dark-3 rounded-full text-sm">Keyword Analysis</span>
+                                    <span class="px-3 py-1 bg-dark-3 rounded-full text-sm">Format Check</span>
+                                </div>
+                            </div>
+                            <div class="text-right ml-6">
+                                <div class="text-4xl font-bold mb-2" style="color: #00FF88;">85/100</div>
+                                <div class="flex space-x-2">
+                                    <button class="px-4 py-2 bg-primary hover:bg-primary/90 text-white text-sm font-semibold rounded-lg transition">View Details</button>
+                                    <button class="px-4 py-2 bg-dark-3 hover:bg-dark-2 border border-dark-3 text-white text-sm font-semibold rounded-lg transition">Download</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Item 2 -->
+                    <div class="p-6 hover:bg-dark-3/50 transition">
+                        <div class="flex justify-between items-start">
+                            <div class="flex-1">
+                                <div class="flex items-center space-x-3 mb-2">
+                                    <h3 class="font-semibold text-lg">Marketing Manager Resume.docx</h3>
+                                    <span class="px-3 py-1 bg-yellow-500/20 text-yellow-400 text-sm rounded-full">Good</span>
+                                </div>
+                                <p class="text-gray-400 text-sm mb-4">Analyzed on February 26, 2026 at 10:15 AM</p>
+                                <div class="flex flex-wrap gap-2">
+                                    <span class="px-3 py-1 bg-dark-3 rounded-full text-sm">Content Review</span>
+                                    <span class="px-3 py-1 bg-dark-3 rounded-full text-sm">Industry Match</span>
+                                </div>
+                            </div>
+                            <div class="text-right ml-6">
+                                <div class="text-4xl font-bold mb-2" style="color: #FFB800;">72/100</div>
+                                <div class="flex space-x-2">
+                                    <button class="px-4 py-2 bg-primary hover:bg-primary/90 text-white text-sm font-semibold rounded-lg transition">View Details</button>
+                                    <button class="px-4 py-2 bg-dark-3 hover:bg-dark-2 border border-dark-3 text-white text-sm font-semibold rounded-lg transition">Download</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Item 3 -->
+                    <div class="p-6 hover:bg-dark-3/50 transition">
+                        <div class="flex justify-between items-start">
+                            <div class="flex-1">
+                                <div class="flex items-center space-x-3 mb-2">
+                                    <h3 class="font-semibold text-lg">Junior Developer Resume.pdf</h3>
+                                    <span class="px-3 py-1 bg-cyan-500/20 text-cyan-400 text-sm rounded-full">Fair</span>
+                                </div>
+                                <p class="text-gray-400 text-sm mb-4">Analyzed on February 19, 2026 at 4:45 PM</p>
+                                <div class="flex flex-wrap gap-2">
+                                    <span class="px-3 py-1 bg-dark-3 rounded-full text-sm">Entry Level</span>
+                                    <span class="px-3 py-1 bg-dark-3 rounded-full text-sm">Tech Stack</span>
+                                </div>
+                            </div>
+                            <div class="text-right ml-6">
+                                <div class="text-4xl font-bold mb-2" style="color: #00F0FF;">68/100</div>
+                                <div class="flex space-x-2">
+                                    <button class="px-4 py-2 bg-primary hover:bg-primary/90 text-white text-sm font-semibold rounded-lg transition">View Details</button>
+                                    <button class="px-4 py-2 bg-dark-3 hover:bg-dark-2 border border-dark-3 text-white text-sm font-semibold rounded-lg transition">Download</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Item 4 -->
+                    <div class="p-6 hover:bg-dark-3/50 transition">
+                        <div class="flex justify-between items-start">
+                            <div class="flex-1">
+                                <div class="flex items-center space-x-3 mb-2">
+                                    <h3 class="font-semibold text-lg">Data Scientist CV.pdf</h3>
+                                    <span class="px-3 py-1 bg-green-500/20 text-green-400 text-sm rounded-full">Excellent</span>
+                                </div>
+                                <p class="text-gray-400 text-sm mb-4">Analyzed on February 12, 2026 at 9:20 AM</p>
+                                <div class="flex flex-wrap gap-2">
+                                    <span class="px-3 py-1 bg-dark-3 rounded-full text-sm">ML Keywords</span>
+                                    <span class="px-3 py-1 bg-dark-3 rounded-full text-sm">Projects Section</span>
+                                </div>
+                            </div>
+                            <div class="text-right ml-6">
+                                <div class="text-4xl font-bold mb-2" style="color: #00FF88;">91/100</div>
+                                <div class="flex space-x-2">
+                                    <button class="px-4 py-2 bg-primary hover:bg-primary/90 text-white text-sm font-semibold rounded-lg transition">View Details</button>
+                                    <button class="px-4 py-2 bg-dark-3 hover:bg-dark-2 border border-dark-3 text-white text-sm font-semibold rounded-lg transition">Download</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pagination -->
+                <div class="p-6 border-t border-dark-3 flex justify-center space-x-2">
+                    <button class="px-4 py-2 bg-dark-3 hover:bg-dark-2 border border-dark-3 rounded-lg transition">Previous</button>
+                    <button class="px-4 py-2 bg-primary text-white rounded-lg">1</button>
+                    <button class="px-4 py-2 bg-dark-3 hover:bg-dark-2 border border-dark-3 rounded-lg transition">2</button>
+                    <button class="px-4 py-2 bg-dark-3 hover:bg-dark-2 border border-dark-3 rounded-lg transition">3</button>
+                    <button class="px-4 py-2 bg-dark-3 hover:bg-dark-2 border border-dark-3 rounded-lg transition">Next</button>
+                </div>
+            </div>
+        </div>
+    </main>
+</body>
+</html>

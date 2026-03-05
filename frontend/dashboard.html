@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - ResumeAI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        primary: '#FF4D00',
+                        secondary: '#00F0FF',
+                        dark: '#0A0E1A',
+                        'dark-2': '#141925',
+                        'dark-3': '#1E2433',
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-dark text-white font-sans">
+    <!-- Header -->
+    <header class="fixed top-0 left-0 right-0 z-50 bg-dark-2/80 backdrop-blur-md border-b border-dark-3">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="flex justify-between items-center h-16">
+                <a href="/" class="flex items-center space-x-2">
+                    <span class="text-2xl">🧠</span>
+                    <span class="text-xl font-bold gradient-text" style="background: linear-gradient(135deg, #FF4D00, #00F0FF); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">ResumeAI</span>
+                </a>
+                <nav class="flex items-center space-x-6">
+                    <a href="/" class="text-gray-400 hover:text-white transition">Home</a>
+                    <a href="/dashboard.html" class="text-white font-medium">Dashboard</a>
+                    <a href="/history.html" class="text-gray-400 hover:text-white transition">History</a>
+                    <a href="#" class="px-4 py-2 bg-dark-3 hover:bg-dark-3 border border-dark-3 rounded-full transition">Logout</a>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="pt-24 pb-12 px-4">
+        <div class="max-w-7xl mx-auto">
+            <h1 class="text-4xl font-bold mb-8">Welcome back! 👋</h1>
+            
+            <!-- Stats Grid -->
+            <div class="grid md:grid-cols-4 gap-6 mb-12">
+                <div class="bg-dark-2 p-6 rounded-2xl border border-dark-3">
+                    <div class="text-gray-400 mb-2">Total Analyses</div>
+                    <div class="text-3xl font-bold" style="color: #FF4D00;">12</div>
+                </div>
+                <div class="bg-dark-2 p-6 rounded-2xl border border-dark-3">
+                    <div class="text-gray-400 mb-2">Average Score</div>
+                    <div class="text-3xl font-bold" style="color: #00F0FF;">78/100</div>
+                </div>
+                <div class="bg-dark-2 p-6 rounded-2xl border border-dark-3">
+                    <div class="text-gray-400 mb-2">This Month</div>
+                    <div class="text-3xl font-bold" style="color: #00FF88;">5</div>
+                </div>
+                <div class="bg-dark-2 p-6 rounded-2xl border border-dark-3">
+                    <div class="text-gray-400 mb-2">Plan</div>
+                    <div class="text-3xl font-bold" style="color: #FFB800;">Pro</div>
+                </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="grid md:grid-cols-2 gap-8 mb-12">
+                <div class="bg-dark-2 p-8 rounded-2xl border border-dark-3">
+                    <h2 class="text-2xl font-bold mb-4">Quick Start</h2>
+                    <p class="text-gray-400 mb-6">Upload a new resume for instant analysis</p>
+                    <button onclick="window.location.href='/'" class="px-6 py-3 bg-primary hover:bg-primary/90 text-white font-semibold rounded-full transition">
+                        Analyze New Resume
+                    </button>
+                </div>
+                
+                <div class="bg-dark-2 p-8 rounded-2xl border border-dark-3">
+                    <h2 class="text-2xl font-bold mb-4">Recent Activity</h2>
+                    <p class="text-gray-400 mb-6">View your latest resume analyses</p>
+                    <button onclick="window.location.href='/history.html'" class="px-6 py-3 bg-dark-3 hover:bg-dark-2 border border-dark-3 text-white font-semibold rounded-full transition">
+                        View History
+                    </button>
+                </div>
+            </div>
+
+            <!-- Recent Analyses -->
+            <div class="bg-dark-2 rounded-2xl border border-dark-3 overflow-hidden">
+                <div class="p-6 border-b border-dark-3">
+                    <h2 class="text-2xl font-bold">Recent Analyses</h2>
+                </div>
+                <div class="divide-y divide-dark-3">
+                    <div class="p-6 hover:bg-dark-3/50 transition">
+                        <div class="flex justify-between items-center">
+                            <div>
+                                <h3 class="font-semibold mb-1">Software Engineer Resume.pdf</h3>
+                                <p class="text-gray-400 text-sm">Analyzed 2 days ago</p>
+                            </div>
+                            <div class="flex items-center space-x-4">
+                                <div class="text-right">
+                                    <div class="text-2xl font-bold" style="color: #00FF88;">85/100</div>
+                                    <div class="text-gray-400 text-sm">Excellent</div>
+                                </div>
+                                <button class="px-4 py-2 bg-dark-3 hover:bg-dark-2 border border-dark-3 rounded-lg transition">View</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="p-6 hover:bg-dark-3/50 transition">
+                        <div class="flex justify-between items-center">
+                            <div>
+                                <h3 class="font-semibold mb-1">Marketing Manager Resume.docx</h3>
+                                <p class="text-gray-400 text-sm">Analyzed 1 week ago</p>
+                            </div>
+                            <div class="flex items-center space-x-4">
+                                <div class="text-right">
+                                    <div class="text-2xl font-bold" style="color: #FFB800;">72/100</div>
+                                    <div class="text-gray-400 text-sm">Good</div>
+                                </div>
+                                <button class="px-4 py-2 bg-dark-3 hover:bg-dark-2 border border-dark-3 rounded-lg transition">View</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="p-6 hover:bg-dark-3/50 transition">
+                        <div class="flex justify-between items-center">
+                            <div>
+                                <h3 class="font-semibold mb-1">Junior Developer Resume.pdf</h3>
+                                <p class="text-gray-400 text-sm">Analyzed 2 weeks ago</p>
+                            </div>
+                            <div class="flex items-center space-x-4">
+                                <div class="text-right">
+                                    <div class="text-2xl font-bold" style="color: #00F0FF;">68/100</div>
+                                    <div class="text-gray-400 text-sm">Fair</div>
+                                </div>
+                                <button class="px-4 py-2 bg-dark-3 hover:bg-dark-2 border border-dark-3 rounded-lg transition">View</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+</body>
+</html>
