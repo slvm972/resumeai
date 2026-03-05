@@ -741,6 +741,7 @@
     <footer>
         <p>&copy; 2026 ResumeAI. All rights reserved.</p>
         <p>Made with Claude AI • Privacy Policy • Terms of Service</p>
+        <p style="margin-top: 1rem; color: var(--success);">🔐 Secured by Lemon Squeezy</p>
         <div class="social-links">
             <a href="#">Twitter</a>
             <a href="#">LinkedIn</a>
@@ -818,7 +819,8 @@
         }
         
         function selectPlan(plan) {
-            alert(`Selected ${plan} plan. Payment integration coming soon!`);
+            // Redirect to Lemon Squeezy checkout
+            window.location.href = 'https://mostovoy-ai.lemonsqueezy.com/checkout/buy/5cea1ea6-7ae8-447d-953e-9f41366a205e';
         }
     </script>
 </body>
