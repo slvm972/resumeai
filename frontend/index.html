@@ -473,9 +473,28 @@
         async function handleFileUpload(event) {
             const file = event.target.files[0];
             if (!file) return;
-            
-            // For demo, show alert
-            alert('File selected: ' + file.name + '\n\nBackend integration needed for actual analysis.');
+
+            // send file to backend analyze endpoint
+            const formData = new FormData();
+            formData.append('resume', file);
+
+            try {
+                const response = await fetch('https://resumeai-2-uaul.onrender.com/api/analyze', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error('Server returned ' + response.status);
+                }
+
+                const result = await response.json();
+                console.log('Analysis result', result);
+                // TODO: render analysis on page once display logic is implemented
+            } catch (err) {
+                console.error('Upload failed', err);
+                alert('Analysis failed: ' + err.message);
+            }
         }
     </script>
 </body>
