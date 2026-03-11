@@ -162,6 +162,9 @@
                 <label for="fileUpload" class="inline-block px-8 py-4 bg-primary hover:bg-primary/90 text-white font-semibold rounded-full cursor-pointer transition-all transform hover:scale-105">
                     Choose File
                 </label>
+                <!-- loader and result container -->
+                <div id="loader" class="hidden mt-4 text-primary font-medium">Analyzing your resume… ⏳</div>
+                <div id="analysisResult" class="hidden mt-6 p-6 bg-dark-2 rounded-2xl border border-dark-3 text-left whitespace-pre-wrap"></div>
             </div>
         </div>
     </section>
@@ -470,11 +473,30 @@
     </footer>
 
     <script>
+        function showLoader() {
+            document.getElementById('loader').classList.remove('hidden');
+            document.getElementById('analysisResult').classList.add('hidden');
+        }
+        function hideLoader() {
+            document.getElementById('loader').classList.add('hidden');
+        }
+        function showResult(text, isError=false) {
+            const box = document.getElementById('analysisResult');
+            box.textContent = text;
+            box.classList.remove('hidden');
+            if (isError) {
+                box.classList.add('text-red-400');
+            } else {
+                box.classList.remove('text-red-400');
+            }
+        }
+
         async function handleFileUpload(event) {
             const file = event.target.files[0];
             if (!file) return;
 
-            // send file to backend analyze endpoint
+            showLoader();
+
             const formData = new FormData();
             formData.append('resume', file);
 
@@ -490,10 +512,13 @@
 
                 const result = await response.json();
                 console.log('Analysis result', result);
-                // TODO: render analysis on page once display logic is implemented
+                hideLoader();
+                // format and display result
+                showResult(JSON.stringify(result, null, 2));
             } catch (err) {
                 console.error('Upload failed', err);
-                alert('Analysis failed: ' + err.message);
+                hideLoader();
+                showResult('Analysis failed: ' + err.message, true);
             }
         }
     </script>
