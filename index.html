@@ -1,882 +1,629 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ResumeAI - Professional Resume Analysis</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --primary: #FF4D00;
-            --primary-dark: #CC3D00;
-            --secondary: #00F0FF;
-            --dark: #0A0E1A;
-            --dark-2: #141925;
-            --dark-3: #1E2433;
-            --light: #F8F9FA;
-            --gray: #8B92A8;
-            --success: #00FF88;
-            --warning: #FFB800;
-        }
-        
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'DM Mono', monospace;
-            background: var(--dark);
-            color: var(--light);
-            overflow-x: hidden;
-            line-height: 1.6;
-        }
-        
-        /* Animated background */
-        .bg-grid {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-image: 
-                linear-gradient(rgba(0, 240, 255, 0.05) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(0, 240, 255, 0.05) 1px, transparent 1px);
-            background-size: 50px 50px;
-            z-index: -1;
-            animation: gridMove 20s linear infinite;
-        }
-        
-        @keyframes gridMove {
-            0% { transform: translate(0, 0); }
-            100% { transform: translate(50px, 50px); }
-        }
-        
-        .gradient-orb {
-            position: fixed;
-            width: 600px;
-            height: 600px;
-            border-radius: 50%;
-            filter: blur(120px);
-            opacity: 0.3;
-            z-index: -1;
-            animation: float 15s ease-in-out infinite;
-        }
-        
-        .orb-1 {
-            background: var(--primary);
-            top: -200px;
-            right: -200px;
-        }
-        
-        .orb-2 {
-            background: var(--secondary);
-            bottom: -200px;
-            left: -200px;
-            animation-delay: -7s;
-        }
-        
-        @keyframes float {
-            0%, 100% { transform: translate(0, 0) scale(1); }
-            33% { transform: translate(30px, -30px) scale(1.1); }
-            66% { transform: translate(-20px, 20px) scale(0.9); }
-        }
-        
-        /* Header */
-        header {
-            padding: 2rem 4rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            position: relative;
-            z-index: 100;
-        }
-        
-        .logo {
-            font-family: 'Syne', sans-serif;
-            font-size: 1.8rem;
-            font-weight: 800;
-            color: var(--light);
-            text-transform: uppercase;
-            letter-spacing: -1px;
-        }
-        
-        .logo span {
-            color: var(--primary);
-        }
-        
-        nav {
-            display: flex;
-            gap: 2rem;
-            align-items: center;
-        }
-        
-        nav a {
-            color: var(--gray);
-            text-decoration: none;
-            font-size: 0.9rem;
-            transition: color 0.3s;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        
-        nav a:hover {
-            color: var(--light);
-        }
-        
-        .btn-login {
-            background: var(--dark-3);
-            color: var(--light);
-            padding: 0.7rem 1.5rem;
-            border-radius: 8px;
-            border: 1px solid var(--dark-3);
-            transition: all 0.3s;
-        }
-        
-        .btn-login:hover {
-            border-color: var(--primary);
-            background: rgba(255, 77, 0, 0.1);
-        }
-        
-        /* Hero Section */
-        .hero {
-            padding: 8rem 4rem 4rem;
-            text-align: center;
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-        
-        .hero-badge {
-            display: inline-block;
-            background: linear-gradient(135deg, var(--primary), var(--secondary));
-            padding: 0.5rem 1.5rem;
-            border-radius: 50px;
-            font-size: 0.85rem;
-            font-weight: 500;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            margin-bottom: 2rem;
-            animation: fadeInDown 0.8s ease;
-        }
-        
-        @keyframes fadeInDown {
-            from {
-                opacity: 0;
-                transform: translateY(-20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-        
-        h1 {
-            font-family: 'Syne', sans-serif;
-            font-size: clamp(2.5rem, 6vw, 5rem);
-            font-weight: 800;
-            line-height: 1.1;
-            margin-bottom: 1.5rem;
-            background: linear-gradient(135deg, var(--light), var(--secondary));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            animation: fadeInUp 0.8s ease 0.2s backwards;
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-            max-width: 100%;
-            padding: 0 1rem;
-        }
-        
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(30px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-        
-        .hero p {
-            font-size: 1.2rem;
-            color: var(--gray);
-            max-width: 700px;
-            margin: 0 auto 3rem;
-            animation: fadeInUp 0.8s ease 0.4s backwards;
-        }
-        
-        .cta-buttons {
-            display: flex;
-            gap: 1.5rem;
-            justify-content: center;
-            animation: fadeInUp 0.8s ease 0.6s backwards;
-        }
-        
-        .btn-primary {
-            background: var(--primary);
-            color: white;
-            padding: 1.2rem 3rem;
-            border-radius: 12px;
-            border: none;
-            font-size: 1rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            cursor: pointer;
-            transition: all 0.3s;
-            font-family: 'DM Mono', monospace;
-            box-shadow: 0 10px 40px rgba(255, 77, 0, 0.3);
-        }
-        
-        .btn-primary:hover {
-            background: var(--primary-dark);
-            transform: translateY(-2px);
-            box-shadow: 0 15px 50px rgba(255, 77, 0, 0.4);
-        }
-        
-        .btn-secondary {
-            background: transparent;
-            color: var(--light);
-            padding: 1.2rem 3rem;
-            border-radius: 12px;
-            border: 2px solid var(--dark-3);
-            font-size: 1rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            cursor: pointer;
-            transition: all 0.3s;
-            font-family: 'DM Mono', monospace;
-        }
-        
-        .btn-secondary:hover {
-            border-color: var(--secondary);
-            background: rgba(0, 240, 255, 0.05);
-        }
-        
-        /* Upload Section */
-        .upload-section {
-            background: var(--dark-2);
-            border: 2px dashed var(--dark-3);
-            border-radius: 20px;
-            padding: 4rem 2rem;
-            margin: 6rem auto 4rem;
-            max-width: 800px;
-            text-align: center;
-            transition: all 0.3s;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .upload-section::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.1), transparent);
-            transition: left 0.5s;
-        }
-        
-        .upload-section:hover::before {
-            left: 100%;
-        }
-        
-        .upload-section:hover {
-            border-color: var(--secondary);
-            background: rgba(0, 240, 255, 0.02);
-        }
-        
-        .upload-icon {
-            font-size: 4rem;
-            margin-bottom: 1.5rem;
-            opacity: 0.5;
-        }
-        
-        .upload-section h2 {
-            font-family: 'Syne', sans-serif;
-            font-size: 2rem;
-            margin-bottom: 1rem;
-        }
-        
-        .upload-section p {
-            color: var(--gray);
-            margin-bottom: 2rem;
-        }
-        
-        input[type="file"] {
-            display: none;
-        }
-        
-        .file-label {
-            display: inline-block;
-            background: var(--primary);
-            color: white;
-            padding: 1rem 2.5rem;
-            border-radius: 10px;
-            cursor: pointer;
-            font-weight: 700;
-            transition: all 0.3s;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        
-        .file-label:hover {
-            background: var(--primary-dark);
-            transform: scale(1.05);
-        }
-        
-        /* Features */
-        .features {
-            padding: 6rem 4rem;
-            max-width: 1400px;
-            margin: 0 auto;
-        }
-        
-        .features h2 {
-            font-family: 'Syne', sans-serif;
-            font-size: 3rem;
-            text-align: center;
-            margin-bottom: 4rem;
-        }
-        
-        .features-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-            gap: 2rem;
-        }
-        
-        .feature-card {
-            background: var(--dark-2);
-            border: 1px solid var(--dark-3);
-            border-radius: 16px;
-            padding: 2.5rem;
-            transition: all 0.3s;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .feature-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 4px;
-            background: linear-gradient(90deg, var(--primary), var(--secondary));
-            transform: scaleX(0);
-            transition: transform 0.3s;
-        }
-        
-        .feature-card:hover::before {
-            transform: scaleX(1);
-        }
-        
-        .feature-card:hover {
-            transform: translateY(-5px);
-            border-color: var(--primary);
-            box-shadow: 0 20px 60px rgba(255, 77, 0, 0.2);
-        }
-        
-        .feature-icon {
-            font-size: 3rem;
-            margin-bottom: 1.5rem;
-        }
-        
-        .feature-card h3 {
-            font-family: 'Syne', sans-serif;
-            font-size: 1.5rem;
-            margin-bottom: 1rem;
-        }
-        
-        .feature-card p {
-            color: var(--gray);
-            line-height: 1.8;
-        }
-        
-        /* Pricing */
-        .pricing {
-            padding: 6rem 4rem;
-            background: var(--dark-2);
-        }
-        
-        .pricing h2 {
-            font-family: 'Syne', sans-serif;
-            font-size: 3rem;
-            text-align: center;
-            margin-bottom: 4rem;
-        }
-        
-        .pricing-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 2rem;
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-        
-        .pricing-card {
-            background: var(--dark);
-            border: 2px solid var(--dark-3);
-            border-radius: 20px;
-            padding: 3rem 2rem;
-            text-align: center;
-            transition: all 0.3s;
-            position: relative;
-        }
-        
-        .pricing-card.featured {
-            border-color: var(--primary);
-            transform: scale(1.05);
-        }
-        
-        .pricing-card.featured::before {
-            content: 'POPULAR';
-            position: absolute;
-            top: -15px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: var(--primary);
-            padding: 0.5rem 1.5rem;
-            border-radius: 50px;
-            font-size: 0.75rem;
-            font-weight: 700;
-            letter-spacing: 2px;
-        }
-        
-        .pricing-card:hover {
-            transform: translateY(-10px);
-            box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
-        }
-        
-        .pricing-card h3 {
-            font-family: 'Syne', sans-serif;
-            font-size: 1.8rem;
-            margin-bottom: 1rem;
-        }
-        
-        .price {
-            font-size: 3.5rem;
-            font-weight: 800;
-            font-family: 'Syne', sans-serif;
-            color: var(--primary);
-            margin: 1.5rem 0;
-        }
-        
-        .price span {
-            font-size: 1.2rem;
-            color: var(--gray);
-        }
-        
-        .pricing-features {
-            list-style: none;
-            margin: 2rem 0;
-            text-align: left;
-        }
-        
-        .pricing-features li {
-            padding: 0.8rem 0;
-            color: var(--gray);
-            border-bottom: 1px solid var(--dark-3);
-        }
-        
-        .pricing-features li:before {
-            content: '✓ ';
-            color: var(--success);
-            font-weight: 700;
-            margin-right: 0.5rem;
-        }
-        
-        .pricing-card button {
-            margin-top: 2rem;
-            width: 100%;
-        }
-        
-        /* Footer */
-        footer {
-            padding: 4rem;
-            text-align: center;
-            border-top: 1px solid var(--dark-3);
-            color: var(--gray);
-        }
-        
-        footer p {
-            margin-bottom: 1rem;
-        }
-        
-        .social-links {
-            display: flex;
-            gap: 2rem;
-            justify-content: center;
-            margin-top: 2rem;
-        }
-        
-        .social-links a {
-            color: var(--gray);
-            font-size: 1.5rem;
-            transition: color 0.3s;
-        }
-        
-        .social-links a:hover {
-            color: var(--primary);
-        }
-        
-        /* Results Section */
-        .results {
-            display: none;
-            padding: 4rem;
-            max-width: 1000px;
-            margin: 0 auto;
-        }
-        
-        .results.active {
-            display: block;
-        }
-        
-        .result-card {
-            background: var(--dark-2);
-            border: 1px solid var(--dark-3);
-            border-radius: 16px;
-            padding: 2rem;
-            margin-bottom: 2rem;
-        }
-        
-        .result-card h3 {
-            font-family: 'Syne', sans-serif;
-            font-size: 1.8rem;
-            margin-bottom: 1rem;
-            color: var(--primary);
-        }
-        
-        .score-badge {
-            display: inline-block;
-            background: linear-gradient(135deg, var(--success), var(--secondary));
-            padding: 0.5rem 1.5rem;
-            border-radius: 50px;
-            font-size: 1.2rem;
-            font-weight: 700;
-            margin-bottom: 1.5rem;
-        }
-        
-        .loading {
-            display: none;
-            text-align: center;
-            padding: 4rem;
-        }
-        
-        .loading.active {
-            display: block;
-        }
-        
-        .spinner {
-            border: 4px solid var(--dark-3);
-            border-top: 4px solid var(--primary);
-            border-radius: 50%;
-            width: 60px;
-            height: 60px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 2rem;
-        }
-        
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        
-        @media (max-width: 768px) {
-            header {
-                padding: 1rem 1rem;
-                flex-direction: column;
-                gap: 1rem;
-            }
-            
-            .logo {
-                font-size: 1.5rem;
-            }
-            
-            nav {
-                gap: 1rem;
-            }
-            
-            nav a {
-                font-size: 0.8rem;
-            }
-            
-            h1 {
-                font-size: clamp(1.8rem, 5vw, 2.5rem) !important;
-                line-height: 1.2;
-                word-wrap: break-word;
-                overflow-wrap: break-word;
-                max-width: 100%;
-                padding: 0 0.5rem;
-            }
-            
-            .hero {
-                padding: 5rem 1rem 2rem;
-            }
-            
-            .hero p {
-                font-size: 1rem;
-                padding: 0 1rem;
-            }
-            
-            .cta-buttons {
-                flex-direction: column;
-                padding: 0 2rem;
-            }
-            
-            .btn-primary, .btn-secondary {
-                width: 100%;
-                text-align: center;
-                padding: 1rem 1.5rem;
-            }
-            
-            .upload-section {
-                margin: 2rem 1rem;
-                padding: 2rem 1rem;
-            }
-            
-            .features, .pricing {
-                padding: 3rem 1rem;
-            }
-            
-            .features-grid,
-            .pricing-grid {
-                grid-template-columns: 1fr;
-                padding: 0 1rem;
-            }
-            
-            footer {
-                padding: 2rem 1rem;
-            }
-        }
-        
-        @media (max-width: 480px) {
-            h1 {
-                font-size: clamp(1.5rem, 6vw, 2rem) !important;
-            }
-            
-            .hero-badge {
-                font-size: 0.75rem;
-                padding: 0.4rem 1rem;
-            }
-            
-            .upload-icon {
-                font-size: 3rem;
-            }
-            
-            .pricing-card {
-                padding: 1.5rem 1rem;
-            }
-            
-            .price {
-                font-size: 2.5rem;
-            }
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ResumeAI - Professional Resume Analysis</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0b0f1a;
+      --surface: #111827;
+      --surface2: #1a2236;
+      --border: #1f2d45;
+      --accent: #3b82f6;
+      --accent2: #06b6d4;
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --radius: 14px;
+    }
+
+    body {
+      font-family: 'Sora', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ─── NAV ─────────────────────────────────────────── */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      backdrop-filter: blur(20px);
+      background: rgba(11,15,26,.85);
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+    }
+    .nav-inner {
+      max-width: 1200px; margin: auto;
+      display: flex; align-items: center; justify-content: space-between;
+      height: 64px;
+    }
+    .logo { font-size: 1.25rem; font-weight: 700; color: var(--text); text-decoration: none; display: flex; align-items: center; gap: .5rem; }
+    .logo span { background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .nav-links { display: flex; gap: 1.5rem; list-style: none; }
+    .nav-links a { color: var(--muted); text-decoration: none; font-size: .9rem; transition: color .2s; }
+    .nav-links a:hover { color: var(--text); }
+    .nav-cta { background: var(--accent); color: #fff; padding: .45rem 1.1rem; border-radius: 8px; text-decoration: none; font-size: .85rem; font-weight: 600; transition: opacity .2s; }
+    .nav-cta:hover { opacity: .85; }
+    @media(max-width:768px){ .nav-links { display: none; } }
+
+    /* ─── HERO ────────────────────────────────────────── */
+    .hero {
+      max-width: 1200px; margin: auto; padding: 6rem 2rem 4rem;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 4rem; align-items: center;
+    }
+    @media(max-width:900px){ .hero { grid-template-columns: 1fr; padding: 4rem 1.5rem 3rem; } }
+
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: .5rem;
+      background: rgba(59,130,246,.12); border: 1px solid rgba(59,130,246,.3);
+      color: var(--accent2); padding: .4rem 1rem; border-radius: 50px;
+      font-size: .8rem; font-weight: 600; margin-bottom: 1.5rem;
+    }
+    h1 {
+      font-family: 'DM Serif Display', serif;
+      font-size: clamp(2.2rem, 4vw, 3.4rem);
+      line-height: 1.15; margin-bottom: 1.25rem;
+      background: linear-gradient(135deg, #e2e8f0 40%, #94a3b8);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .hero-sub { color: var(--muted); font-size: 1.05rem; line-height: 1.7; margin-bottom: 2rem; }
+    .hero-btns { display: flex; gap: 1rem; flex-wrap: wrap; }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), #2563eb);
+      color: #fff; padding: .75rem 1.75rem; border-radius: 10px;
+      font-weight: 600; text-decoration: none; border: none; cursor: pointer;
+      font-family: 'Sora', sans-serif; font-size: 1rem;
+      transition: transform .2s, box-shadow .2s;
+      box-shadow: 0 4px 20px rgba(59,130,246,.35);
+    }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(59,130,246,.45); }
+    .btn-secondary {
+      background: transparent; color: var(--text); padding: .75rem 1.75rem;
+      border: 1px solid var(--border); border-radius: 10px;
+      font-weight: 500; text-decoration: none; font-size: 1rem;
+      transition: border-color .2s, background .2s;
+    }
+    .btn-secondary:hover { border-color: var(--accent); background: rgba(59,130,246,.05); }
+
+    .stats { display: flex; gap: 2rem; margin-top: 2.5rem; flex-wrap: wrap; }
+    .stat { text-align: center; }
+    .stat-num { font-family: 'DM Serif Display', serif; font-size: 1.9rem; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .stat-label { font-size: .75rem; color: var(--muted); margin-top: .15rem; }
+
+    /* ─── UPLOAD CARD ─────────────────────────────────── */
+    .upload-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2rem;
+      position: relative;
+      overflow: hidden;
+    }
+    .upload-card::before {
+      content: ''; position: absolute; top: -60px; right: -60px;
+      width: 200px; height: 200px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(59,130,246,.15), transparent 70%);
+      pointer-events: none;
+    }
+    .upload-card h2 { font-size: 1.2rem; font-weight: 600; margin-bottom: .35rem; }
+    .upload-card p { font-size: .8rem; color: var(--muted); margin-bottom: 1.5rem; }
+
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 10px;
+      padding: 2.5rem 1.5rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      position: relative;
+    }
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: var(--accent);
+      background: rgba(59,130,246,.05);
+    }
+    .drop-zone input[type="file"] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
+    .drop-icon { font-size: 2.5rem; margin-bottom: .75rem; }
+    .drop-text { color: var(--muted); font-size: .9rem; }
+    .drop-text strong { color: var(--accent); }
+    .file-name {
+      margin-top: 1rem; font-size: .85rem; color: var(--accent2);
+      font-weight: 500; min-height: 1.2em;
+    }
+
+    #analyzeBtn {
+      width: 100%; margin-top: 1.25rem;
+      display: flex; align-items: center; justify-content: center; gap: .5rem;
+    }
+    #analyzeBtn:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    /* ─── RESULT PANEL ────────────────────────────────── */
+    #resultPanel {
+      display: none;
+      margin-top: 1.5rem;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.5rem;
+      animation: fadeIn .4s ease;
+    }
+    @keyframes fadeIn { from { opacity:0; transform: translateY(8px); } to { opacity:1; transform: translateY(0); } }
+
+    .result-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+    .result-header h3 { font-size: 1rem; font-weight: 600; display: flex; align-items: center; gap: .5rem; }
+    .result-badge { background: rgba(16,185,129,.15); border: 1px solid rgba(16,185,129,.3); color: var(--success); font-size: .75rem; padding: .25rem .65rem; border-radius: 50px; font-weight: 600; }
+
+    #resultText {
+      font-size: .88rem;
+      line-height: 1.75;
+      color: #cbd5e1;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 420px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+
+    /* ─── LOADER ──────────────────────────────────────── */
+    .loader {
+      display: none; align-items: center; gap: .75rem;
+      margin-top: 1rem; color: var(--muted); font-size: .88rem;
+    }
+    .loader.active { display: flex; }
+    .spinner {
+      width: 18px; height: 18px; border: 2px solid var(--border);
+      border-top-color: var(--accent); border-radius: 50%;
+      animation: spin .7s linear infinite; flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ─── ERROR ───────────────────────────────────────── */
+    .error-box {
+      display: none;
+      margin-top: 1rem;
+      background: rgba(239,68,68,.1);
+      border: 1px solid rgba(239,68,68,.3);
+      color: #fca5a5;
+      border-radius: 8px;
+      padding: .9rem 1rem;
+      font-size: .85rem;
+    }
+    .error-box.active { display: block; }
+
+    /* ─── FEATURES ────────────────────────────────────── */
+    .section { max-width: 1200px; margin: 0 auto; padding: 5rem 2rem; }
+    .section-title { text-align: center; margin-bottom: 3rem; }
+    .section-title h2 { font-family: 'DM Serif Display', serif; font-size: clamp(1.8rem, 3vw, 2.5rem); margin-bottom: .75rem; }
+    .section-title p { color: var(--muted); font-size: 1rem; }
+
+    .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; }
+    .feature-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1.75rem;
+      transition: border-color .2s, transform .2s;
+    }
+    .feature-card:hover { border-color: var(--accent); transform: translateY(-3px); }
+    .feat-icon { font-size: 1.75rem; margin-bottom: 1rem; }
+    .feature-card h3 { font-size: 1rem; font-weight: 600; margin-bottom: .5rem; }
+    .feature-card p { color: var(--muted); font-size: .875rem; line-height: 1.6; }
+
+    /* ─── HOW IT WORKS ────────────────────────────────── */
+    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 2rem; }
+    .step { text-align: center; }
+    .step-num {
+      width: 56px; height: 56px; border-radius: 50%; margin: 0 auto 1rem;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'DM Serif Display', serif; font-size: 1.4rem; color: #fff;
+    }
+    .step h3 { font-size: 1rem; font-weight: 600; margin-bottom: .5rem; }
+    .step p { color: var(--muted); font-size: .875rem; line-height: 1.6; }
+
+    /* ─── TESTIMONIALS ────────────────────────────────── */
+    .reviews-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; }
+    .review-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1.5rem;
+    }
+    .stars { color: var(--warning); margin-bottom: .75rem; font-size: 1rem; }
+    .review-text { color: var(--muted); font-size: .875rem; line-height: 1.65; margin-bottom: 1rem; font-style: italic; }
+    .reviewer { display: flex; align-items: center; gap: .75rem; }
+    .reviewer-avatar { font-size: 1.5rem; }
+    .reviewer-name { font-weight: 600; font-size: .9rem; }
+    .reviewer-role { color: var(--muted); font-size: .8rem; }
+
+    /* ─── PRICING ─────────────────────────────────────── */
+    .pricing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.5rem; max-width: 960px; margin: auto; }
+    .plan-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 2rem; position: relative;
+    }
+    .plan-card.popular { border-color: var(--accent); }
+    .popular-badge {
+      position: absolute; top: -13px; left: 50%; transform: translateX(-50%);
+      background: var(--accent); color: #fff; font-size: .75rem; font-weight: 700;
+      padding: .25rem .9rem; border-radius: 50px; white-space: nowrap;
+    }
+    .plan-name { font-weight: 700; font-size: 1.1rem; margin-bottom: .4rem; }
+    .plan-tagline { color: var(--muted); font-size: .8rem; margin-bottom: 1.25rem; }
+    .plan-price { font-family: 'DM Serif Display', serif; font-size: 2.2rem; margin-bottom: .25rem; }
+    .plan-price span { font-size: .9rem; font-family: 'Sora', sans-serif; font-weight: 400; color: var(--muted); }
+    .plan-features { list-style: none; margin: 1.25rem 0 1.75rem; display: flex; flex-direction: column; gap: .6rem; }
+    .plan-features li { font-size: .875rem; color: var(--muted); display: flex; align-items: center; gap: .5rem; }
+    .plan-features li::before { content: '✓'; color: var(--success); font-weight: 700; flex-shrink: 0; }
+    .btn-plan {
+      display: block; text-align: center; padding: .75rem;
+      border-radius: 8px; font-weight: 600; text-decoration: none; font-size: .9rem;
+      transition: opacity .2s;
+    }
+    .btn-plan:hover { opacity: .85; }
+    .btn-plan-primary { background: var(--accent); color: #fff; }
+    .btn-plan-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+
+    /* ─── FOOTER ──────────────────────────────────────── */
+    footer {
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .footer-inner {
+      max-width: 1200px; margin: auto; padding: 3rem 2rem 2rem;
+      display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 2rem;
+    }
+    @media(max-width:768px){ .footer-inner { grid-template-columns: 1fr 1fr; } }
+    .footer-brand p { color: var(--muted); font-size: .85rem; margin-top: .75rem; line-height: 1.6; max-width: 240px; }
+    .footer-col h4 { font-size: .85rem; font-weight: 700; margin-bottom: 1rem; color: var(--text); text-transform: uppercase; letter-spacing: .05em; }
+    .footer-col ul { list-style: none; display: flex; flex-direction: column; gap: .5rem; }
+    .footer-col a { color: var(--muted); text-decoration: none; font-size: .85rem; transition: color .2s; }
+    .footer-col a:hover { color: var(--text); }
+    .footer-bottom {
+      border-top: 1px solid var(--border); padding: 1.25rem 2rem;
+      text-align: center; color: var(--muted); font-size: .8rem;
+    }
+
+    /* ─── DIVIDER ─────────────────────────────────────── */
+    .divider {
+      border: none; border-top: 1px solid var(--border);
+      max-width: 1200px; margin: 0 auto;
+    }
+  </style>
 </head>
 <body>
-    <div class="bg-grid"></div>
-    <div class="gradient-orb orb-1"></div>
-    <div class="gradient-orb orb-2"></div>
-    
-    <header>
-        <div class="logo">Resume<span>AI</span></div>
-        <nav>
-            <a href="#features">Features</a>
-            <a href="#pricing">Pricing</a>
-            <a href="#" class="btn-login">Login</a>
-        </nav>
-    </header>
-    
-    <main>
-        <section class="hero">
-            <div class="hero-badge">AI Powered Resume Analysis</div>
-            <h1>Transform Your Resume<br>Into Interview Gold</h1>
-            <p>Upload your resume and get instant AI-powered feedback. Improve your chances of landing your dream job.</p>
-            <div class="cta-buttons">
-                <button class="btn-primary" onclick="document.getElementById('fileUpload').click()">
-                    Analyze Resume Free
-                </button>
-                <button class="btn-secondary" onclick="window.location.href='#pricing'">
-                    See Pricing
-                </button>
-            </div>
-        </section>
-        
-        <section class="upload-section" id="upload">
-            <div class="upload-icon">📄</div>
-            <h2>Upload Your Resume</h2>
-            <p>PDF, DOC, DOCX formats • Max 5MB</p>
-            <input type="file" id="fileUpload" accept=".pdf,.doc,.docx" onchange="handleFileUpload(event)">
-            <label for="fileUpload" class="file-label">Choose File</label>
-        </section>
-        
-        <div class="loading" id="loading">
-            <div class="spinner"></div>
-            <h2>Analyzing Your Resume...</h2>
-            <p>AI analysis in progress (15-30 seconds)</p>
+
+<!-- ─── NAV ─────────────────────────────────────────── -->
+<nav>
+  <div class="nav-inner">
+    <a href="/" class="logo">🧠 <span>ResumeAI</span></a>
+    <ul class="nav-links">
+      <li><a href="#features">Features</a></li>
+      <li><a href="#how-it-works">How It Works</a></li>
+      <li><a href="#pricing">Pricing</a></li>
+      <li><a href="#testimonials">Reviews</a></li>
+      <li><a href="dashboard.html">Dashboard</a></li>
+      <li><a href="history.html">History</a></li>
+    </ul>
+    <a href="login.html" class="nav-cta">Login</a>
+  </div>
+</nav>
+
+<!-- ─── HERO ─────────────────────────────────────────── -->
+<section>
+  <div class="hero">
+
+    <!-- Left: copy -->
+    <div>
+      <div class="hero-badge">✨ AI-Powered Resume Analysis</div>
+      <h1>Transform Your Resume Into Interview Gold</h1>
+      <p class="hero-sub">Upload your resume and get instant expert feedback. Improve your chances of landing your dream job with clear, actionable insights.</p>
+      <div class="hero-btns">
+        <a href="#upload" class="btn-primary">Analyze Resume Free</a>
+        <a href="#pricing" class="btn-secondary">See Pricing</a>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="stat-num">10K+</div><div class="stat-label">Resumes Analyzed</div></div>
+        <div class="stat"><div class="stat-num">95%</div><div class="stat-label">Success Rate</div></div>
+        <div class="stat"><div class="stat-num">30s</div><div class="stat-label">Analysis Time</div></div>
+        <div class="stat"><div class="stat-num">4.9</div><div class="stat-label">User Rating</div></div>
+      </div>
+    </div>
+
+    <!-- Right: upload card -->
+    <div id="upload" class="upload-card">
+      <h2>📄 Upload Your Resume</h2>
+      <p>Supports PDF, DOC, DOCX formats · Max 5 MB</p>
+
+      <div class="drop-zone" id="dropZone">
+        <input type="file" id="fileInput" accept=".pdf,.doc,.docx" />
+        <div class="drop-icon">📂</div>
+        <div class="drop-text"><strong>Click to choose a file</strong><br>or drag & drop here</div>
+        <div class="file-name" id="fileName"></div>
+      </div>
+
+      <button class="btn-primary" id="analyzeBtn" disabled>
+        <span id="btnLabel">⚡ Analyze Resume</span>
+      </button>
+
+      <!-- Loader -->
+      <div class="loader" id="loader">
+        <div class="spinner"></div>
+        <span>Analyzing your resume, please wait…</span>
+      </div>
+
+      <!-- Error -->
+      <div class="error-box" id="errorBox"></div>
+
+      <!-- Result -->
+      <div id="resultPanel">
+        <div class="result-header">
+          <h3>✅ Analysis Complete</h3>
+          <span class="result-badge">Done</span>
         </div>
-        
-        <section class="results" id="results">
-            <!-- Results populated by JavaScript -->
-        </section>
-        
-        <section class="features" id="features">
-            <h2>Why ResumeAI?</h2>
-            <div class="features-grid">
-                <div class="feature-card">
-                    <div class="feature-icon">🎯</div>
-                    <h3>ATS Optimization</h3>
-                    <p>Pass Applicant Tracking Systems with keyword optimization.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">💡</div>
-                    <h3>Expert Insights</h3>
-                    <p>AI trained on thousands of successful resumes.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">⚡</div>
-                    <h3>Instant Results</h3>
-                    <p>Get comprehensive analysis in under 30 seconds.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">📊</div>
-                    <h3>Scoring System</h3>
-                    <p>Understand where you stand with detailed scoring.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">🔒</div>
-                    <h3>100% Private</h3>
-                    <p>Files automatically deleted after analysis.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">🎨</div>
-                    <h3>Format Guide</h3>
-                    <p>Best practices for resume formatting and layout.</p>
-                </div>
-            </div>
-        </section>
-        
-        <section class="pricing" id="pricing">
-            <h2>Simple Pricing</h2>
-            <div class="pricing-grid">
-                <div class="pricing-card">
-                    <h3>Starter</h3>
-                    <div class="price">$9.99<span>/3 resumes</span></div>
-                    <ul class="pricing-features">
-                        <li>3 resume analyses</li>
-                        <li>Basic scoring</li>
-                        <li>ATS tips</li>
-                    </ul>
-                    <button class="btn-primary" onclick="selectPlan('starter')">Get Started</button>
-                </div>
-                
-                <div class="pricing-card featured">
-                    <h3>Professional</h3>
-                    <div class="price">$29.99<span>/month</span></div>
-                    <ul class="pricing-features">
-                        <li>Unlimited analyses</li>
-                        <li>Advanced insights</li>
-                        <li>Cover letter analysis</li>
-                    </ul>
-                    <button class="btn-primary" onclick="selectPlan('pro')">Go Pro</button>
-                </div>
-                
-                <div class="pricing-card">
-                    <h3>Enterprise</h3>
-                    <div class="price">$99<span>/month</span></div>
-                    <ul class="pricing-features">
-                        <li>Team accounts (10)</li>
-                        <li>API access</li>
-                        <li>Custom branding</li>
-                    </ul>
-                    <button class="btn-primary" onclick="selectPlan('enterprise')">Contact Sales</button>
-                </div>
-            </div>
-        </section>
-    </main>
-    
-    <footer>
-        <p>&copy; 2026 ResumeAI. All rights reserved.</p>
-    </footer>
-    
-    <script>
-        // Auto-detect API URL (works in dev and production)
-        const API_URL = window.location.origin;
-        
-        async function handleFileUpload(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-            
-            document.getElementById('loading').classList.add('active');
-            document.getElementById('upload').style.display = 'none';
-            
-            const formData = new FormData();
-            formData.append('resume', file);
-            
-            try {
-                const response = await fetch(`${API_URL}/api/analyze`, {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const result = await response.json();
-                
-                document.getElementById('loading').classList.remove('active');
-                displayResults(result);
-            } catch (error) {
-                console.error('Error:', error);
-                alert('Error analyzing resume. Please try again.');
-                document.getElementById('loading').classList.remove('active');
-                document.getElementById('upload').style.display = 'block';
-            }
-        }
-        
-        function displayResults(data) {
-            const resultsDiv = document.getElementById('results');
-            resultsDiv.innerHTML = `
-                <div class="result-card">
-                    <h3>Overall Score</h3>
-                    <div class="score-badge">${data.overall_score}/100</div>
-                    <p>${data.summary}</p>
-                </div>
-                
-                <div class="result-card">
-                    <h3>Strengths</h3>
-                    <ul style="color: var(--gray); line-height: 2;">
-                        ${data.strengths.map(s => `<li>${s}</li>`).join('')}
-                    </ul>
-                </div>
-                
-                <div class="result-card">
-                    <h3>Areas for Improvement</h3>
-                    <ul style="color: var(--gray); line-height: 2;">
-                        ${data.improvements.map(i => `<li>${i}</li>`).join('')}
-                    </ul>
-                </div>
-                
-                <div class="result-card">
-                    <h3>Keywords to Add</h3>
-                    <p style="color: var(--gray);">${data.keywords.join(', ')}</p>
-                </div>
-                
-                <div style="text-align: center; margin-top: 3rem;">
-                    <button class="btn-primary" onclick="location.reload()">Analyze Another</button>
-                    <button class="btn-secondary" onclick="window.location.href='#pricing'">Upgrade</button>
-                </div>
-            `;
-            resultsDiv.classList.add('active');
-        }
-        
-        function selectPlan(plan) {
-            alert(`${plan.charAt(0).toUpperCase() + plan.slice(1)} plan selected. Payment coming soon!`);
-        }
-    </script>
+        <div id="resultText"></div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ─── FEATURES ─────────────────────────────────────── -->
+<section class="section" id="features">
+  <div class="section-title">
+    <h2>Why Choose ResumeAI?</h2>
+    <p>Everything you need to land your dream job</p>
+  </div>
+  <div class="features-grid">
+    <div class="feature-card"><div class="feat-icon">🎯</div><h3>ATS Optimization</h3><p>Ensure your resume passes Applicant Tracking Systems with keyword optimization and formatting recommendations.</p></div>
+    <div class="feature-card"><div class="feat-icon">💡</div><h3>Expert Insights</h3><p>Get detailed feedback on content, structure, and presentation based on successful resume patterns.</p></div>
+    <div class="feature-card"><div class="feat-icon">⚡</div><h3>Instant Results</h3><p>Receive comprehensive analysis in under 30 seconds. No waiting, just actionable improvements.</p></div>
+    <div class="feature-card"><div class="feat-icon">📊</div><h3>Scoring System</h3><p>Understand where you stand with detailed scoring across content, formatting, keywords, and impact.</p></div>
+    <div class="feature-card"><div class="feat-icon">🔒</div><h3>100% Private</h3><p>Your resume data is encrypted and never shared. Files are deleted after analysis automatically.</p></div>
+    <div class="feature-card"><div class="feat-icon">🎨</div><h3>Format Guide</h3><p>Learn best practices for resume formatting, layout, fonts, and visual hierarchy.</p></div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ─── HOW IT WORKS ──────────────────────────────────── -->
+<section class="section" id="how-it-works">
+  <div class="section-title">
+    <h2>How It Works</h2>
+    <p>Three simple steps to a better resume</p>
+  </div>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><h3>Upload Resume</h3><p>Upload your resume in PDF, DOC, or DOCX format. We support all major file types.</p></div>
+    <div class="step"><div class="step-num">2</div><h3>AI Analysis</h3><p>Our intelligent AI analyzes your resume against industry standards and hiring patterns.</p></div>
+    <div class="step"><div class="step-num">3</div><h3>Get Results</h3><p>Receive detailed feedback, scores, and actionable improvement suggestions instantly.</p></div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ─── TESTIMONIALS ──────────────────────────────────── -->
+<section class="section" id="testimonials">
+  <div class="section-title">
+    <h2>What Users Say</h2>
+    <p>Real results from real job seekers</p>
+  </div>
+  <div class="reviews-grid">
+    <div class="review-card">
+      <div class="stars">⭐⭐⭐⭐⭐</div>
+      <p class="review-text">"Got 3× more interview calls after implementing the suggestions. Landed my dream job at Google!"</p>
+      <div class="reviewer"><div class="reviewer-avatar">👨‍💻</div><div><div class="reviewer-name">Alex Chen</div><div class="reviewer-role">Software Engineer</div></div></div>
+    </div>
+    <div class="review-card">
+      <div class="stars">⭐⭐⭐⭐⭐</div>
+      <p class="review-text">"The ATS optimization tips were game-changing. Finally started getting responses from applications."</p>
+      <div class="reviewer"><div class="reviewer-avatar">👩‍💼</div><div><div class="reviewer-name">Sarah Johnson</div><div class="reviewer-role">Marketing Manager</div></div></div>
+    </div>
+    <div class="review-card">
+      <div class="stars">⭐⭐⭐⭐⭐</div>
+      <p class="review-text">"Worth every penny. The detailed feedback helped me understand what recruiters actually look for."</p>
+      <div class="reviewer"><div class="reviewer-avatar">👨‍🎨</div><div><div class="reviewer-name">Mike Rodriguez</div><div class="reviewer-role">UX Designer</div></div></div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ─── PRICING ───────────────────────────────────────── -->
+<section class="section" id="pricing">
+  <div class="section-title">
+    <h2>Simple, Transparent Pricing</h2>
+    <p>Choose the plan that fits your needs</p>
+  </div>
+  <div class="pricing-grid">
+    <div class="plan-card">
+      <div class="plan-name">Starter</div>
+      <div class="plan-tagline">Perfect for trying out</div>
+      <div class="plan-price">$9.99 <span>one-time</span></div>
+      <ul class="plan-features">
+        <li>3 resume analyses</li>
+        <li>Basic scoring</li>
+        <li>ATS optimization tips</li>
+        <li>24-hour access</li>
+      </ul>
+      <a href="https://mostovoy-ai.lemonsqueezy.com/checkout/buy/5cea1ea6-7ae8-447d-953e-9f41366a205e" class="btn-plan btn-plan-outline">Get Started</a>
+    </div>
+    <div class="plan-card popular">
+      <div class="popular-badge">POPULAR</div>
+      <div class="plan-name">Professional</div>
+      <div class="plan-tagline">Best value</div>
+      <div class="plan-price">$29.99 <span>/ month</span></div>
+      <ul class="plan-features">
+        <li>Unlimited analyses</li>
+        <li>Advanced scoring</li>
+        <li>Industry-specific tips</li>
+        <li>Cover letter analysis</li>
+        <li>Priority support</li>
+        <li>Export as PDF</li>
+      </ul>
+      <a href="https://mostovoy-ai.lemonsqueezy.com/checkout/buy/5cea1ea6-7ae8-447d-953e-9f41366a205e" class="btn-plan btn-plan-primary">Go Pro</a>
+    </div>
+    <div class="plan-card">
+      <div class="plan-name">Enterprise</div>
+      <div class="plan-tagline">For teams</div>
+      <div class="plan-price">$99 <span>/ month</span></div>
+      <ul class="plan-features">
+        <li>Everything in Pro</li>
+        <li>Team accounts (10+)</li>
+        <li>Custom branding</li>
+        <li>API access</li>
+        <li>Dedicated manager</li>
+      </ul>
+      <a href="https://mostovoy-ai.lemonsqueezy.com/checkout/buy/5cea1ea6-7ae8-447d-953e-9f41366a205e" class="btn-plan btn-plan-outline">Contact Sales</a>
+    </div>
+  </div>
+</section>
+
+<!-- ─── FOOTER ────────────────────────────────────────── -->
+<footer>
+  <div class="footer-inner">
+    <div class="footer-brand">
+      <div class="logo">🧠 <span style="background:linear-gradient(135deg,#3b82f6,#06b6d4);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-weight:700">ResumeAI</span></div>
+      <p>AI-powered resume analysis for job seekers worldwide.</p>
+    </div>
+    <div class="footer-col">
+      <h4>Product</h4>
+      <ul>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#pricing">Pricing</a></li>
+        <li><a href="dashboard.html">Dashboard</a></li>
+        <li><a href="history.html">History</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h4>Company</h4>
+      <ul>
+        <li><a href="#">About</a></li>
+        <li><a href="#">Contact</a></li>
+        <li><a href="#">Privacy</a></li>
+        <li><a href="#">Terms</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h4>Payment</h4>
+      <ul><li><a href="#">🍋 Secured by Lemon Squeezy</a></li></ul>
+    </div>
+  </div>
+  <div class="footer-bottom">© 2026 ResumeAI. All rights reserved.</div>
+</footer>
+
+<!-- ─── JS ────────────────────────────────────────────── -->
+<script>
+  const BACKEND_URL = 'https://resume-ai-backend.onrender.com/analyze';
+
+  const fileInput   = document.getElementById('fileInput');
+  const dropZone    = document.getElementById('dropZone');
+  const fileName    = document.getElementById('fileName');
+  const analyzeBtn  = document.getElementById('analyzeBtn');
+  const btnLabel    = document.getElementById('btnLabel');
+  const loader      = document.getElementById('loader');
+  const errorBox    = document.getElementById('errorBox');
+  const resultPanel = document.getElementById('resultPanel');
+  const resultText  = document.getElementById('resultText');
+
+  let selectedFile = null;
+
+  /* ─ file selection ─ */
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) setFile(fileInput.files[0]);
+  });
+
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault(); dropZone.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0];
+    if (f) setFile(f);
+  });
+
+  function setFile(f) {
+    selectedFile = f;
+    fileName.textContent = '📎 ' + f.name;
+    analyzeBtn.disabled = false;
+    hideResults();
+  }
+
+  function hideResults() {
+    resultPanel.style.display = 'none';
+    errorBox.classList.remove('active');
+  }
+
+  /* ─ analyze ─ */
+  analyzeBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+
+    // validate size
+    if (selectedFile.size > 5 * 1024 * 1024) {
+      showError('File too large. Maximum size is 5 MB.');
+      return;
+    }
+
+    setLoading(true);
+    hideResults();
+
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+
+    try {
+      const res = await fetch(BACKEND_URL, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Server error ${res.status}: ${errText || res.statusText}`);
+      }
+
+      // try JSON first, fall back to plain text
+      let text;
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const json = await res.json();
+        // accept common response shapes
+        text = json.result ?? json.analysis ?? json.feedback ?? json.message ?? JSON.stringify(json, null, 2);
+      } else {
+        text = await res.text();
+      }
+
+      showResult(text);
+    } catch (err) {
+      showError('Could not reach the analysis server. ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  });
+
+  function setLoading(on) {
+    analyzeBtn.disabled = on;
+    btnLabel.textContent = on ? '⏳ Analyzing…' : '⚡ Analyze Resume';
+    loader.classList.toggle('active', on);
+  }
+
+  function showResult(text) {
+    resultText.textContent = text;
+    resultPanel.style.display = 'block';
+    resultPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function showError(msg) {
+    errorBox.textContent = '⚠️ ' + msg;
+    errorBox.classList.add('active');
+  }
+</script>
 </body>
 </html>
