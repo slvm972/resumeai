@@ -111,7 +111,7 @@ Visit `http://localhost:8000` in your browser!
 3. Set Publish Directory: `frontend`
 4. Update `index.html` to use your backend URL (line 580):
    ```javascript
-   const response = await fetch('https://your-backend.onrender.com/api/analyze', {
+   const response = await fetch('https://your-backend.https://resumeai-2-uaul.onrender.com/api/analyze', {
    ```
 
 ### Option 2: Deploy to Vercel

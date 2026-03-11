@@ -103,7 +103,7 @@ git push
 
 1. Click "Create Web Service"
 2. Wait 3-5 minutes for deployment
-3. Copy your backend URL: `https://resume-ai-backend.onrender.com`
+3. Copy your backend URL: `https://resume-ai-backend.https://resumeai-2-uaul.onrender.com`
 
 **Note:** Free tier services spin down after 15 minutes of inactivity. First request after inactivity takes 30-60 seconds to wake up.
 
@@ -148,7 +148,7 @@ const response = await fetch('http://localhost:5000/api/analyze', {
 
 Replace with:
 ```javascript
-const response = await fetch('https://resume-ai-backend.onrender.com/api/analyze', {
+const response = await fetch('https://resume-ai-backend.https://resumeai-2-uaul.onrender.com/api/analyze', {
 ```
 
 Commit and push:
@@ -162,7 +162,7 @@ git push
 
 1. Click "Create Static Site"
 2. Wait 2-3 minutes
-3. Your site will be live at: `https://resume-ai-frontend.onrender.com`
+3. Your site will be live at: `https://resume-ai-frontend.https://resumeai-2-uaul.onrender.com`
 
 ---
 
@@ -187,7 +187,7 @@ In your domain registrar (Namecheap, GoDaddy, etc.):
 **For www subdomain:**
 - Type: `CNAME`
 - Name: `www`
-- Value: `your-site.onrender.com`
+- Value: `your-site.https://resumeai-2-uaul.onrender.com`
 
 DNS propagation takes 1-24 hours.
 
@@ -338,8 +338,8 @@ For images, CSS, JS:
 **Good news:** Render provides free SSL certificates automatically!
 
 Your sites will be:
-- `https://resume-ai-backend.onrender.com` ✅
-- `https://resume-ai-frontend.onrender.com` ✅
+- `https://resume-ai-backend.https://resumeai-2-uaul.onrender.com` ✅
+- `https://resume-ai-frontend.https://resumeai-2-uaul.onrender.com` ✅
 
 For custom domain, SSL is also automatic once DNS is configured.
 
@@ -361,7 +361,7 @@ For custom domain, SSL is also automatic once DNS is configured.
 
 Update `app.py`:
 ```python
-CORS(app, origins=['https://resume-ai-frontend.onrender.com'])
+CORS(app, origins=['https://resume-ai-frontend.https://resumeai-2-uaul.onrender.com'])
 ```
 
 ### Database Errors
@@ -474,6 +474,6 @@ After deployment:
 **Your app is now live! 🎉**
 
 Share your URL:
-- `https://resume-ai-frontend.onrender.com`
+- `https://resume-ai-frontend.https://resumeai-2-uaul.onrender.com`
 
 Time to get users! 🚀
