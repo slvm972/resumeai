@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Admin Panel - ResumeAI</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0b0f1a;--surface:#111827;--surface2:#1a2236;--border:#1f2d45;--accent:#dc2626;--accent2:#ef4444;--text:#e2e8f0;--muted:#64748b;--success:#10b981;--warning:#f59e0b;--danger:#ef4444;--radius:14px}
+body{font-family:'Sora',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+nav{position:sticky;top:0;z-index:100;backdrop-filter:blur(20px);background:rgba(11,15,26,.9);border-bottom:1px solid var(--border);padding:0 2rem}
+.nav-inner{max-width:1100px;margin:auto;display:flex;align-items:center;justify-content:space-between;height:64px}
+.logo{font-size:1.2rem;font-weight:700;text-decoration:none;color:var(--text);display:flex;align-items:center;gap:.5rem}
+.logo span{background:linear-gradient(135deg,#dc2626,#ef4444);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.nav-right{display:flex;align-items:center;gap:1rem}
+.admin-badge{background:var(--accent);color:#fff;padding:.3rem .8rem;border-radius:20px;font-size:.75rem;font-weight:600}
+.logout-btn{background:none;border:1px solid var(--border);border-radius:50px;padding:.4rem 1rem;color:var(--muted);font-size:.85rem;cursor:pointer;font-family:inherit;transition:all .2s}
+.logout-btn:hover{color:var(--text);border-color:var(--accent)}
+main{max-width:1100px;margin:0 auto;padding:2.5rem 2rem}
+h1{font-size:1.75rem;font-weight:700;margin-bottom:.35rem}
+.sub{color:var(--muted);font-size:.9rem;margin-bottom:2.5rem}
+.alert{background:rgba(220,38,38,.1);border:1px solid rgba(220,38,38,.3);color:#fca5a5;padding:1rem;border-radius:var(--radius);margin-bottom:2rem}
+.alert-success{background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);color:#6ee7b7}
+.upload-area{background:var(--surface);border:2px dashed var(--border);border-radius:var(--radius);padding:3rem;text-align:center;transition:border-color .3s;cursor:pointer;margin-bottom:2rem}
+.upload-area:hover{border-color:var(--accent)}
+.upload-area.dragover{border-color:var(--accent);background:rgba(220,38,38,.05)}
+.upload-icon{font-size:3rem;margin-bottom:1rem}
+.upload-text{font-size:1.1rem;margin-bottom:.5rem}
+.upload-hint{color:var(--muted);font-size:.85rem}
+.file-input{display:none}
+.btn{display:inline-block;padding:.8rem 1.5rem;background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .2s;text-decoration:none}
+.btn:hover{opacity:.88}
+.btn-secondary{background:var(--surface2);border:1px solid var(--border)}
+.btn-secondary:hover{border-color:var(--accent)}
+.result-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;margin-top:2rem;display:none}
+.result-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem}
+.result-title{font-size:1.1rem;font-weight:700}
+.admin-badge-result{background:var(--accent);color:#fff;padding:.2rem .6rem;border-radius:12px;font-size:.7rem;font-weight:600}
+.result-content{background:var(--surface2);border-radius:8px;padding:1rem;font-family:'Courier New',monospace;font-size:.85rem;overflow-x:auto;max-height:400px;overflow-y:auto}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;margin-bottom:2rem}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem}
+.stat-label{font-size:.78rem;color:var(--muted);font-weight:500;margin-bottom:.5rem}
+.stat-val{font-size:2rem;font-weight:700;color:var(--accent)}
+.loading{display:none;text-align:center;padding:2rem}
+.loading-spinner{width:40px;height:40px;border:3px solid var(--border);border-top:3px solid var(--accent);border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 1rem}
+@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<nav>
+  <div class="nav-inner">
+    <a href="/" class="logo">Admin Panel <span>ResumeAI</span></a>
+    <div class="nav-right">
+      <span class="admin-badge">ADMIN</span>
+      <button class="logout-btn" onclick="logout()">Logout</button>
+    </div>
+  </div>
+</nav>
+
+<main>
+  <div class="alert">
+    <strong>Administrative Mode:</strong> Free resume analysis enabled. Payment system bypassed for testing purposes.
+  </div>
+
+  <h1>Admin Dashboard</h1>
+  <p class="sub">Test resume analysis without payment restrictions</p>
+
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-label">Admin Status</div>
+      <div class="stat-val" style="font-size:1.2rem">Active</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Free Analyses</div>
+      <div class="stat-val">Unlimited</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Priority</div>
+      <div class="stat-val">Enabled</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Payment</div>
+      <div class="stat-val" style="color:var(--success)">Bypassed</div>
+    </div>
+  </div>
+
+  <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+    <div class="upload-icon">Admin Upload</div>
+    <div class="upload-text">Click to upload or drag & drop</div>
+    <div class="upload-hint">PDF, DOC, DOCX files (Max 5MB)</div>
+    <input type="file" id="fileInput" class="file-input" accept=".pdf,.doc,.docx" onchange="handleFileSelect(event)">
+  </div>
+
+  <button class="btn" onclick="document.getElementById('fileInput').click()" style="width:100%;margin-bottom:2rem">
+    Choose Resume File
+  </button>
+
+  <div class="loading" id="loading">
+    <div class="loading-spinner"></div>
+    <div>Processing resume with admin privileges...</div>
+  </div>
+
+  <div class="result-box" id="resultBox">
+    <div class="result-header">
+      <div class="result-title">Analysis Results</div>
+      <div class="admin-badge-result">ADMIN MODE</div>
+    </div>
+    <div class="result-content" id="resultContent"></div>
+  </div>
+</main>
+
+<script>
+// Check admin authentication
+async function checkAuth() {
+  try {
+    const response = await fetch('/api/admin/status');
+    if (!response.ok) {
+      window.location.href = '/admin-login.html';
+      return;
+    }
+    const data = await response.json();
+    console.log('Admin authenticated:', data);
+  } catch (error) {
+    console.error('Auth check failed:', error);
+    window.location.href = '/admin-login.html';
+  }
+}
+
+// Logout function
+async function logout() {
+  try {
+    await fetch('/api/logout', { method: 'POST' });
+    window.location.href = '/admin-login.html';
+  } catch (error) {
+    console.error('Logout failed:', error);
+    window.location.href = '/admin-login.html';
+  }
+}
+
+// File handling
+function handleFileSelect(event) {
+  const file = event.target.files[0];
+  if (file) {
+    uploadFile(file);
+  }
+}
+
+// Drag and drop
+const uploadArea = document.getElementById('uploadArea');
+uploadArea.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  uploadArea.classList.add('dragover');
+});
+
+uploadArea.addEventListener('dragleave', () => {
+  uploadArea.classList.remove('dragover');
+});
+
+uploadArea.addEventListener('drop', (e) => {
+  e.preventDefault();
+  uploadArea.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file) {
+    uploadFile(file);
+  }
+});
+
+// Upload and analyze file
+async function uploadFile(file) {
+  // Validate file
+  const maxSize = 5 * 1024 * 1024; // 5MB
+  const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+  
+  if (file.size > maxSize) {
+    alert('File size must be less than 5MB');
+    return;
+  }
+  
+  if (!allowedTypes.includes(file.type)) {
+    alert('Please upload a PDF, DOC, or DOCX file');
+    return;
+  }
+
+  // Show loading
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('resultBox').style.display = 'none';
+
+  // Create form data
+  const formData = new FormData();
+  formData.append('resume', file);
+
+  try {
+    // Use admin API endpoint
+    const response = await fetch('/api/admin/analyze', {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Analysis failed');
+    }
+
+    const result = await response.json();
+    displayResult(result);
+
+  } catch (error) {
+    console.error('Upload error:', error);
+    alert('Error: ' + error.message);
+  } finally {
+    document.getElementById('loading').style.display = 'none';
+  }
+}
+
+// Display results
+function displayResult(result) {
+  const resultContent = document.getElementById('resultContent');
+  
+  // Format the result for display
+  let displayText = JSON.stringify(result, null, 2);
+  
+  // Add admin metadata at the top
+  const adminInfo = {
+    admin_mode: result.admin_mode || false,
+    payment_bypassed: result.payment_bypassed || false,
+    analysis_type: result.analysis_type || 'unknown',
+    timestamp: new Date().toISOString()
+  };
+  
+  const formattedResult = {
+    admin_metadata: adminInfo,
+    analysis_result: result
+  };
+  
+  resultContent.textContent = JSON.stringify(formattedResult, null, 2);
+  document.getElementById('resultBox').style.display = 'block';
+}
+
+// Check authentication on page load
+checkAuth();
+</script>
+</body>
+</html>

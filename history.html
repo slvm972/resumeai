@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>History – ResumeAI</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0b0f1a;--surface:#111827;--surface2:#1a2236;--border:#1f2d45;--accent:#3b82f6;--accent2:#06b6d4;--text:#e2e8f0;--muted:#64748b;--success:#10b981;--warning:#f59e0b;--danger:#ef4444;--radius:14px}
+body{font-family:'Sora',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+nav{position:sticky;top:0;z-index:100;backdrop-filter:blur(20px);background:rgba(11,15,26,.9);border-bottom:1px solid var(--border);padding:0 2rem}
+.nav-inner{max-width:1100px;margin:auto;display:flex;align-items:center;justify-content:space-between;height:64px}
+.logo{font-size:1.2rem;font-weight:700;text-decoration:none;color:var(--text);display:flex;align-items:center;gap:.5rem}
+.logo span{background:linear-gradient(135deg,#3b82f6,#06b6d4);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.nav-links{display:flex;gap:1.5rem;list-style:none}
+.nav-links a{color:var(--muted);text-decoration:none;font-size:.875rem;transition:color .2s}
+.nav-links a:hover,.nav-links a.active{color:var(--text)}
+.nav-right{display:flex;align-items:center;gap:1rem}
+.user-chip{background:var(--surface2);border:1px solid var(--border);border-radius:50px;padding:.4rem 1rem;font-size:.85rem;font-weight:600}
+.logout-btn{background:none;border:1px solid var(--border);border-radius:50px;padding:.4rem 1rem;color:var(--muted);font-size:.85rem;cursor:pointer;font-family:inherit;transition:all .2s}
+.logout-btn:hover{color:var(--text);border-color:var(--text)}
+main{max-width:1100px;margin:0 auto;padding:2.5rem 2rem}
+.page-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:2rem;flex-wrap:wrap;gap:1rem}
+.page-hd h1{font-size:1.75rem;font-weight:700}
+.btn-primary{display:inline-block;padding:.65rem 1.4rem;background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:8px;color:#fff;font-weight:600;font-size:.875rem;cursor:pointer;text-decoration:none;font-family:inherit;transition:opacity .2s}
+.btn-primary:hover{opacity:.88}
+.btn-secondary{display:inline-block;padding:.65rem 1.4rem;background:none;border:1px solid var(--border);border-radius:8px;color:var(--text);font-weight:600;font-size:.875rem;cursor:pointer;text-decoration:none;font-family:inherit;transition:all .2s}
+.btn-secondary:hover{border-color:var(--danger);color:var(--danger)}
+/* filters */
+.filters{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem 1.5rem;margin-bottom:1.5rem;display:flex;gap:1rem;flex-wrap:wrap;align-items:center}
+.filters input,.filters select{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:.55rem 1rem;color:var(--text);font-size:.875rem;outline:none;font-family:inherit;transition:border-color .2s}
+.filters input:focus,.filters select:focus{border-color:var(--accent)}
+.filters input{flex:1;min-width:180px}
+/* history items */
+.hist-item{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;margin-bottom:.75rem;transition:border-color .2s;animation:fadeIn .3s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.hist-item:hover{border-color:var(--accent)}
+.hist-top{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;margin-bottom:1rem;flex-wrap:wrap}
+.hist-title{font-weight:700;font-size:1rem;margin-bottom:.3rem}
+.hist-date{font-size:.78rem;color:var(--muted)}
+.score-big{font-size:2rem;font-weight:700;text-align:right}
+.grade-tag{display:inline-block;font-size:.72rem;padding:.2rem .55rem;border-radius:50px;font-weight:600;margin-left:.5rem}
+.g-excellent{background:rgba(16,185,129,.12);color:#6ee7b7;border:1px solid rgba(16,185,129,.25)}
+.g-good{background:rgba(245,158,11,.12);color:#fcd34d;border:1px solid rgba(245,158,11,.25)}
+.g-fair{background:rgba(59,130,246,.12);color:#93c5fd;border:1px solid rgba(59,130,246,.25)}
+.g-poor{background:rgba(239,68,68,.12);color:#fca5a5;border:1px solid rgba(239,68,68,.25)}
+.subscores{display:flex;gap:1.25rem;flex-wrap:wrap;margin-bottom:1rem}
+.sub-item{font-size:.78rem;color:var(--muted)}
+.sub-item span{color:var(--text);font-weight:600}
+.hist-summary{font-size:.83rem;color:#94a3b8;line-height:1.6;margin-bottom:.75rem;padding:.75rem;background:var(--surface2);border-radius:8px}
+.tag-row{display:flex;flex-wrap:wrap;gap:.4rem}
+.tag{font-size:.75rem;padding:.25rem .6rem;border-radius:50px}
+.t-green{background:rgba(16,185,129,.1);color:#6ee7b7;border:1px solid rgba(16,185,129,.2)}
+.t-blue{background:rgba(59,130,246,.1);color:#93c5fd;border:1px solid rgba(59,130,246,.2)}
+.expand-btn{background:none;border:none;color:var(--accent);font-size:.8rem;cursor:pointer;font-family:inherit;padding:0;margin-top:.5rem}
+.details{display:none;margin-top:.75rem}
+.details.open{display:block}
+.improve-list{list-style:none;margin-top:.5rem}
+.improve-list li{font-size:.83rem;color:#94a3b8;padding:.3rem 0 .3rem 1.2rem;position:relative;line-height:1.5}
+.improve-list li::before{content:"→";position:absolute;left:0;color:var(--accent)}
+.empty{text-align:center;padding:4rem 2rem;color:var(--muted)}
+.empty p{margin-bottom:1rem;font-size:1rem}
+</style>
+</head>
+<body>
+<nav>
+  <div class="nav-inner">
+    <a href="/" class="logo">🧠 <span>ResumeAI</span></a>
+    <ul class="nav-links">
+      <li><a href="/">Home</a></li>
+      <li><a href="/dashboard.html">Dashboard</a></li>
+      <li><a href="/history.html" class="active">History</a></li>
+    </ul>
+    <div class="nav-right">
+      <span class="user-chip" id="userChip">…</span>
+      <button class="logout-btn" onclick="doLogout()">Logout</button>
+    </div>
+  </div>
+</nav>
+
+<main>
+  <div class="page-hd">
+    <h1>Analysis History</h1>
+    <div style="display:flex;gap:.75rem;flex-wrap:wrap">
+      <a href="/" class="btn-primary">+ New Analysis</a>
+      <button class="btn-secondary" onclick="clearHistory()" id="clearBtn" style="display:none">🗑 Clear All</button>
+    </div>
+  </div>
+
+  <div class="filters">
+    <input type="text" id="searchInput" placeholder="Search by filename…" oninput="renderList()"/>
+    <select id="scoreFilter" onchange="renderList()">
+      <option value="">All Scores</option>
+      <option value="excellent">Excellent (80+)</option>
+      <option value="good">Good (65–79)</option>
+      <option value="fair">Fair (50–64)</option>
+      <option value="poor">Poor (&lt;50)</option>
+    </select>
+    <select id="sortFilter" onchange="renderList()">
+      <option value="newest">Newest first</option>
+      <option value="oldest">Oldest first</option>
+      <option value="best">Best score</option>
+      <option value="worst">Worst score</option>
+    </select>
+  </div>
+
+  <div id="historyList"></div>
+</main>
+
+<script>
+const session = JSON.parse(localStorage.getItem('rai_session') || 'null');
+if (!session) { window.location.href = '/login.html'; }
+document.getElementById('userChip').textContent = session ? session.name.split(' ')[0] : '';
+function doLogout(){ localStorage.removeItem('rai_session'); window.location.href = '/'; }
+
+function getHistory(){ return JSON.parse(localStorage.getItem('rai_history') || '[]'); }
+function gradeInfo(s){ if(s>=80) return ['Excellent','g-excellent']; if(s>=65) return ['Good','g-good']; if(s>=50) return ['Fair','g-fair']; return ['Poor','g-poor']; }
+function scoreColor(s){ if(s>=80) return 'var(--success)'; if(s>=65) return 'var(--warning)'; return 'var(--danger)'; }
+function fmtDate(iso){ return new Date(iso).toLocaleString('en-GB',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}); }
+
+function clearHistory(){
+  if(!confirm('Delete all history? This cannot be undone.')) return;
+  localStorage.removeItem('rai_history');
+  renderList();
+}
+
+function renderList(){
+  const search = document.getElementById('searchInput').value.toLowerCase();
+  const scoreF = document.getElementById('scoreFilter').value;
+  const sort   = document.getElementById('sortFilter').value;
+  let h = getHistory();
+
+  // search
+  if (search) h = h.filter(x=>(x.filename||'').toLowerCase().includes(search));
+  // score filter
+  if (scoreF === 'excellent') h = h.filter(x=>(x.score||0)>=80);
+  else if (scoreF === 'good') h = h.filter(x=>(x.score||0)>=65 && (x.score||0)<80);
+  else if (scoreF === 'fair') h = h.filter(x=>(x.score||0)>=50 && (x.score||0)<65);
+  else if (scoreF === 'poor') h = h.filter(x=>(x.score||0)<50);
+  // sort
+  if (sort === 'oldest') h.sort((a,b)=>new Date(a.date)-new Date(b.date));
+  else if (sort === 'best') h.sort((a,b)=>(b.score||0)-(a.score||0));
+  else if (sort === 'worst') h.sort((a,b)=>(a.score||0)-(b.score||0));
+  else h.sort((a,b)=>new Date(b.date)-new Date(a.date));
+
+  const allHistory = getHistory();
+  document.getElementById('clearBtn').style.display = allHistory.length ? 'inline-block' : 'none';
+
+  const container = document.getElementById('historyList');
+  container.innerHTML = '';
+
+  if (!h.length) {
+    container.innerHTML = '<div class="empty"><p>' + (getHistory().length ? 'No results match your filters.' : 'No analyses yet.') + '</p><a href="/" class="btn-primary">Analyze Your First Resume</a></div>';
+    return;
+  }
+
+  h.forEach((item, idx) => {
+    const [grade, cls] = gradeInfo(item.score||0);
+    const div = document.createElement('div');
+    div.className = 'hist-item';
+
+    const strengths = (item.strengths||[]).map(s=>`<span class="tag t-green">${s}</span>`).join('');
+    const keywords  = (item.keywords||[]).map(k=>`<span class="tag t-blue">${k}</span>`).join('');
+    const improvements = (item.improvements||[]).map(i=>`<li>${i}</li>`).join('');
+
+    div.innerHTML = `
+      <div class="hist-top">
+        <div>
+          <div class="hist-title">📄 ${item.filename||'Resume'} <span class="grade-tag ${cls}">${grade}</span></div>
+          <div class="hist-date">${fmtDate(item.date)}</div>
+        </div>
+        <div class="score-big" style="color:${scoreColor(item.score||0)}">${item.score||'—'}<small style="font-size:.9rem">/100</small></div>
+      </div>
+      <div class="subscores">
+        <div class="sub-item">ATS: <span>${item.ats_score||'—'}</span></div>
+        <div class="sub-item">Formatting: <span>${item.formatting_score||'—'}</span></div>
+        <div class="sub-item">Content: <span>${item.content_score||'—'}</span></div>
+      </div>
+      ${item.summary ? `<div class="hist-summary">${item.summary}</div>` : ''}
+      ${strengths ? `<div class="tag-row" style="margin-bottom:.5rem">${strengths}</div>` : ''}
+      ${keywords  ? `<div class="tag-row" style="margin-bottom:.5rem">${keywords}</div>`  : ''}
+      ${improvements ? `<button class="expand-btn" onclick="toggleDetails(this)">▸ Show improvements</button><div class="details"><ul class="improve-list">${improvements}</ul></div>` : ''}
+    `;
+    container.appendChild(div);
+  });
+}
+
+function toggleDetails(btn){
+  const d = btn.nextElementSibling;
+  d.classList.toggle('open');
+  btn.textContent = d.classList.contains('open') ? '▾ Hide improvements' : '▸ Show improvements';
+}
+
+renderList();
+</script>
+</body>
+</html>

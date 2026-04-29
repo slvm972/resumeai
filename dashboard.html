@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Dashboard – ResumeAI</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0b0f1a;--surface:#111827;--surface2:#1a2236;--border:#1f2d45;--accent:#3b82f6;--accent2:#06b6d4;--text:#e2e8f0;--muted:#64748b;--success:#10b981;--warning:#f59e0b;--danger:#ef4444;--radius:14px}
+body{font-family:'Sora',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+nav{position:sticky;top:0;z-index:100;backdrop-filter:blur(20px);background:rgba(11,15,26,.9);border-bottom:1px solid var(--border);padding:0 2rem}
+.nav-inner{max-width:1100px;margin:auto;display:flex;align-items:center;justify-content:space-between;height:64px}
+.logo{font-size:1.2rem;font-weight:700;text-decoration:none;color:var(--text);display:flex;align-items:center;gap:.5rem}
+.logo span{background:linear-gradient(135deg,#3b82f6,#06b6d4);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.nav-links{display:flex;gap:1.5rem;list-style:none}
+.nav-links a{color:var(--muted);text-decoration:none;font-size:.875rem;transition:color .2s}
+.nav-links a:hover,.nav-links a.active{color:var(--text)}
+.nav-right{display:flex;align-items:center;gap:1rem}
+.user-chip{background:var(--surface2);border:1px solid var(--border);border-radius:50px;padding:.4rem 1rem;font-size:.85rem;font-weight:600}
+.logout-btn{background:none;border:1px solid var(--border);border-radius:50px;padding:.4rem 1rem;color:var(--muted);font-size:.85rem;cursor:pointer;font-family:inherit;transition:all .2s}
+.logout-btn:hover{color:var(--text);border-color:var(--text)}
+main{max-width:1100px;margin:0 auto;padding:2.5rem 2rem}
+h1{font-size:1.75rem;font-weight:700;margin-bottom:.35rem}
+.sub{color:var(--muted);font-size:.9rem;margin-bottom:2.5rem}
+/* stats */
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin-bottom:2.5rem}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem 1.5rem}
+.stat-label{font-size:.78rem;color:var(--muted);font-weight:500;margin-bottom:.5rem}
+.stat-val{font-size:2rem;font-weight:700}
+/* actions */
+.actions-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:2.5rem}
+.action-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.75rem}
+.action-card h3{font-size:1rem;font-weight:700;margin-bottom:.5rem}
+.action-card p{color:var(--muted);font-size:.85rem;margin-bottom:1.25rem}
+.btn-primary{display:inline-block;padding:.65rem 1.4rem;background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:8px;color:#fff;font-weight:600;font-size:.875rem;cursor:pointer;text-decoration:none;font-family:inherit;transition:opacity .2s}
+.btn-primary:hover{opacity:.88}
+.btn-secondary{display:inline-block;padding:.65rem 1.4rem;background:none;border:1px solid var(--border);border-radius:8px;color:var(--text);font-weight:600;font-size:.875rem;cursor:pointer;text-decoration:none;font-family:inherit;transition:all .2s}
+.btn-secondary:hover{border-color:var(--accent);color:var(--accent)}
+/* table */
+.section-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem}
+.section-hd h2{font-size:1.1rem;font-weight:700}
+.table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.table-row{display:grid;grid-template-columns:1fr auto auto auto;gap:1.5rem;align-items:center;padding:1rem 1.5rem;border-bottom:1px solid var(--border);transition:background .15s}
+.table-row:last-child{border-bottom:none}
+.table-row:hover{background:var(--surface2)}
+.table-header .table-row{border-bottom:1px solid var(--border);font-size:.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.table-header .table-row:hover{background:none}
+.file-name{font-weight:600;font-size:.9rem;margin-bottom:.2rem}
+.file-date{font-size:.78rem;color:var(--muted)}
+.score-badge{font-weight:700;font-size:1rem;min-width:54px;text-align:right}
+.grade-tag{font-size:.72rem;padding:.2rem .55rem;border-radius:50px;font-weight:600;white-space:nowrap}
+.g-excellent{background:rgba(16,185,129,.12);color:#6ee7b7;border:1px solid rgba(16,185,129,.25)}
+.g-good{background:rgba(245,158,11,.12);color:#fcd34d;border:1px solid rgba(245,158,11,.25)}
+.g-fair{background:rgba(59,130,246,.12);color:#93c5fd;border:1px solid rgba(59,130,246,.25)}
+.g-poor{background:rgba(239,68,68,.12);color:#fca5a5;border:1px solid rgba(239,68,68,.25)}
+.empty{text-align:center;padding:3rem;color:var(--muted)}
+.empty p{margin-bottom:1rem}
+@media(max-width:640px){.actions-grid{grid-template-columns:1fr}.table-row{grid-template-columns:1fr auto}}
+</style>
+</head>
+<body>
+<nav>
+  <div class="nav-inner">
+    <a href="/" class="logo">🧠 <span>ResumeAI</span></a>
+    <ul class="nav-links">
+      <li><a href="/">Home</a></li>
+      <li><a href="/dashboard.html" class="active">Dashboard</a></li>
+      <li><a href="/history.html">History</a></li>
+    </ul>
+    <div class="nav-right">
+      <span class="user-chip" id="userChip">…</span>
+      <button class="logout-btn" onclick="doLogout()">Logout</button>
+    </div>
+  </div>
+</nav>
+
+<main>
+  <h1 id="greeting">Welcome back! 👋</h1>
+  <p class="sub">Here's an overview of your resume analysis activity.</p>
+
+  <div class="stats-grid">
+    <div class="stat-card"><div class="stat-label">Total Analyses</div><div class="stat-val" id="statTotal" style="color:var(--accent)">0</div></div>
+    <div class="stat-card"><div class="stat-label">Average Score</div><div class="stat-val" id="statAvg" style="color:var(--accent2)">—</div></div>
+    <div class="stat-card"><div class="stat-label">Best Score</div><div class="stat-val" id="statBest" style="color:var(--success)">—</div></div>
+    <div class="stat-card"><div class="stat-label">This Month</div><div class="stat-val" id="statMonth" style="color:var(--warning)">0</div></div>
+  </div>
+
+  <div class="actions-grid">
+    <div class="action-card">
+      <h3>⚡ Analyze a Resume</h3>
+      <p>Upload a new PDF or DOCX file and get instant AI feedback on your resume.</p>
+      <a href="/" class="btn-primary">Start Analysis</a>
+    </div>
+    <div class="action-card">
+      <h3>📋 Full History</h3>
+      <p>Browse all your past analyses, filter by score, and download reports.</p>
+      <a href="/history.html" class="btn-secondary">View History</a>
+    </div>
+  </div>
+
+  <div class="section-hd">
+    <h2>Recent Analyses</h2>
+    <a href="/history.html" class="btn-secondary" style="font-size:.8rem;padding:.45rem 1rem">See all</a>
+  </div>
+  <div class="table-wrap">
+    <div class="table-header">
+      <div class="table-row"><span>File</span><span>Score</span><span>Grade</span><span>Date</span></div>
+    </div>
+    <div id="recentList"></div>
+  </div>
+</main>
+
+<script>
+// ─ Auth ─
+const session = JSON.parse(localStorage.getItem('rai_session') || 'null');
+if (!session) { window.location.href = '/login.html'; }
+document.getElementById('userChip').textContent = session ? session.name.split(' ')[0] : '';
+document.getElementById('greeting').textContent = 'Welcome back, ' + (session ? session.name.split(' ')[0] : '') + '! 👋';
+function doLogout(){ localStorage.removeItem('rai_session'); window.location.href = '/'; }
+
+// ─ History ─
+function getHistory(){ return JSON.parse(localStorage.getItem('rai_history') || '[]'); }
+function gradeInfo(s){ if(s>=80) return ['Excellent','g-excellent']; if(s>=65) return ['Good','g-good']; if(s>=50) return ['Fair','g-fair']; return ['Poor','g-poor']; }
+function scoreColor(s){ if(s>=80) return 'var(--success)'; if(s>=65) return 'var(--warning)'; return 'var(--danger)'; }
+function fmtDate(iso){ return new Date(iso).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}); }
+
+const history = getHistory();
+// stats
+document.getElementById('statTotal').textContent = history.length;
+if (history.length) {
+  const avg = Math.round(history.reduce((a,h)=>a+(h.score||0),0)/history.length);
+  const best = Math.max(...history.map(h=>h.score||0));
+  document.getElementById('statAvg').textContent = avg;
+  document.getElementById('statBest').textContent = best;
+  const now = new Date(); const thisMonth = history.filter(h=>{ const d=new Date(h.date); return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear(); });
+  document.getElementById('statMonth').textContent = thisMonth.length;
+}
+
+// recent list
+const list = document.getElementById('recentList');
+const recent = history.slice(0, 5);
+if (!recent.length) {
+  list.innerHTML = '<div class="empty"><p>No analyses yet.</p><a href="/" class="btn-primary">Analyze Your First Resume</a></div>';
+} else {
+  recent.forEach(h => {
+    const [grade, cls] = gradeInfo(h.score||0);
+    const row = document.createElement('div');
+    row.className = 'table-row';
+    row.innerHTML = `
+      <div><div class="file-name">${h.filename||'Resume'}</div><div class="file-date">${fmtDate(h.date)}</div></div>
+      <div class="score-badge" style="color:${scoreColor(h.score||0)}">${h.score||'—'}</div>
+      <span class="grade-tag ${cls}">${grade}</span>
+      <span style="font-size:.78rem;color:var(--muted)">${fmtDate(h.date)}</span>`;
+    list.appendChild(row);
+  });
+}
+</script>
+</body>
+</html>

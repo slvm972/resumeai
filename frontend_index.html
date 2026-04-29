@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ResumeAI - Professional Resume Analysis</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        primary: '#FF4D00',
+                        secondary: '#00F0FF',
+                        dark: '#0A0E1A',
+                        'dark-2': '#141925',
+                        'dark-3': '#1E2433',
+                    },
+                    animation: {
+                        'float': 'float 6s ease-in-out infinite',
+                        'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                    },
+                    keyframes: {
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0)' },
+                            '50%': { transform: 'translateY(-20px)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .gradient-text {
+            background: linear-gradient(135deg, #FF4D00, #00F0FF);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .glass {
+            background: rgba(20, 25, 37, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .glow-orange {
+            box-shadow: 0 0 60px rgba(255, 77, 0, 0.3);
+        }
+        .glow-cyan {
+            box-shadow: 0 0 60px rgba(0, 240, 255, 0.3);
+        }
+    </style>
+</head>
+<body class="bg-dark text-white font-sans overflow-x-hidden">
+    <!-- Background Effects -->
+    <div class="fixed inset-0 bg-[url('data:image/svg+xml,%3Csvg width=\'50\' height=\'50\' viewBox=\'0 0 50 50\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M0 0h50v50H0z\' fill=\'none\'/%3E%3Cpath d=\'M50 0H0v50' stroke='rgba(0,240,255,0.05)' stroke-width='1'/%3E%3C/svg%3E')] opacity-20 animate-pulse-slow"></div>
+    <div class="fixed top-0 right-0 w-[600px] h-[600px] bg-primary/20 rounded-full blur-[120px] animate-float"></div>
+    <div class="fixed bottom-0 left-0 w-[600px] h-[600px] bg-secondary/20 rounded-full blur-[120px] animate-float" style="animation-delay: -3s;"></div>
+
+    <!-- Header -->
+    <header class="fixed top-0 left-0 right-0 z-50 glass">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-20">
+                <a href="/" class="flex items-center space-x-2">
+                    <span class="text-3xl">🧠</span>
+                    <span class="text-2xl font-bold gradient-text">ResumeAI</span>
+                </a>
+                
+                <nav class="hidden md:flex items-center space-x-8">
+                    <a href="#features" class="text-gray-400 hover:text-white transition-colors">Features</a>
+                    <a href="#how-it-works" class="text-gray-400 hover:text-white transition-colors">How It Works</a>
+                    <a href="#pricing" class="text-gray-400 hover:text-white transition-colors">Pricing</a>
+                    <a href="#testimonials" class="text-gray-400 hover:text-white transition-colors">Reviews</a>
+                    <a href="/dashboard.html" class="text-gray-400 hover:text-white transition-colors">Dashboard</a>
+                    <a href="/history.html" class="text-gray-400 hover:text-white transition-colors">History</a>
+                    <a href="/login.html" class="px-6 py-2.5 bg-dark-3 hover:bg-primary/20 border border-dark-3 hover:border-primary rounded-full transition-all">Login</a>
+                </nav>
+                
+                <button class="md:hidden text-white" onclick="document.getElementById('mobile-menu').classList.toggle('hidden')">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+        
+        <!-- Mobile Menu -->
+        <div id="mobile-menu" class="hidden md:hidden glass border-t border-dark-3">
+            <div class="px-4 py-4 space-y-4">
+                <a href="#features" class="block text-gray-400 hover:text-white">Features</a>
+                <a href="#how-it-works" class="block text-gray-400 hover:text-white">How It Works</a>
+                <a href="#pricing" class="block text-gray-400 hover:text-white">Pricing</a>
+                <a href="/dashboard.html" class="block text-gray-400 hover:text-white">Dashboard</a>
+                <a href="/history.html" class="block text-gray-400 hover:text-white">History</a>
+                <a href="/login.html" class="block text-center px-6 py-2.5 bg-primary rounded-full font-medium">Login</a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="relative pt-32 pb-20 px-4">
+        <div class="max-w-7xl mx-auto text-center">
+            <div class="inline-flex items-center space-x-2 bg-primary/10 border border-primary/20 px-4 py-2 rounded-full text-sm font-medium mb-8 animate-float">
+                <span class="text-primary">✨</span>
+                <span>Powered by Claude AI</span>
+            </div>
+            
+            <h1 class="text-5xl md:text-7xl font-bold mb-6 leading-tight">
+                Transform Your Resume Into<br>
+                <span class="gradient-text">Interview Gold</span>
+            </h1>
+            
+            <p class="text-xl text-gray-400 max-w-3xl mx-auto mb-10">
+                Upload your resume and get instant AI-powered feedback from hiring experts. 
+                Improve your chances of landing your dream job with actionable insights.
+            </p>
+            
+            <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
+                <button onclick="document.getElementById('fileUpload').click()" class="w-full sm:w-auto px-8 py-4 bg-primary hover:bg-primary/90 text-white font-semibold rounded-full transition-all glow-orange transform hover:scale-105">
+                    Analyze Resume Free
+                </button>
+                <a href="#pricing" class="w-full sm:w-auto px-8 py-4 bg-dark-3 hover:bg-dark-2 border border-dark-3 hover:border-secondary text-white font-semibold rounded-full transition-all">
+                    See Pricing
+                </a>
+            </div>
+            
+            <!-- Stats -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto">
+                <div class="text-center">
+                    <div class="text-4xl font-bold gradient-text mb-2">10,000+</div>
+                    <div class="text-gray-400">Resumes Analyzed</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-4xl font-bold gradient-text mb-2">95%</div>
+                    <div class="text-gray-400">Success Rate</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-4xl font-bold gradient-text mb-2">30s</div>
+                    <div class="text-gray-400">Analysis Time</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-4xl font-bold gradient-text mb-2">4.9/5</div>
+                    <div class="text-gray-400">User Rating</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Upload Section -->
+    <section class="py-20 px-4">
+        <div class="max-w-3xl mx-auto">
+            <div class="glass rounded-3xl p-8 md:p-12 text-center border-2 border-dashed border-dark-3 hover:border-secondary/50 transition-all group">
+                <div class="text-6xl mb-6 opacity-50 group-hover:opacity-100 transition-opacity">📄</div>
+                <h2 class="text-3xl font-bold mb-4">Upload Your Resume</h2>
+                <p class="text-gray-400 mb-8">Support for PDF, DOC, DOCX formats • Max 5MB</p>
+                <input type="file" id="fileUpload" accept=".pdf,.doc,.docx" class="hidden" onchange="handleFileUpload(event)">
+                <label for="fileUpload" class="inline-block px-8 py-4 bg-primary hover:bg-primary/90 text-white font-semibold rounded-full cursor-pointer transition-all transform hover:scale-105">
+                    Choose File
+                </label>
+                <!-- loader and result container -->
+                <div id="loader" class="hidden mt-4 text-primary font-medium">Analyzing your resume… ⏳</div>
+                <div id="analysisResult" class="hidden mt-6 p-6 bg-dark-2 rounded-2xl border border-dark-3 text-left whitespace-pre-wrap"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="py-20 px-4 bg-dark-2">
+        <div class="max-w-7xl mx-auto">
+            <div class="text-center mb-16">
+                <h2 class="text-4xl md:text-5xl font-bold mb-4">Why Choose ResumeAI?</h2>
+                <p class="text-xl text-gray-400">Everything you need to land your dream job</p>
+            </div>
+            
+            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                <!-- Feature 1 -->
+                <div class="glass p-8 rounded-2xl border border-dark-3 hover:border-primary/50 transition-all group hover:-translate-y-2">
+                    <div class="text-5xl mb-6">🎯</div>
+                    <h3 class="text-xl font-bold mb-3">ATS Optimization</h3>
+                    <p class="text-gray-400">Ensure your resume passes Applicant Tracking Systems with keyword optimization and formatting recommendations.</p>
+                </div>
+                
+                <!-- Feature 2 -->
+                <div class="glass p-8 rounded-2xl border border-dark-3 hover:border-primary/50 transition-all group hover:-translate-y-2">
+                    <div class="text-5xl mb-6">💡</div>
+                    <h3 class="text-xl font-bold mb-3">Expert Insights</h3>
+                    <p class="text-gray-400">Get detailed feedback on content, structure, and presentation from AI trained on successful resumes.</p>
+                </div>
+                
+                <!-- Feature 3 -->
+                <div class="glass p-8 rounded-2xl border border-dark-3 hover:border-primary/50 transition-all group hover:-translate-y-2">
+                    <div class="text-5xl mb-6">⚡</div>
+                    <h3 class="text-xl font-bold mb-3">Instant Results</h3>
+                    <p class="text-gray-400">Receive comprehensive analysis in under 30 seconds. No waiting, just actionable improvements.</p>
+                </div>
+                
+                <!-- Feature 4 -->
+                <div class="glass p-8 rounded-2xl border border-dark-3 hover:border-primary/50 transition-all group hover:-translate-y-2">
+                    <div class="text-5xl mb-6">📊</div>
+                    <h3 class="text-xl font-bold mb-3">Scoring System</h3>
+                    <p class="text-gray-400">Understand where you stand with detailed scoring across content, formatting, keywords, and impact.</p>
+                </div>
+                
+                <!-- Feature 5 -->
+                <div class="glass p-8 rounded-2xl border border-dark-3 hover:border-primary/50 transition-all group hover:-translate-y-2">
+                    <div class="text-5xl mb-6">🔒</div>
+                    <h3 class="text-xl font-bold mb-3">100% Private</h3>
+                    <p class="text-gray-400">Your resume data is encrypted and never shared. Files deleted after analysis automatically.</p>
+                </div>
+                
+                <!-- Feature 6 -->
+                <div class="glass p-8 rounded-2xl border border-dark-3 hover:border-primary/50 transition-all group hover:-translate-y-2">
+                    <div class="text-5xl mb-6">🎨</div>
+                    <h3 class="text-xl font-bold mb-3">Format Guide</h3>
+                    <p class="text-gray-400">Learn best practices for resume formatting, layout, fonts, and visual hierarchy.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section id="how-it-works" class="py-20 px-4">
+        <div class="max-w-7xl mx-auto">
+            <div class="text-center mb-16">
+                <h2 class="text-4xl md:text-5xl font-bold mb-4">How It Works</h2>
+                <p class="text-xl text-gray-400">Three simple steps to a better resume</p>
+            </div>
+            
+            <div class="grid md:grid-cols-3 gap-12">
+                <div class="text-center">
+                    <div class="w-20 h-20 bg-primary/20 rounded-full flex items-center justify-center mx-auto mb-6 text-3xl">1️⃣</div>
+                    <h3 class="text-2xl font-bold mb-4">Upload Resume</h3>
+                    <p class="text-gray-400">Upload your resume in PDF, DOC, or DOCX format. We support all major file types.</p>
+                </div>
+                
+                <div class="text-center">
+                    <div class="w-20 h-20 bg-secondary/20 rounded-full flex items-center justify-center mx-auto mb-6 text-3xl">2️⃣</div>
+                    <h3 class="text-2xl font-bold mb-4">AI Analysis</h3>
+                    <p class="text-gray-400">Our Claude-powered AI analyzes your resume against industry standards.</p>
+                </div>
+                
+                <div class="text-center">
+                    <div class="w-20 h-20 bg-primary/20 rounded-full flex items-center justify-center mx-auto mb-6 text-3xl">3️⃣</div>
+                    <h3 class="text-2xl font-bold mb-4">Get Results</h3>
+                    <p class="text-gray-400">Receive detailed feedback, scores, and actionable improvement suggestions.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Testimonials -->
+    <section id="testimonials" class="py-20 px-4 bg-dark-2">
+        <div class="max-w-7xl mx-auto">
+            <div class="text-center mb-16">
+                <h2 class="text-4xl md:text-5xl font-bold mb-4">What Users Say</h2>
+                <p class="text-xl text-gray-400">Real results from real job seekers</p>
+            </div>
+            
+            <div class="grid md:grid-cols-3 gap-8">
+                <div class="glass p-8 rounded-2xl border border-dark-3">
+                    <div class="flex items-center mb-4">
+                        <div class="text-yellow-400 text-xl">⭐⭐⭐⭐⭐</div>
+                    </div>
+                    <p class="text-gray-300 mb-6">"Got 3x more interview calls after implementing the AI suggestions. Landed my dream job at Google!"</p>
+                    <div class="flex items-center">
+                        <div class="w-12 h-12 bg-primary/20 rounded-full flex items-center justify-center text-xl mr-4">👨‍💻</div>
+                        <div>
+                            <div class="font-semibold">Alex Chen</div>
+                            <div class="text-gray-400 text-sm">Software Engineer</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="glass p-8 rounded-2xl border border-dark-3">
+                    <div class="flex items-center mb-4">
+                        <div class="text-yellow-400 text-xl">⭐⭐⭐⭐⭐</div>
+                    </div>
+                    <p class="text-gray-300 mb-6">"The ATS optimization tips were game-changing. Finally started getting responses from applications."</p>
+                    <div class="flex items-center">
+                        <div class="w-12 h-12 bg-secondary/20 rounded-full flex items-center justify-center text-xl mr-4">👩‍💼</div>
+                        <div>
+                            <div class="font-semibold">Sarah Johnson</div>
+                            <div class="text-gray-400 text-sm">Marketing Manager</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="glass p-8 rounded-2xl border border-dark-3">
+                    <div class="flex items-center mb-4">
+                        <div class="text-yellow-400 text-xl">⭐⭐⭐⭐⭐</div>
+                    </div>
+                    <p class="text-gray-300 mb-6">"Worth every penny. The detailed feedback helped me understand what recruiters actually look for."</p>
+                    <div class="flex items-center">
+                        <div class="w-12 h-12 bg-primary/20 rounded-full flex items-center justify-center text-xl mr-4">👨‍🎨</div>
+                        <div>
+                            <div class="font-semibold">Mike Rodriguez</div>
+                            <div class="text-gray-400 text-sm">UX Designer</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Pricing Section -->
+    <section id="pricing" class="py-20 px-4">
+        <div class="max-w-7xl mx-auto">
+            <div class="text-center mb-16">
+                <h2 class="text-4xl md:text-5xl font-bold mb-4">Simple, Transparent Pricing</h2>
+                <p class="text-xl text-gray-400">Choose the plan that fits your needs</p>
+            </div>
+            
+            <div class="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
+                <!-- Starter Plan -->
+                <div class="glass p-8 rounded-2xl border border-dark-3 hover:border-primary/50 transition-all">
+                    <h3 class="text-2xl font-bold mb-2">Starter</h3>
+                    <p class="text-gray-400 mb-6">Perfect for trying out</p>
+                    <div class="text-5xl font-bold gradient-text mb-2">$9.99</div>
+                    <p class="text-gray-400 mb-8">one-time payment</p>
+                    
+                    <ul class="space-y-4 mb-8">
+                        <li class="flex items-center text-gray-300">
+                            <span class="text-green-400 mr-3">✓</span>
+                            3 resume analyses
+                        </li>
+                        <li class="flex items-center text-gray-300">
+                            <span class="text-green-400 mr-3">✓</span>
+                            Basic scoring
+                        </li>
+                        <li class="flex items-center text-gray-300">
+                            <span class="text-green-400 mr-3">✓</span>
+                            ATS optimization tips
+                        </li>
+                        <li class="flex items-center text-gray-300">
+                            <span class="text-green-400 mr-3">✓</span>
+                            24-hour access
+                        </li>
+                    </ul>
+                    
+                    <a href="https://mostovoy-ai.lemonsqueezy.com/checkout/buy/5cea1ea6-7ae8-447d-953e-9f41366a205e" class="block w-full text-center py-4 bg-primary hover:bg-primary/90 text-white font-semibold rounded-full transition-all">
+                        Get Started
+                    </a>
+                </div>
+                
+                <!-- Professional Plan -->
+                <div class="glass p-8 rounded-2xl border-2 border-primary relative transform md:-translate-y-4">
+                    <div class="absolute -top-4 left-1/2 -translate-x-1/2 bg-primary px-4 py-1 rounded-full text-sm font-bold">POPULAR</div>
+                    <h3 class="text-2xl font-bold mb-2">Professional</h3>
+                    <p class="text-gray-400 mb-6">Best value</p>
+                    <div class="text-5xl font-bold gradient-text mb-2">$29.99</div>
+                    <p class="text-gray-400 mb-8">per month</p>
+                    
+                    <ul class="space-y-4 mb-8">
+                        <li class="flex items-center text-gray-300">
+                            <span class="text-green-400 mr-3">✓</span>
+                            Unlimited analyses
+                        </li>
+                        <li class="flex items-center text-gray-300">
+                            <span class="text-green-400 mr-3">✓</span>
+                            Advanced scoring
+                        </li>
+                        <li class="flex items-center text-gray-300">
+                            <span class="text-green-400 mr-3">✓</span>
+                            Industry-specific tips
+                        </li>
+                        <li class="flex items-center text-gray-300">
+                            <span class="text-green-400 mr-3">✓</span>
+                            Cover letter analysis
+                        </li>
+                        <li class="flex items-center text-gray-300">
+                            <span class="text-green-400 mr-3">✓</span>
+                            Priority support
+                        </li>
+                        <li class="flex items-center text-gray-300">
+                            <span class="text-green-400 mr-3">✓</span>
+                            Export as PDF
+                        </li>
+                    </ul>
+                    
+                    <a href="https://mostovoy-ai.lemonsqueezy.com/checkout/buy/5cea1ea6-7ae8-447d-953e-9f41366a205e" class="block w-full text-center py-4 bg-primary hover:bg-primary/90 text-white font-semibold rounded-full transition-all glow-orange">
+                        Go Pro
+                    </a>
+                </div>
+                
+                <!-- Enterprise Plan -->
+                <div class="glass p-8 rounded-2xl border border-dark-3 hover:border-primary/50 transition-all">
+                    <h3 class="text-2xl font-bold mb-2">Enterprise</h3>
+                    <p class="text-gray-400 mb-6">For teams</p>
+                    <div class="text-5xl font-bold gradient-text mb-2">$99</div>
+                    <p class="text-gray-400 mb-8">per month</p>
+                    
+                    <ul class="space-y-4 mb-8">
+                        <li class="flex items-center text-gray-300">
+                            <span class="text-green-400 mr-3">✓</span>
+                            Everything in Pro
+                        </li>
+                        <li class="flex items-center text-gray-300">
+                            <span class="text-green-400 mr-3">✓</span>
+                            Team accounts (10+)
+                        </li>
+                        <li class="flex items-center text-gray-300">
+                            <span class="text-green-400 mr-3">✓</span>
+                            Custom branding
+                        </li>
+                        <li class="flex items-center text-gray-300">
+                            <span class="text-green-400 mr-3">✓</span>
+                            API access
+                        </li>
+                        <li class="flex items-center text-gray-300">
+                            <span class="text-green-400 mr-3">✓</span>
+                            Dedicated manager
+                        </li>
+                    </ul>
+                    
+                    <a href="https://mostovoy-ai.lemonsqueezy.com/checkout/buy/5cea1ea6-7ae8-447d-953e-9f41366a205e" class="block w-full text-center py-4 bg-dark-3 hover:bg-dark-2 border border-dark-3 hover:border-primary text-white font-semibold rounded-full transition-all">
+                        Contact Sales
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-12 px-4 border-t border-dark-3">
+        <div class="max-w-7xl mx-auto">
+            <div class="grid md:grid-cols-4 gap-8 mb-8">
+                <div>
+                    <div class="flex items-center space-x-2 mb-4">
+                        <span class="text-2xl">🧠</span>
+                        <span class="text-xl font-bold gradient-text">ResumeAI</span>
+                    </div>
+                    <p class="text-gray-400">AI-powered resume analysis for job seekers worldwide.</p>
+                </div>
+                
+                <div>
+                    <h4 class="font-bold mb-4">Product</h4>
+                    <ul class="space-y-2 text-gray-400">
+                        <li><a href="#features" class="hover:text-white transition">Features</a></li>
+                        <li><a href="#pricing" class="hover:text-white transition">Pricing</a></li>
+                        <li><a href="/dashboard.html" class="hover:text-white transition">Dashboard</a></li>
+                        <li><a href="/history.html" class="hover:text-white transition">History</a></li>
+                    </ul>
+                </div>
+                
+                <div>
+                    <h4 class="font-bold mb-4">Company</h4>
+                    <ul class="space-y-2 text-gray-400">
+                        <li><a href="#" class="hover:text-white transition">About</a></li>
+                        <li><a href="#" class="hover:text-white transition">Contact</a></li>
+                        <li><a href="#" class="hover:text-white transition">Privacy</a></li>
+                        <li><a href="#" class="hover:text-white transition">Terms</a></li>
+                    </ul>
+                </div>
+                
+                <div>
+                    <h4 class="font-bold mb-4">Payment</h4>
+                    <div class="flex items-center space-x-2 text-gray-400">
+                        <span class="text-xl">🍋</span>
+                        <span>Secured by Lemon Squeezy</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="border-t border-dark-3 pt-8 text-center text-gray-400">
+                <p>&copy; 2026 ResumeAI. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        function showLoader() {
+            document.getElementById('loader').classList.remove('hidden');
+            document.getElementById('analysisResult').classList.add('hidden');
+        }
+        function hideLoader() {
+            document.getElementById('loader').classList.add('hidden');
+        }
+        function showResult(text, isError=false) {
+            const box = document.getElementById('analysisResult');
+            box.textContent = text;
+            box.classList.remove('hidden');
+            if (isError) {
+                box.classList.add('text-red-400');
+            } else {
+                box.classList.remove('text-red-400');
+            }
+        }
+
+        async function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            // client-side file size guard
+            const maxSize = 5 * 1024 * 1024;
+            if (file.size > maxSize) {
+                showResult('File is too large (max 5 MB).', true);
+                return;
+            }
+
+            showLoader();
+
+            const formData = new FormData();
+            formData.append('resume', file);
+
+            let response;
+            try {
+                response = await fetch('https://resumeai-2-uaul.onrender.com/api/analyze', {
+                    method: 'POST',
+                    body: formData,
+                    mode: 'cors'
+                });
+            } catch (networkErr) {
+                console.error('Network error', networkErr);
+                hideLoader();
+                showResult('Network error: ' + networkErr.message, true);
+                return;
+            }
+
+            // handle HTTP errors
+            if (!response.ok) {
+                hideLoader();
+                const text = await response.text().catch(() => '');
+                showResult('Server responded with ' + response.status + ' ' + response.statusText + '\n' + text, true);
+                return;
+            }
+
+            let result;
+            try {
+                result = await response.json();
+            } catch (parseErr) {
+                console.error('Failed to parse JSON', parseErr);
+                hideLoader();
+                const text = await response.text();
+                showResult('Invalid JSON from server:\n' + text, true);
+                return;
+            }
+
+            hideLoader();
+            if (result.error) {
+                showResult('Server error: ' + result.error, true);
+            } else {
+                // pretty-print structured output
+                showResult(JSON.stringify(result, null, 2));
+            }
+        }
+    </script>
+</body>
+</html>

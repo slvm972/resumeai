@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" style="scroll-behavior: smooth;">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ResumeAI - Professional Resume Analysis</title>
+  <title>ResumeAI v3 - Professional Resume Analysis</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet" />
   <style>
@@ -30,6 +30,8 @@
       min-height: 100vh;
       overflow-x: hidden;
     }
+    /* anchor scroll offset — accounts for sticky nav height */
+    section[id] { scroll-margin-top: 72px; }
 
     /* ─── NAV ─────────────────────────────────────────── */
     nav {
@@ -149,32 +151,63 @@
     #resultPanel {
       display: none;
       margin-top: 1.5rem;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 1.5rem;
       animation: fadeIn .4s ease;
     }
     @keyframes fadeIn { from { opacity:0; transform: translateY(8px); } to { opacity:1; transform: translateY(0); } }
 
     .result-header {
       display: flex; align-items: center; justify-content: space-between;
-      margin-bottom: 1rem;
+      margin-bottom: 1.25rem;
     }
     .result-header h3 { font-size: 1rem; font-weight: 600; display: flex; align-items: center; gap: .5rem; }
     .result-badge { background: rgba(16,185,129,.15); border: 1px solid rgba(16,185,129,.3); color: var(--success); font-size: .75rem; padding: .25rem .65rem; border-radius: 50px; font-weight: 600; }
 
-    #resultText {
-      font-size: .88rem;
-      line-height: 1.75;
-      color: #cbd5e1;
-      white-space: pre-wrap;
-      word-break: break-word;
-      max-height: 420px;
-      overflow-y: auto;
-      scrollbar-width: thin;
-      scrollbar-color: var(--border) transparent;
-    }
+    /* ── Score ring ── */
+    .score-ring-wrap { text-align: center; margin-bottom: 1.25rem; }
+    .score-ring { position: relative; width: 96px; height: 96px; margin: 0 auto .5rem; }
+    .score-ring svg { transform: rotate(-90deg); }
+    .score-ring-bg { fill: none; stroke: var(--border); stroke-width: 7; }
+    .score-ring-fill { fill: none; stroke-width: 7; stroke-linecap: round; transition: stroke-dashoffset .8s ease; }
+    .score-ring-num { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 700; }
+    .score-label { font-size: .75rem; color: var(--muted); font-weight: 500; }
+
+    /* ── Sub-scores ── */
+    .subscores { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .6rem; margin-bottom: 1.25rem; }
+    .subscore-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: .75rem; text-align: center; }
+    .subscore-val { font-size: 1.25rem; font-weight: 700; }
+    .subscore-name { font-size: .7rem; color: var(--muted); margin-top: .2rem; }
+
+    /* ── Summary ── */
+    .result-summary { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; font-size: .875rem; line-height: 1.65; color: #cbd5e1; margin-bottom: 1.25rem; }
+
+    /* ── Lists ── */
+    .result-section { margin-bottom: 1.1rem; }
+    .result-section h4 { font-size: .8rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: .55rem; }
+    .tag-list { display: flex; flex-wrap: wrap; gap: .4rem; }
+    .tag { font-size: .78rem; padding: .3rem .7rem; border-radius: 50px; font-weight: 500; }
+    .tag-green { background: rgba(16,185,129,.12); border: 1px solid rgba(16,185,129,.25); color: #6ee7b7; }
+    .tag-blue  { background: rgba(59,130,246,.12); border: 1px solid rgba(59,130,246,.25); color: #93c5fd; }
+    .tag-orange{ background: rgba(245,158,11,.12);  border: 1px solid rgba(245,158,11,.25);  color: #fcd34d; }
+    .improve-list { list-style: none; display: flex; flex-direction: column; gap: .45rem; }
+    .improve-list li { font-size: .85rem; color: #cbd5e1; padding-left: 1.2rem; position: relative; line-height: 1.5; }
+    .improve-list li::before { content: "→"; position: absolute; left: 0; color: var(--accent); font-weight: 700; }
+
+    /* ── Login modal ── */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7); backdrop-filter: blur(6px); z-index: 999; align-items: center; justify-content: center; }
+    .modal-overlay.open { display: flex; }
+    .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 2.5rem 2rem; width: 100%; max-width: 400px; position: relative; animation: fadeIn .3s ease; }
+    .modal-close { position: absolute; top: 1rem; right: 1.1rem; background: none; border: none; color: var(--muted); font-size: 1.3rem; cursor: pointer; line-height: 1; }
+    .modal h2 { font-size: 1.4rem; font-weight: 700; margin-bottom: .35rem; }
+    .modal p { color: var(--muted); font-size: .875rem; margin-bottom: 1.75rem; }
+    .form-group { display: flex; flex-direction: column; gap: .4rem; margin-bottom: 1rem; }
+    .form-group label { font-size: .8rem; font-weight: 600; color: var(--muted); }
+    .form-group input { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: .7rem 1rem; color: var(--text); font-size: .9rem; outline: none; transition: border-color .2s; }
+    .form-group input:focus { border-color: var(--accent); }
+    .modal-tabs { display: flex; gap: .5rem; margin-bottom: 1.75rem; }
+    .modal-tab { flex: 1; padding: .55rem; border: 1px solid var(--border); border-radius: 8px; background: none; color: var(--muted); font-size: .85rem; font-weight: 600; cursor: pointer; transition: all .2s; }
+    .modal-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .modal-error { color: #fca5a5; font-size: .82rem; margin-bottom: .75rem; display: none; }
+    .modal-success { color: #6ee7b7; font-size: .82rem; margin-bottom: .75rem; display: none; }
 
     /* ─── LOADER ──────────────────────────────────────── */
     .loader {
@@ -209,6 +242,25 @@
     .section-title p { color: var(--muted); font-size: 1rem; }
 
     .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; }
+    .feature-card { cursor: pointer; }
+    /* feature detail modal */
+    .feat-modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.75); backdrop-filter:blur(8px); z-index:1000; align-items:center; justify-content:center; padding:1rem; }
+    .feat-modal-overlay.open { display:flex; }
+    .feat-modal { background:var(--surface); border:1px solid var(--border); border-radius:20px; padding:2.5rem 2rem; width:100%; max-width:520px; position:relative; animation:fadeIn .3s ease; }
+    .feat-modal-close { position:absolute; top:1rem; right:1.1rem; background:none; border:none; color:var(--muted); font-size:1.3rem; cursor:pointer; line-height:1; }
+    .feat-modal-icon { font-size:3rem; margin-bottom:1rem; }
+    .feat-modal h2 { font-size:1.4rem; font-weight:700; margin-bottom:.75rem; }
+    .feat-modal p { color:#94a3b8; font-size:.9rem; line-height:1.75; margin-bottom:1rem; }
+    .feat-modal ul { list-style:none; display:flex; flex-direction:column; gap:.5rem; }
+    .feat-modal ul li { font-size:.875rem; color:#cbd5e1; padding-left:1.2rem; position:relative; }
+    .feat-modal ul li::before { content:"✓"; position:absolute; left:0; color:var(--success); font-weight:700; }
+    /* google button */
+    .btn-google { display:flex; align-items:center; justify-content:center; gap:.65rem; width:100%; padding:.75rem; background:var(--surface2); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:.9rem; font-weight:600; cursor:pointer; font-family:inherit; transition:border-color .2s; margin-bottom:.75rem; }
+    .btn-google:hover { border-color:var(--accent); }
+    .btn-github { display:flex; align-items:center; justify-content:center; gap:.65rem; width:100%; padding:.75rem; background:var(--surface2); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:.9rem; font-weight:600; cursor:pointer; font-family:inherit; transition:border-color .2s; margin-bottom:1rem; }
+    .btn-github:hover { border-color:#fff; }
+    .divider-row { display:flex; align-items:center; gap:.75rem; margin-bottom:1rem; color:var(--muted); font-size:.8rem; }
+    .divider-row::before,.divider-row::after { content:''; flex:1; height:1px; background:var(--border); }
     .feature-card {
       background: var(--surface); border: 1px solid var(--border);
       border-radius: var(--radius); padding: 1.75rem;
@@ -306,14 +358,14 @@
   <div class="nav-inner">
     <a href="/" class="logo">🧠 <span>ResumeAI</span></a>
     <ul class="nav-links">
-      <li><a href="#features">Features</a></li>
-      <li><a href="#how-it-works">How It Works</a></li>
-      <li><a href="#pricing">Pricing</a></li>
-      <li><a href="#testimonials">Reviews</a></li>
+      <li><a href="#features"     onclick="navScroll('features');return false">Features</a></li>
+      <li><a href="#how-it-works" onclick="navScroll('how-it-works');return false">How It Works</a></li>
+      <li><a href="#pricing"      onclick="navScroll('pricing');return false">Pricing</a></li>
+      <li><a href="#testimonials" onclick="navScroll('testimonials');return false">Reviews</a></li>
       <li><a href="dashboard.html">Dashboard</a></li>
       <li><a href="history.html">History</a></li>
     </ul>
-    <a href="login.html" class="nav-cta">Login</a>
+    <button class="nav-cta" id="loginBtn" onclick="openModal()">Login</button>
   </div>
 </nav>
 
@@ -328,7 +380,7 @@
       <p class="hero-sub">Upload your resume and get instant expert feedback. Improve your chances of landing your dream job with clear, actionable insights.</p>
       <div class="hero-btns">
         <a href="#upload" class="btn-primary">Analyze Resume Free</a>
-        <a href="#pricing" class="btn-secondary">See Pricing</a>
+        <a href="#pricing" class="btn-secondary" onclick="navScroll('pricing');return false">See Pricing</a>
       </div>
       <div class="stats">
         <div class="stat"><div class="stat-num">10K+</div><div class="stat-label">Resumes Analyzed</div></div>
@@ -369,10 +421,125 @@
           <h3>✅ Analysis Complete</h3>
           <span class="result-badge">Done</span>
         </div>
-        <div id="resultText"></div>
+
+        <!-- Overall score ring -->
+        <div class="score-ring-wrap">
+          <div class="score-ring">
+            <svg width="96" height="96" viewBox="0 0 96 96">
+              <circle class="score-ring-bg" cx="48" cy="48" r="40"/>
+              <circle class="score-ring-fill" id="ringFill" cx="48" cy="48" r="40"
+                stroke-dasharray="251.2" stroke-dashoffset="251.2"/>
+            </svg>
+            <div class="score-ring-num" id="scoreNum">—</div>
+          </div>
+          <div class="score-label">Overall Score</div>
+        </div>
+
+        <!-- Sub-scores -->
+        <div class="subscores">
+          <div class="subscore-card">
+            <div class="subscore-val" id="atsVal">—</div>
+            <div class="subscore-name">ATS Score</div>
+          </div>
+          <div class="subscore-card">
+            <div class="subscore-val" id="fmtVal">—</div>
+            <div class="subscore-name">Formatting</div>
+          </div>
+          <div class="subscore-card">
+            <div class="subscore-val" id="cntVal">—</div>
+            <div class="subscore-name">Content</div>
+          </div>
+        </div>
+
+        <!-- Summary -->
+        <div class="result-summary" id="summaryText"></div>
+
+        <!-- Strengths -->
+        <div class="result-section">
+          <h4>💪 Strengths</h4>
+          <div class="tag-list" id="strengthsList"></div>
+        </div>
+
+        <!-- Keywords -->
+        <div class="result-section">
+          <h4>🔑 Key Skills Found</h4>
+          <div class="tag-list" id="keywordsList"></div>
+        </div>
+
+        <!-- Improvements -->
+        <div class="result-section">
+          <h4>🚀 Improvements</h4>
+          <ul class="improve-list" id="improveList"></ul>
+        </div>
       </div>
     </div>
+  </div>
+</section>
 
+<!-- ─── FEATURE DETAIL MODAL ──────────────────── -->
+<div class="feat-modal-overlay" id="featModal" onclick="if(event.target===this)closeFeat()">
+  <div class="feat-modal">
+    <button class="feat-modal-close" onclick="closeFeat()">✕</button>
+    <div class="feat-modal-icon" id="featIcon"></div>
+    <h2 id="featTitle"></h2>
+    <p id="featDesc"></p>
+    <ul id="featList"></ul>
+  </div>
+</div>
+
+<!-- ─── LOGIN MODAL ───────────────────────────────────── -->
+<div class="modal-overlay" id="loginModal" onclick="handleOverlayClick(event)">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <h2>Welcome back</h2>
+    <p>Sign in to save your analyses and track progress</p>
+
+    <div class="modal-tabs">
+      <button class="modal-tab active" id="tabLogin" onclick="switchTab('login')">Sign In</button>
+      <button class="modal-tab" id="tabRegister" onclick="switchTab('register')">Sign Up</button>
+    </div>
+
+    <div id="modalError" class="modal-error"></div>
+    <div id="modalSuccess" class="modal-success"></div>
+
+    <!-- Social login -->
+    <button class="btn-google" onclick="socialLogin('google')">
+      <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+      Continue with Google
+    </button>
+    <button class="btn-github" onclick="socialLogin('github')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+      Continue with GitHub
+    </button>
+    <div class="divider-row">or sign in with email</div>
+
+    <div id="formLogin">
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="loginEmail" placeholder="you@example.com" />
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="loginPassword" placeholder="••••••••" />
+      </div>
+      <button class="btn-primary" style="width:100%;margin-top:.5rem" onclick="doLogin()">Sign In</button>
+    </div>
+
+    <div id="formRegister" style="display:none">
+      <div class="form-group">
+        <label>Name</label>
+        <input type="text" id="regName" placeholder="John Doe" />
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="regEmail" placeholder="you@example.com" />
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="regPassword" placeholder="min. 6 characters" />
+      </div>
+      <button class="btn-primary" style="width:100%;margin-top:.5rem" onclick="doRegister()">Create Account</button>
+    </div>
   </div>
 </section>
 
@@ -385,12 +552,12 @@
     <p>Everything you need to land your dream job</p>
   </div>
   <div class="features-grid">
-    <div class="feature-card"><div class="feat-icon">🎯</div><h3>ATS Optimization</h3><p>Ensure your resume passes Applicant Tracking Systems with keyword optimization and formatting recommendations.</p></div>
-    <div class="feature-card"><div class="feat-icon">💡</div><h3>Expert Insights</h3><p>Get detailed feedback on content, structure, and presentation based on successful resume patterns.</p></div>
-    <div class="feature-card"><div class="feat-icon">⚡</div><h3>Instant Results</h3><p>Receive comprehensive analysis in under 30 seconds. No waiting, just actionable improvements.</p></div>
-    <div class="feature-card"><div class="feat-icon">📊</div><h3>Scoring System</h3><p>Understand where you stand with detailed scoring across content, formatting, keywords, and impact.</p></div>
-    <div class="feature-card"><div class="feat-icon">🔒</div><h3>100% Private</h3><p>Your resume data is encrypted and never shared. Files are deleted after analysis automatically.</p></div>
-    <div class="feature-card"><div class="feat-icon">🎨</div><h3>Format Guide</h3><p>Learn best practices for resume formatting, layout, fonts, and visual hierarchy.</p></div>
+    <div class="feature-card" onclick="openFeat('ats')"><div class="feat-icon">🎯</div><h3>ATS Optimization</h3><p>Ensure your resume passes Applicant Tracking Systems with keyword optimization and formatting recommendations.</p></div>
+    <div class="feature-card" onclick="openFeat('insights')"><div class="feat-icon">💡</div><h3>Expert Insights</h3><p>Get detailed feedback on content, structure, and presentation based on successful resume patterns.</p></div>
+    <div class="feature-card" onclick="openFeat('instant')"><div class="feat-icon">⚡</div><h3>Instant Results</h3><p>Receive comprehensive analysis in under 30 seconds. No waiting, just actionable improvements.</p></div>
+    <div class="feature-card" onclick="openFeat('scoring')"><div class="feat-icon">📊</div><h3>Scoring System</h3><p>Understand where you stand with detailed scoring across content, formatting, keywords, and impact.</p></div>
+    <div class="feature-card" onclick="openFeat('private')"><div class="feat-icon">🔒</div><h3>100% Private</h3><p>Your resume data is encrypted and never shared. Files are deleted after analysis automatically.</p></div>
+    <div class="feature-card" onclick="openFeat('format')"><div class="feat-icon">🎨</div><h3>Format Guide</h3><p>Learn best practices for resume formatting, layout, fonts, and visual hierarchy.</p></div>
   </div>
 </section>
 
@@ -518,12 +685,25 @@
       <ul><li><a href="#">🍋 Secured by Lemon Squeezy</a></li></ul>
     </div>
   </div>
-  <div class="footer-bottom">© 2026 ResumeAI. All rights reserved.</div>
+  <div class="footer-bottom">
+    © 2026 ResumeAI. All rights reserved.
+    <span style="margin-left: 1rem; opacity: 0.3;">
+      <a href="/admin-login.html" style="color: var(--muted); font-size: 0.7rem;">Admin</a>
+    </span>
+  </div>
 </footer>
 
 <!-- ─── JS ────────────────────────────────────────────── -->
 <script>
-  const BACKEND_URL = 'https://resume-ai-backend.https://resumeai-2-uaul.onrender.com/analyze';
+  const BACKEND_URL = 'http://127.0.0.1:5000/api/analyze';
+
+  // ─ Smooth anchor navigation (works even with overflow:hidden on body) ─
+  function navScroll(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const top = el.getBoundingClientRect().top + window.scrollY - 72;
+    window.scrollTo({ top, behavior: 'smooth' });
+  }
 
   const fileInput   = document.getElementById('fileInput');
   const dropZone    = document.getElementById('dropZone');
@@ -533,31 +713,22 @@
   const loader      = document.getElementById('loader');
   const errorBox    = document.getElementById('errorBox');
   const resultPanel = document.getElementById('resultPanel');
-  const resultText  = document.getElementById('resultText');
 
   let selectedFile = null;
 
   /* ─ file selection ─ */
-  fileInput.addEventListener('change', () => {
-    if (fileInput.files[0]) setFile(fileInput.files[0]);
-  });
-
+  fileInput.addEventListener('change', () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
   dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
   dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
   dropZone.addEventListener('drop', e => {
     e.preventDefault(); dropZone.classList.remove('drag-over');
-    const f = e.dataTransfer.files[0];
-    if (f) setFile(f);
+    if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
   });
 
   function setFile(f) {
     selectedFile = f;
     fileName.textContent = '📎 ' + f.name;
     analyzeBtn.disabled = false;
-    hideResults();
-  }
-
-  function hideResults() {
     resultPanel.style.display = 'none';
     errorBox.classList.remove('active');
   }
@@ -565,48 +736,75 @@
   /* ─ analyze ─ */
   analyzeBtn.addEventListener('click', async () => {
     if (!selectedFile) return;
-
-    // validate size
-    if (selectedFile.size > 5 * 1024 * 1024) {
-      showError('File too large. Maximum size is 5 MB.');
-      return;
-    }
+    if (selectedFile.size > 5 * 1024 * 1024) { showError('File too large. Max 5 MB.'); return; }
 
     setLoading(true);
-    hideResults();
+    resultPanel.style.display = 'none';
+    errorBox.classList.remove('active');
 
     const formData = new FormData();
     formData.append('file', selectedFile);
 
     try {
-      const res = await fetch(BACKEND_URL, {
-        method: 'POST',
-        body: formData
-      });
-
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`Server error ${res.status}: ${errText || res.statusText}`);
-      }
-
-      // try JSON first, fall back to plain text
-      let text;
-      const contentType = res.headers.get('content-type') || '';
-      if (contentType.includes('application/json')) {
-        const json = await res.json();
-        // accept common response shapes
-        text = json.result ?? json.analysis ?? json.feedback ?? json.message ?? JSON.stringify(json, null, 2);
-      } else {
-        text = await res.text();
-      }
-
-      showResult(text);
+      const res = await fetch(BACKEND_URL, { method: 'POST', body: formData });
+      if (!res.ok) throw new Error(`Server error ${res.status}: ${await res.text()}`);
+      const data = await res.json();
+      renderResult(data);
     } catch (err) {
-      showError('Could not reach the analysis server. ' + err.message);
+      showError('Cannot reach server. Make sure app.py is running. ' + err.message);
     } finally {
       setLoading(false);
     }
   });
+
+  /* ─ render rich result ─ */
+  function renderResult(d) {
+    // overall score ring
+    const score = d.overall_score ?? d.score ?? 0;
+    document.getElementById('scoreNum').textContent = score;
+    const circ = 2 * Math.PI * 40; // 251.2
+    const offset = circ - (score / 100) * circ;
+    const ring = document.getElementById('ringFill');
+    ring.style.strokeDashoffset = offset;
+    ring.style.stroke = score >= 80 ? '#10b981' : score >= 60 ? '#f59e0b' : '#ef4444';
+
+    // sub-scores
+    document.getElementById('atsVal').textContent = d.ats_score ?? '—';
+    document.getElementById('fmtVal').textContent = d.formatting_score ?? '—';
+    document.getElementById('cntVal').textContent = d.content_score ?? '—';
+
+    // summary
+    document.getElementById('summaryText').textContent = d.summary ?? '';
+
+    // strengths
+    const sl = document.getElementById('strengthsList');
+    sl.innerHTML = '';
+    (d.strengths || []).forEach(s => {
+      const t = document.createElement('span');
+      t.className = 'tag tag-green'; t.textContent = s; sl.appendChild(t);
+    });
+
+    // keywords
+    const kl = document.getElementById('keywordsList');
+    kl.innerHTML = '';
+    (d.keywords || []).forEach(k => {
+      const t = document.createElement('span');
+      t.className = 'tag tag-blue'; t.textContent = k; kl.appendChild(t);
+    });
+
+    // improvements
+    const il = document.getElementById('improveList');
+    il.innerHTML = '';
+    (d.improvements || []).forEach(i => {
+      const li = document.createElement('li'); li.textContent = i; il.appendChild(li);
+    });
+
+    // save to history
+    saveToHistory(d, selectedFile ? selectedFile.name : 'Resume');
+
+    resultPanel.style.display = 'block';
+    resultPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
 
   function setLoading(on) {
     analyzeBtn.disabled = on;
@@ -614,16 +812,157 @@
     loader.classList.toggle('active', on);
   }
 
-  function showResult(text) {
-    resultText.textContent = text;
-    resultPanel.style.display = 'block';
-    resultPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }
-
   function showError(msg) {
     errorBox.textContent = '⚠️ ' + msg;
     errorBox.classList.add('active');
   }
+
+  /* ══════════════════════════════════════════
+     LOGIN MODAL  +  SESSION  +  HISTORY SAVE
+  ══════════════════════════════════════════ */
+  function openModal() {
+    const sess = JSON.parse(localStorage.getItem('rai_session') || 'null');
+    if (sess) { window.location.href = '/dashboard.html'; return; }
+    document.getElementById('loginModal').classList.add('open');
+    document.getElementById('modalError').style.display = 'none';
+    document.getElementById('modalSuccess').style.display = 'none';
+  }
+  function closeModal() { document.getElementById('loginModal').classList.remove('open'); }
+  function handleOverlayClick(e) { if (e.target === document.getElementById('loginModal')) closeModal(); }
+
+  function switchTab(tab) {
+    document.getElementById('formLogin').style.display    = tab === 'login'    ? 'block' : 'none';
+    document.getElementById('formRegister').style.display = tab === 'register' ? 'block' : 'none';
+    document.getElementById('tabLogin').classList.toggle('active', tab === 'login');
+    document.getElementById('tabRegister').classList.toggle('active', tab === 'register');
+    document.getElementById('modalError').style.display = 'none';
+    document.getElementById('modalSuccess').style.display = 'none';
+  }
+
+  function showModalError(msg) {
+    const el = document.getElementById('modalError');
+    el.textContent = msg; el.style.display = 'block';
+    document.getElementById('modalSuccess').style.display = 'none';
+  }
+  function showModalSuccess(msg) {
+    const el = document.getElementById('modalSuccess');
+    el.textContent = msg; el.style.display = 'block';
+    document.getElementById('modalError').style.display = 'none';
+  }
+
+  function getUsers() { return JSON.parse(localStorage.getItem('rai_users') || '{}'); }
+  function saveUsers(u) { localStorage.setItem('rai_users', JSON.stringify(u)); }
+
+  function doRegister() {
+    const name  = document.getElementById('regName').value.trim();
+    const email = document.getElementById('regEmail').value.trim().toLowerCase();
+    const pass  = document.getElementById('regPassword').value;
+    if (!name || !email || !pass) { showModalError('Please fill in all fields.'); return; }
+    if (pass.length < 6) { showModalError('Password must be at least 6 characters.'); return; }
+    const users = getUsers();
+    if (users[email]) { showModalError('This email is already registered.'); return; }
+    users[email] = { name, pass };
+    saveUsers(users);
+    localStorage.setItem('rai_session', JSON.stringify({ email, name }));
+    showModalSuccess('Account created! Welcome, ' + name + '!');
+    setTimeout(() => { closeModal(); updateNavAuth(); }, 900);
+  }
+
+  function doLogin() {
+    const email = document.getElementById('loginEmail').value.trim().toLowerCase();
+    const pass  = document.getElementById('loginPassword').value;
+    if (!email || !pass) { showModalError('Please enter email and password.'); return; }
+    const users = getUsers();
+    if (!users[email] || users[email].pass !== pass) { showModalError('Incorrect email or password.'); return; }
+    localStorage.setItem('rai_session', JSON.stringify({ email, name: users[email].name }));
+    showModalSuccess('Welcome back, ' + users[email].name + '! 👋');
+    setTimeout(() => { closeModal(); updateNavAuth(); }, 800);
+  }
+
+  function updateNavAuth() {
+    const sess = JSON.parse(localStorage.getItem('rai_session') || 'null');
+    const btn = document.getElementById('loginBtn');
+    if (sess) {
+      btn.textContent = sess.name.split(' ')[0] + ' ▾';
+      btn.onclick = () => { window.location.href = '/dashboard.html'; };
+    }
+  }
+
+  // ─ Feature modals ─
+  const FEATURES = {
+    ats: {
+      icon: '🎯', title: 'ATS Optimization',
+      desc: 'Most companies use Applicant Tracking Systems to filter resumes before a human ever reads them. Our AI checks your resume against the exact criteria these systems use.',
+      items: ['Keyword density and placement analysis', 'Detection of ATS-unfriendly formatting (tables, columns, images)', 'Job-description keyword matching', 'Section header recognition (Experience, Education, Skills)', 'File format compatibility check']
+    },
+    insights: {
+      icon: '💡', title: 'Expert Insights',
+      desc: 'Our AI is trained on thousands of successful resumes across all industries. It gives you the same feedback a professional recruiter or career coach would.',
+      items: ['Industry-specific language and tone assessment', 'Impact statement quality (weak vs strong action verbs)', 'Quantifiable achievement detection', 'Gap analysis — missing sections or information', 'Tailored recommendations per job level']
+    },
+    instant: {
+      icon: '⚡', title: 'Instant Results',
+      desc: 'No waiting days for a career coach appointment. Upload your resume and receive a complete, detailed analysis in under 30 seconds.',
+      items: ['Full analysis delivered in < 30 seconds', 'Available 24/7, any time zone', 'No sign-up required for basic analysis', 'Re-analyze after edits as many times as you like', 'Results saved to your personal history']
+    },
+    scoring: {
+      icon: '📊', title: 'Scoring System',
+      desc: 'A clear, objective score across multiple dimensions so you know exactly where to focus your effort.',
+      items: ['Overall score out of 100', 'ATS compatibility sub-score', 'Content quality sub-score', 'Formatting and visual clarity sub-score', 'Score history to track improvement over time']
+    },
+    private: {
+      icon: '🔒', title: '100% Private',
+      desc: 'Your resume contains sensitive personal information. We take privacy seriously and never store or share your documents.',
+      items: ['Uploaded files deleted immediately after analysis', 'No data sold to third parties, ever', 'Analyses stored only in your own browser (localStorage)', 'No account required for one-time analysis', 'HTTPS encrypted connection']
+    },
+    format: {
+      icon: '🎨', title: 'Format Guide',
+      desc: 'Visual presentation matters. A well-formatted resume is easier to read and makes a stronger first impression.',
+      items: ['Font and spacing recommendations', 'Optimal length guidance (1 vs 2 pages)', 'Section order best practices', 'Bullet point style and length tips', 'Contact info and header layout advice']
+    }
+  };
+
+  function openFeat(key) {
+    const f = FEATURES[key];
+    document.getElementById('featIcon').textContent  = f.icon;
+    document.getElementById('featTitle').textContent = f.title;
+    document.getElementById('featDesc').textContent  = f.desc;
+    document.getElementById('featList').innerHTML = f.items.map(i => `<li>${i}</li>`).join('');
+    document.getElementById('featModal').classList.add('open');
+  }
+  function closeFeat() { document.getElementById('featModal').classList.remove('open'); }
+
+  // ─ Social login (simulated — real OAuth needs a backend) ─
+  function socialLogin(provider) {
+    const name  = provider === 'google' ? 'Google User' : 'GitHub User';
+    const email = provider + '_user@demo.local';
+    const users = getUsers();
+    if (!users[email]) { users[email] = { name, pass: '__social__' }; saveUsers(users); }
+    localStorage.setItem('rai_session', JSON.stringify({ email, name }));
+    showModalSuccess('Signed in with ' + (provider === 'google' ? 'Google' : 'GitHub') + '! 🎉');
+    setTimeout(() => { closeModal(); updateNavAuth(); }, 800);
+  }
+  function saveToHistory(data, filename) {
+    const h = JSON.parse(localStorage.getItem('rai_history') || '[]');
+    h.unshift({
+      id: Date.now(),
+      date: new Date().toISOString(),
+      filename: filename || 'Resume',
+      score: data.overall_score,
+      ats_score: data.ats_score,
+      formatting_score: data.formatting_score,
+      content_score: data.content_score,
+      summary: data.summary,
+      strengths: data.strengths,
+      keywords: data.keywords,
+      improvements: data.improvements
+    });
+    if (h.length > 50) h.pop();
+    localStorage.setItem('rai_history', JSON.stringify(h));
+  }
+
+  // on page load — restore nav auth state
+  window.addEventListener('DOMContentLoaded', updateNavAuth);
 </script>
 </body>
 </html>
