@@ -1,0 +1,20 @@
+# requirements-full.txt — полный набор для production
+# Установить ПОСЛЕ того как базовый запуск работает:
+# pip install -r requirements-full.txt
+
+# Всё из минимального
+-r requirements.txt
+
+# Stripe платежи
+stripe==11.3.0
+
+# PayPal платежи
+paypalrestsdk==1.13.3
+
+# Celery фоновые задачи
+celery==5.4.0
+redis==5.2.1
+flower==2.0.1
+
+# PostgreSQL (когда перейдём с SQLite)
+psycopg2-binary==2.9.10

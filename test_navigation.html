@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Navigation Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        nav { position: sticky; top: 0; background: #333; color: white; padding: 10px; }
+        nav a { color: white; margin: 0 10px; text-decoration: none; }
+        section { height: 500px; margin: 20px 0; padding: 20px; border: 2px solid #ccc; }
+        section[id] { scroll-margin-top: 72px; }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="#features" onclick="navScroll('features');return false">Features</a>
+        <a href="#how-it-works" onclick="navScroll('how-it-works');return false">How It Works</a>
+        <a href="#pricing" onclick="navScroll('pricing');return false">Pricing</a>
+        <a href="#testimonials" onclick="navScroll('testimonials');return false">Testimonials</a>
+    </nav>
+
+    <section id="features">
+        <h2>Features Section</h2>
+        <p>This is the features section content.</p>
+    </section>
+
+    <section id="how-it-works">
+        <h2>How It Works Section</h2>
+        <p>This is the how it works section content.</p>
+    </section>
+
+    <section id="pricing">
+        <h2>Pricing Section</h2>
+        <p>This is the pricing section content.</p>
+    </section>
+
+    <section id="testimonials">
+        <h2>Testimonials Section</h2>
+        <p>This is the testimonials section content.</p>
+    </section>
+
+    <script>
+        function navScroll(id) {
+            console.log('navScroll called with id:', id);
+            const el = document.getElementById(id);
+            if (!el) {
+                console.error('Element not found:', id);
+                return;
+            }
+            const top = el.getBoundingClientRect().top + window.scrollY - 72;
+            console.log('Scrolling to:', top);
+            window.scrollTo({ top, behavior: 'smooth' });
+        }
+    </script>
+</body>
+</html>

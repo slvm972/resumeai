@@ -39,3 +39,6 @@ uploads/*
 
 # Logs
 *.log
+.aider*
+
+config.env

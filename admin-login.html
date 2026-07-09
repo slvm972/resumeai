@@ -91,7 +91,7 @@ async function doLogin() {
     if (response.ok) {
       showSuc('Login successful! Redirecting...');
       setTimeout(() => {
-        window.location.href = '/admin.html';
+        window.location.href = '/';
       }, 1000);
     } else {
       showErr(data.error || 'Login failed');

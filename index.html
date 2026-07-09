@@ -1,3 +1,34 @@
+<!--
+════════════════════════════════════════════════════════════════════════════════
+                    ResumeAI - Frontend (v3 - FINAL)
+════════════════════════════════════════════════════════════════════════════════
+
+✅ ИСПРАВЛЕНИЯ ВЕРСИИ 3:
+
+1. ДИНАМИЧЕСКАЯ КНОПКА СКАЧИВАНИЯ (Проблема #1):
+   ├─ Добавлен ID к кнопке: id="downloadBtn"
+   ├─ Переменная lastImprovedFormat сохраняет формат файла
+   ├─ Текст кнопки меняется динамически:
+   │  ├─ DOCX файл → "⬇️ Download as DOCX"
+   │  ├─ TXT файл → "⬇️ Download as TXT"
+   │  └─ PDF файл → "⬇️ Download as PDF"
+   └─ Функция downloadImproved() поддерживает все форматы
+
+2. МНОГОЯЗЫЧНЫЙ ИНТЕРФЕЙС:
+   ├─ Поддержка всех языков (иврит, русский, украинский, английский)
+   ├─ JSON от backend содержит original_format
+   └─ Frontend правильно обрабатывает разные форматы
+
+════════════════════════════════════════════════════════════════════════════════
+
+ИСПОЛЬЗОВАНИЕ:
+   1. Замени D:\github_projects\resumeai\index.html на этот файл
+   2. Перезагрузи браузер: F5 или Ctrl+Shift+Delete (очистить кеш)
+   3. Загрузи резюме и проверь что кнопка показывает правильный формат
+
+════════════════════════════════════════════════════════════════════════════════
+-->
+
 <!DOCTYPE html>
 <html lang="en" style="scroll-behavior: smooth;">
 <head>
@@ -32,6 +63,9 @@
     }
     /* anchor scroll offset — accounts for sticky nav height */
     section[id] { scroll-margin-top: 72px; }
+    
+    /* Force browser to reload CSS */
+    nav { position: relative !important; }
 
     /* ─── NAV ─────────────────────────────────────────── */
     nav {
@@ -49,7 +83,7 @@
     .logo { font-size: 1.25rem; font-weight: 700; color: var(--text); text-decoration: none; display: flex; align-items: center; gap: .5rem; }
     .logo span { background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
     .nav-links { display: flex; gap: 1.5rem; list-style: none; }
-    .nav-links a { color: var(--muted); text-decoration: none; font-size: .9rem; transition: color .2s; }
+    .nav-links a { color: var(--muted); text-decoration: none; font-size: .9rem; transition: color .2s; cursor: pointer; }
     .nav-links a:hover { color: var(--text); }
     .nav-cta { background: var(--accent); color: #fff; padding: .45rem 1.1rem; border-radius: 8px; text-decoration: none; font-size: .85rem; font-weight: 600; transition: opacity .2s; }
     .nav-cta:hover { opacity: .85; }
@@ -351,6 +385,10 @@
     }
   </style>
 </head>
+
+<!-- ── Библиотека для создания DOCX файлов на frontend ──────────────────────── -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/docx/8.5.0/docx.min.js"></script>
+
 <body>
 
 <!-- ─── NAV ─────────────────────────────────────────── -->
@@ -358,10 +396,10 @@
   <div class="nav-inner">
     <a href="/" class="logo">🧠 <span>ResumeAI</span></a>
     <ul class="nav-links">
-      <li><a href="#features"     onclick="navScroll('features');return false">Features</a></li>
-      <li><a href="#how-it-works" onclick="navScroll('how-it-works');return false">How It Works</a></li>
-      <li><a href="#pricing"      onclick="navScroll('pricing');return false">Pricing</a></li>
-      <li><a href="#testimonials" onclick="navScroll('testimonials');return false">Reviews</a></li>
+      <li><a href="#features">Features</a></li>
+      <li><a href="#how-it-works">How It Works</a></li>
+      <li><a href="#pricing">Pricing</a></li>
+      <li><a href="#testimonials">Reviews</a></li>
       <li><a href="dashboard.html">Dashboard</a></li>
       <li><a href="history.html">History</a></li>
     </ul>
@@ -380,7 +418,7 @@
       <p class="hero-sub">Upload your resume and get instant expert feedback. Improve your chances of landing your dream job with clear, actionable insights.</p>
       <div class="hero-btns">
         <a href="#upload" class="btn-primary">Analyze Resume Free</a>
-        <a href="#pricing" class="btn-secondary" onclick="navScroll('pricing');return false">See Pricing</a>
+        <a href="#pricing" class="btn-secondary">See Pricing</a>
       </div>
       <div class="stats">
         <div class="stat"><div class="stat-num">10K+</div><div class="stat-label">Resumes Analyzed</div></div>
@@ -406,6 +444,16 @@
         <span id="btnLabel">⚡ Analyze Resume</span>
       </button>
 
+      <!-- Optional job description -->
+      <div style="margin-top:.75rem">
+        <button onclick="toggleJD()" id="jdToggle" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:.45rem .9rem;font-size:.8rem;cursor:pointer;width:100%">
+          + Add Job Description (optional — for targeted analysis)
+        </button>
+        <div id="jdBox" style="display:none;margin-top:.6rem">
+          <textarea id="jobDesc" rows="5" placeholder="Paste the job description here to get keyword matching and targeted recommendations…" style="width:100%;padding:.75rem 1rem;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.85rem;resize:vertical;box-sizing:border-box"></textarea>
+        </div>
+      </div>
+
       <!-- Loader -->
       <div class="loader" id="loader">
         <div class="spinner"></div>
@@ -420,6 +468,12 @@
         <div class="result-header">
           <h3>✅ Analysis Complete</h3>
           <span class="result-badge">Done</span>
+        </div>
+
+        <!-- Free preview banner (hidden for admin) -->
+        <div id="freeBanner" style="display:none;background:linear-gradient(135deg,rgba(59,130,246,.15),rgba(6,182,212,.15));border:1px solid rgba(59,130,246,.3);border-radius:10px;padding:.85rem 1rem;margin-bottom:1rem;font-size:.85rem;color:#93c5fd;line-height:1.5">
+          🔒 <strong>Free Preview</strong> — You're seeing a partial analysis.
+          <a href="#" onclick="scrollToPricing();return false;" style="color:#60a5fa;text-decoration:underline;margin-left:.3rem">Unlock full analysis →</a>
         </div>
 
         <!-- Overall score ring -->
@@ -451,6 +505,25 @@
           </div>
         </div>
 
+        <!-- Job match (shown only when job description provided) -->
+        <div id="jobMatchSection" style="display:none;margin-bottom:1rem">
+          <div style="background:linear-gradient(135deg,rgba(16,185,129,.1),rgba(6,182,212,.1));border:1px solid rgba(16,185,129,.3);border-radius:10px;padding:1rem">
+            <h4 style="font-size:.9rem;margin-bottom:.6rem">🎯 Job Match Score</h4>
+            <div style="display:flex;align-items:center;gap:1rem;margin-bottom:.6rem">
+              <div style="font-size:2rem;font-weight:700;color:#10b981" id="jobMatchScore">—</div>
+              <div style="font-size:.8rem;color:var(--muted)" id="jobMatchLabel"></div>
+            </div>
+            <div>
+              <div style="font-size:.8rem;color:var(--muted);margin-bottom:.35rem">✅ Keywords found:</div>
+              <div id="matchedKeywords" class="tag-list"></div>
+            </div>
+            <div style="margin-top:.6rem">
+              <div style="font-size:.8rem;color:var(--muted);margin-bottom:.35rem">❌ Missing keywords:</div>
+              <div id="missingKeywords" class="tag-list"></div>
+            </div>
+          </div>
+        </div>
+
         <!-- Summary -->
         <div class="result-summary" id="summaryText"></div>
 
@@ -470,6 +543,34 @@
         <div class="result-section">
           <h4>🚀 Improvements</h4>
           <ul class="improve-list" id="improveList"></ul>
+          <!-- Locked improvements (free users) -->
+          <div id="improveListLocked" style="display:none;margin-top:.5rem">
+            <ul class="improve-list" style="filter:blur(3.5px);pointer-events:none;user-select:none;opacity:.6">
+              <li>Restructure your experience section using the STAR method for stronger impact</li>
+              <li>Add quantifiable metrics to at least 60% of your bullet points</li>
+              <li>Include a professional summary tailored to your target role</li>
+              <li>Optimize LinkedIn URL and remove outdated contact details</li>
+            </ul>
+            <div style="text-align:center;margin-top:.75rem">
+              <a href="#" onclick="scrollToPricing();return false;" class="btn-primary" style="display:inline-block;padding:.6rem 1.5rem;font-size:.85rem;text-decoration:none">🔒 Unlock All Recommendations</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Improve button -->
+        <div id="improveBtnWrap" style="display:none;margin-top:1rem">
+          <button id="improveBtn" class="btn-primary" style="width:100%" onclick="improveResume()">
+            ✨ Improve My Resume
+          </button>
+        </div>
+        <!-- Locked improve button (free users) -->
+        <div id="improveBtnLocked" style="display:none;margin-top:1rem">
+          <div style="position:relative;border-radius:10px;overflow:hidden">
+            <button class="btn-primary" style="width:100%;filter:blur(1px);pointer-events:none;opacity:.5">✨ Improve My Resume</button>
+            <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.3);border-radius:10px">
+              <a href="#" onclick="scrollToPricing();return false;" style="color:#fff;font-weight:600;font-size:.9rem;text-decoration:none">🔒 Available in paid plan</a>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -502,21 +603,12 @@
     <div id="modalError" class="modal-error"></div>
     <div id="modalSuccess" class="modal-success"></div>
 
-    <!-- Social login -->
-    <button class="btn-google" onclick="socialLogin('google')">
-      <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-      Continue with Google
-    </button>
-    <button class="btn-github" onclick="socialLogin('github')">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-      Continue with GitHub
-    </button>
-    <div class="divider-row">or sign in with email</div>
+
 
     <div id="formLogin">
       <div class="form-group">
         <label>Email</label>
-        <input type="email" id="loginEmail" placeholder="you@example.com" />
+        <input type="text" id="loginEmail" placeholder="email or admin" autocomplete="username" />
       </div>
       <div class="form-group">
         <label>Password</label>
@@ -541,7 +633,7 @@
       <button class="btn-primary" style="width:100%;margin-top:.5rem" onclick="doRegister()">Create Account</button>
     </div>
   </div>
-</section>
+</div>
 
 <hr class="divider">
 
@@ -581,26 +673,32 @@
 <!-- ─── TESTIMONIALS ──────────────────────────────────── -->
 <section class="section" id="testimonials">
   <div class="section-title">
-    <h2>What Users Say</h2>
-    <p>Real results from real job seekers</p>
+    <h2>Reviews</h2>
+    <p>Share your experience — help others make the right choice</p>
   </div>
-  <div class="reviews-grid">
-    <div class="review-card">
-      <div class="stars">⭐⭐⭐⭐⭐</div>
-      <p class="review-text">"Got 3× more interview calls after implementing the suggestions. Landed my dream job at Google!"</p>
-      <div class="reviewer"><div class="reviewer-avatar">👨‍💻</div><div><div class="reviewer-name">Alex Chen</div><div class="reviewer-role">Software Engineer</div></div></div>
-    </div>
-    <div class="review-card">
-      <div class="stars">⭐⭐⭐⭐⭐</div>
-      <p class="review-text">"The ATS optimization tips were game-changing. Finally started getting responses from applications."</p>
-      <div class="reviewer"><div class="reviewer-avatar">👩‍💼</div><div><div class="reviewer-name">Sarah Johnson</div><div class="reviewer-role">Marketing Manager</div></div></div>
-    </div>
-    <div class="review-card">
-      <div class="stars">⭐⭐⭐⭐⭐</div>
-      <p class="review-text">"Worth every penny. The detailed feedback helped me understand what recruiters actually look for."</p>
-      <div class="reviewer"><div class="reviewer-avatar">👨‍🎨</div><div><div class="reviewer-name">Mike Rodriguez</div><div class="reviewer-role">UX Designer</div></div></div>
+  <div style="max-width:560px;margin:0 auto 2.5rem;">
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:16px;padding:2rem;">
+      <h3 style="font-size:1.1rem;margin-bottom:1.25rem">Leave a Review</h3>
+      <div style="margin-bottom:1rem">
+        <label style="display:block;margin-bottom:.4rem;font-size:.85rem;color:var(--muted)">Your name</label>
+        <input type="text" id="reviewName" placeholder="John Smith" style="width:100%;padding:.75rem 1rem;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.95rem;box-sizing:border-box" />
+      </div>
+      <div style="margin-bottom:1rem">
+        <label style="display:block;margin-bottom:.4rem;font-size:.85rem;color:var(--muted)">Rating</label>
+        <div id="starRating" style="display:flex;gap:.4rem;font-size:1.8rem;cursor:pointer;user-select:none">
+          <span data-v="1">☆</span><span data-v="2">☆</span><span data-v="3">☆</span><span data-v="4">☆</span><span data-v="5">☆</span>
+        </div>
+      </div>
+      <div style="margin-bottom:1.25rem">
+        <label style="display:block;margin-bottom:.4rem;font-size:.85rem;color:var(--muted)">Your review</label>
+        <textarea id="reviewText" rows="4" placeholder="Tell us about your experience with ResumeAI..." style="width:100%;padding:.75rem 1rem;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.95rem;resize:vertical;box-sizing:border-box"></textarea>
+      </div>
+      <button class="btn-primary" style="width:100%" onclick="submitReview()">Submit Review</button>
+      <p id="reviewMsg" style="margin-top:.75rem;font-size:.85rem;text-align:center;display:none"></p>
     </div>
   </div>
+
+  <div id="reviewsList" style="max-width:760px;margin:0 auto;display:grid;gap:1rem;grid-template-columns:repeat(auto-fill,minmax(280px,1fr))"></div>
 </section>
 
 <hr class="divider">
@@ -674,15 +772,15 @@
     <div class="footer-col">
       <h4>Company</h4>
       <ul>
-        <li><a href="#">About</a></li>
-        <li><a href="#">Contact</a></li>
-        <li><a href="#">Privacy</a></li>
-        <li><a href="#">Terms</a></li>
+        <li><a href="#" onclick="openInfoModal('about');return false;">About</a></li>
+        <li><a href="#" onclick="openInfoModal('contact');return false;">Contact</a></li>
+        <li><a href="#" onclick="openInfoModal('privacy');return false;">Privacy</a></li>
+        <li><a href="#" onclick="openInfoModal('terms');return false;">Terms</a></li>
       </ul>
     </div>
     <div class="footer-col">
       <h4>Payment</h4>
-      <ul><li><a href="#">🍋 Secured by Lemon Squeezy</a></li></ul>
+      <ul><li><a href="https://www.lemonsqueezy.com" target="_blank" rel="noopener">🍋 Secured by Lemon Squeezy</a></li></ul>
     </div>
   </div>
   <div class="footer-bottom">
@@ -697,11 +795,17 @@
 <script>
   const BACKEND_URL = 'http://127.0.0.1:5000/api/analyze';
 
-  // ─ Smooth anchor navigation (works even with overflow:hidden on body) ─
+  // Smooth anchor navigation (works even with overflow:hidden on body)
   function navScroll(id) {
+    console.log('navScroll called with:', id);
     const el = document.getElementById(id);
-    if (!el) return;
+    if (!el) {
+      console.error('Element not found:', id);
+      return;
+    }
+    console.log('Element found:', el);
     const top = el.getBoundingClientRect().top + window.scrollY - 72;
+    console.log('Scrolling to position:', top);
     window.scrollTo({ top, behavior: 'smooth' });
   }
 
@@ -733,6 +837,14 @@
     errorBox.classList.remove('active');
   }
 
+  function toggleJD() {
+    const box = document.getElementById('jdBox');
+    const btn = document.getElementById('jdToggle');
+    const open = box.style.display === 'none';
+    box.style.display = open ? 'block' : 'none';
+    btn.textContent = open ? '− Hide Job Description' : '+ Add Job Description (optional — for targeted analysis)';
+  }
+
   /* ─ analyze ─ */
   analyzeBtn.addEventListener('click', async () => {
     if (!selectedFile) return;
@@ -744,11 +856,16 @@
 
     const formData = new FormData();
     formData.append('file', selectedFile);
+    const jobDesc = document.getElementById('jobDesc').value.trim();
+    if (jobDesc) formData.append('job_description', jobDesc);
 
     try {
       const res = await fetch(BACKEND_URL, { method: 'POST', body: formData });
       if (!res.ok) throw new Error(`Server error ${res.status}: ${await res.text()}`);
       const data = await res.json();
+      lastResumeText = data.resume_text || null;
+      lastJobDesc = jobDesc || null;
+      lastOriginalFormat = data.original_format || 'txt';  // сохраняем формат
       renderResult(data);
     } catch (err) {
       showError('Cannot reach server. Make sure app.py is running. ' + err.message);
@@ -759,10 +876,12 @@
 
   /* ─ render rich result ─ */
   function renderResult(d) {
+    const isAdmin = d.is_admin === true;
+
     // overall score ring
     const score = d.overall_score ?? d.score ?? 0;
     document.getElementById('scoreNum').textContent = score;
-    const circ = 2 * Math.PI * 40; // 251.2
+    const circ = 2 * Math.PI * 40;
     const offset = circ - (score / 100) * circ;
     const ring = document.getElementById('ringFill');
     ring.style.strokeDashoffset = offset;
@@ -795,15 +914,56 @@
     // improvements
     const il = document.getElementById('improveList');
     il.innerHTML = '';
-    (d.improvements || []).forEach(i => {
-      const li = document.createElement('li'); li.textContent = i; il.appendChild(li);
-    });
+    const allImprovements = d.improvements || [];
+
+    if (isAdmin) {
+      // Admin: show everything
+      allImprovements.forEach(i => {
+        const li = document.createElement('li'); li.textContent = i; il.appendChild(li);
+      });
+      document.getElementById('freeBanner').style.display = 'none';
+      document.getElementById('improveListLocked').style.display = 'none';
+      document.getElementById('improveBtnWrap').style.display = 'block';
+      document.getElementById('improveBtnLocked').style.display = 'none';
+    } else {
+      // Free user: show only first 3 improvements, blur the rest
+      const preview = allImprovements.slice(0, 3);
+      preview.forEach(i => {
+        const li = document.createElement('li'); li.textContent = i; il.appendChild(li);
+      });
+      document.getElementById('freeBanner').style.display = 'block';
+      document.getElementById('improveListLocked').style.display = allImprovements.length > 3 ? 'block' : 'none';
+      document.getElementById('improveBtnWrap').style.display = 'none';
+      document.getElementById('improveBtnLocked').style.display = 'block';
+    }
+
+    // job match section
+    if (d.job_match) {
+      const jm = d.job_match;
+      document.getElementById('jobMatchSection').style.display = 'block';
+      document.getElementById('jobMatchScore').textContent = jm.score + '%';
+      document.getElementById('jobMatchLabel').textContent = jm.score >= 80 ? 'Excellent match!' : jm.score >= 60 ? 'Good match — a few gaps to fill' : 'Low match — resume needs targeted updates';
+      document.getElementById('jobMatchLabel').style.color = jm.score >= 80 ? '#10b981' : jm.score >= 60 ? '#f59e0b' : '#ef4444';
+      const mk = document.getElementById('matchedKeywords');
+      mk.innerHTML = (jm.matched || []).map(k => `<span class="tag tag-green">${k}</span>`).join('');
+      const msk = document.getElementById('missingKeywords');
+      msk.innerHTML = (jm.missing || []).map(k => `<span class="tag" style="background:rgba(239,68,68,.1);color:#f87171;border:1px solid rgba(239,68,68,.2)">${k}</span>`).join('');
+    } else {
+      document.getElementById('jobMatchSection').style.display = 'none';
+    }
 
     // save to history
     saveToHistory(d, selectedFile ? selectedFile.name : 'Resume');
 
+    // store for improve feature
+    lastAnalysisData = d;
+
     resultPanel.style.display = 'block';
     resultPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function scrollToPricing() {
+    document.getElementById('pricing').scrollIntoView({ behavior: 'smooth' });
   }
 
   function setLoading(on) {
@@ -821,8 +981,6 @@
      LOGIN MODAL  +  SESSION  +  HISTORY SAVE
   ══════════════════════════════════════════ */
   function openModal() {
-    const sess = JSON.parse(localStorage.getItem('rai_session') || 'null');
-    if (sess) { window.location.href = '/dashboard.html'; return; }
     document.getElementById('loginModal').classList.add('open');
     document.getElementById('modalError').style.display = 'none';
     document.getElementById('modalSuccess').style.display = 'none';
@@ -850,43 +1008,90 @@
     document.getElementById('modalError').style.display = 'none';
   }
 
-  function getUsers() { return JSON.parse(localStorage.getItem('rai_users') || '{}'); }
-  function saveUsers(u) { localStorage.setItem('rai_users', JSON.stringify(u)); }
-
-  function doRegister() {
+  // ── Real backend auth ──────────────────────────────────────────────────────
+  async function doRegister() {
     const name  = document.getElementById('regName').value.trim();
     const email = document.getElementById('regEmail').value.trim().toLowerCase();
     const pass  = document.getElementById('regPassword').value;
     if (!name || !email || !pass) { showModalError('Please fill in all fields.'); return; }
     if (pass.length < 6) { showModalError('Password must be at least 6 characters.'); return; }
-    const users = getUsers();
-    if (users[email]) { showModalError('This email is already registered.'); return; }
-    users[email] = { name, pass };
-    saveUsers(users);
-    localStorage.setItem('rai_session', JSON.stringify({ email, name }));
-    showModalSuccess('Account created! Welcome, ' + name + '!');
-    setTimeout(() => { closeModal(); updateNavAuth(); }, 900);
+    try {
+      const res = await fetch('/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, password: pass })
+      });
+      const data = await res.json();
+      if (!res.ok) { showModalError(data.error || 'Registration error'); return; }
+      currentUser = data.user;
+      showModalSuccess('Account created! Welcome, ' + data.user.name + '! 🎉');
+      setTimeout(() => { closeModal(); updateNavAuth(); }, 900);
+    } catch(e) { showModalError('Server error. Try again.'); }
   }
 
-  function doLogin() {
-    const email = document.getElementById('loginEmail').value.trim().toLowerCase();
-    const pass  = document.getElementById('loginPassword').value;
-    if (!email || !pass) { showModalError('Please enter email and password.'); return; }
-    const users = getUsers();
-    if (!users[email] || users[email].pass !== pass) { showModalError('Incorrect email or password.'); return; }
-    localStorage.setItem('rai_session', JSON.stringify({ email, name: users[email].name }));
-    showModalSuccess('Welcome back, ' + users[email].name + '! 👋');
-    setTimeout(() => { closeModal(); updateNavAuth(); }, 800);
+  async function doLogin() {
+    const emailOrUser = document.getElementById('loginEmail').value.trim();
+    const pass        = document.getElementById('loginPassword').value;
+    if (!emailOrUser || !pass) { showModalError('Please enter email and password.'); return; }
+    try {
+      // Admin login — отдельный endpoint
+      if (emailOrUser.toLowerCase() === 'admin') {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: 'admin', password: pass })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) { showModalError(data.error || 'Wrong admin credentials'); return; }
+        showModalSuccess('Welcome, Admin! Redirecting...');
+        setTimeout(() => { window.location.href = '/admin'; }, 800);
+        return;
+      }
+      // Обычный user login по email
+      const res = await fetch('/api/user/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailOrUser.toLowerCase(), password: pass })
+      });
+      const data = await res.json();
+      if (!res.ok) { showModalError(data.error || 'Login error'); return; }
+      currentUser = data.user;
+      showModalSuccess('Welcome back, ' + data.user.name + '! 👋');
+      setTimeout(() => { closeModal(); updateNavAuth(); }, 800);
+    } catch(e) { showModalError('Server error. Try again.'); }
+  }
+
+  async function doLogout() {
+    await fetch('/api/user/logout', { method: 'POST' });
+    currentUser = null;
+    updateNavAuth();
+  }
+
+  let currentUser = null;
+
+  async function checkSession() {
+    try {
+      const res = await fetch('/api/user/me');
+      const data = await res.json();
+      if (data.logged_in) { currentUser = data.user; updateNavAuth(); }
+    } catch(e) {}
   }
 
   function updateNavAuth() {
-    const sess = JSON.parse(localStorage.getItem('rai_session') || 'null');
     const btn = document.getElementById('loginBtn');
-    if (sess) {
-      btn.textContent = sess.name.split(' ')[0] + ' ▾';
-      btn.onclick = () => { window.location.href = '/dashboard.html'; };
+    if (currentUser) {
+      btn.textContent = currentUser.name.split(' ')[0] + ' ▾';
+      btn.onclick = () => {
+        if (confirm('Sign out?')) doLogout();
+      };
+    } else {
+      btn.textContent = 'Login';
+      btn.onclick = () => openModal();
     }
   }
+
+  // Init: check if already logged in
+  checkSession();
 
   // ─ Feature modals ─
   const FEATURES = {
@@ -932,15 +1137,9 @@
   }
   function closeFeat() { document.getElementById('featModal').classList.remove('open'); }
 
-  // ─ Social login (simulated — real OAuth needs a backend) ─
+  // ─ Social login placeholder ─
   function socialLogin(provider) {
-    const name  = provider === 'google' ? 'Google User' : 'GitHub User';
-    const email = provider + '_user@demo.local';
-    const users = getUsers();
-    if (!users[email]) { users[email] = { name, pass: '__social__' }; saveUsers(users); }
-    localStorage.setItem('rai_session', JSON.stringify({ email, name }));
-    showModalSuccess('Signed in with ' + (provider === 'google' ? 'Google' : 'GitHub') + '! 🎉');
-    setTimeout(() => { closeModal(); updateNavAuth(); }, 800);
+    showModalError('Social login coming soon. Please use email & password.');
   }
   function saveToHistory(data, filename) {
     const h = JSON.parse(localStorage.getItem('rai_history') || '[]');
@@ -954,15 +1153,367 @@
       content_score: data.content_score,
       summary: data.summary,
       strengths: data.strengths,
-      keywords: data.keywords,
+      keywords: data.keywords || data.key_skills || [],
       improvements: data.improvements
     });
     if (h.length > 50) h.pop();
     localStorage.setItem('rai_history', JSON.stringify(h));
   }
 
+  
   // on page load — restore nav auth state
   window.addEventListener('DOMContentLoaded', updateNavAuth);
+
+  // ── Nav scroll handler ───────────────────────────────
+  document.querySelectorAll('.nav-links a[href^="#"]').forEach(link => {
+    link.addEventListener('click', function(e) {
+      e.preventDefault();
+      const targetId = this.getAttribute('href').slice(1);
+      const targetEl = document.getElementById(targetId);
+      if (targetEl) {
+        const top = targetEl.getBoundingClientRect().top + window.scrollY - 64;
+        window.scrollTo({ top, behavior: 'smooth' });
+      }
+    });
+  });
+</script>
+
+<!-- ─── IMPROVE MODAL ─────────────────────────────────── -->
+<style>
+  #improveModal .info-modal { max-width: 680px; }
+  #improvedText {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 1rem; font-size: .85rem; line-height: 1.7; color: #cbd5e1;
+    white-space: pre-wrap; max-height: 55vh; overflow-y: auto; margin: 1rem 0;
+    font-family: 'Inter', sans-serif;
+  }
+  #improvingSpinner { text-align:center; padding: 2rem; color: var(--muted); }
+</style>
+<div class="info-modal-overlay" id="improveModal" onclick="if(event.target===this)closeImproveModal()">
+  <div class="info-modal" style="max-width:680px">
+    <button class="info-modal-close" onclick="closeImproveModal()">✕</button>
+    <h3>✨ Improved Resume</h3>
+    <p style="color:var(--muted);font-size:.85rem">AI-rewritten version based on your analysis results</p>
+    <div id="improvingSpinner" style="display:none">⏳ Rewriting your resume… this may take 15–20 seconds</div>
+    <div id="improvedText" style="display:none"></div>
+    <div id="improveActions" style="display:none;gap:.75rem;flex-wrap:wrap">
+      <button class="btn-primary" onclick="copyImproved()" style="flex:1">📋 Copy to Clipboard</button>
+      <button id="downloadBtn" class="btn-primary" onclick="downloadImproved()" style="flex:1;background:linear-gradient(135deg,#10b981,#06b6d4)">⬇️ Download as TXT</button>
+    </div>
+    <p id="improveModalMsg" style="font-size:.8rem;text-align:center;margin-top:.5rem;display:none"></p>
+  </div>
+</div>
+
+<script>
+  let lastAnalysisData = null;
+  let lastResumeText = null;
+  let lastJobDesc = null;
+  let lastOriginalFormat = 'txt';   // формат загруженного файла (из /api/analyze)
+  let lastImprovedFormat = 'txt';   // формат для скачивания (обновляется после improve)
+
+  function closeImproveModal() {
+    document.getElementById('improveModal').classList.remove('open');
+  }
+
+  async function improveResume() {
+    if (!lastResumeText || !lastAnalysisData) return;
+    document.getElementById('improveModal').classList.add('open');
+    document.getElementById('improvingSpinner').style.display = 'block';
+    document.getElementById('improvedText').style.display = 'none';
+    document.getElementById('improveActions').style.display = 'none';
+    document.getElementById('improveModalMsg').style.display = 'none';
+
+    try {
+      const res = await fetch('/api/improve', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          resume_text: lastResumeText,
+          analysis: lastAnalysisData,
+          original_format: lastOriginalFormat   // передаём формат исходного файла
+        })
+      });
+      const data = await res.json();
+      document.getElementById('improvingSpinner').style.display = 'none';
+      if (data.improved_resume) {
+        document.getElementById('improvedText').textContent = data.improved_resume;
+        document.getElementById('improvedText').style.display = 'block';
+        document.getElementById('improveActions').style.display = 'flex';
+        
+        // ── СОХРАНИТЬ ФОРМАТ РЕЗЮМЕ ──────────────────────────────────────────
+        lastImprovedFormat = data.original_format || lastOriginalFormat || 'txt';
+        
+        // ── ИЗМЕНИТЬ ТЕКСТ КНОПКИ НА ОСНОВЕ ФОРМАТА ─────────────────────────
+        const formatName = lastImprovedFormat === 'docx' ? 'DOCX' : 
+                           lastImprovedFormat === 'pdf' ? 'PDF' :
+                           lastImprovedFormat === 'txt' ? 'TXT' :
+                           lastImprovedFormat.toUpperCase();
+        document.getElementById('downloadBtn').textContent = `⬇️ Download as ${formatName}`;
+      } else {
+        throw new Error(data.error || 'Unknown error');
+      }
+    } catch(e) {
+      document.getElementById('improvingSpinner').style.display = 'none';
+      document.getElementById('improveModalMsg').style.display = 'block';
+      document.getElementById('improveModalMsg').style.color = '#f87171';
+      document.getElementById('improveModalMsg').textContent = 'Error: ' + e.message;
+    }
+  }
+
+  async function copyImproved() {
+    const text = document.getElementById('improvedText').textContent;
+    await navigator.clipboard.writeText(text);
+    const msg = document.getElementById('improveModalMsg');
+    msg.style.display = 'block';
+    msg.style.color = '#34d399';
+    msg.textContent = '✓ Copied to clipboard!';
+    setTimeout(() => msg.style.display = 'none', 2500);
+  }
+
+  function downloadImproved() {
+    const text = document.getElementById('improvedText').textContent;
+    const format = lastImprovedFormat || 'txt';
+    
+    // ── ЕСЛИ DOCX: Создать РЕАЛЬНЫЙ DOCX файл с помощью docx.js ──────────────
+    if (format === 'docx' || format === 'doc') {
+      try {
+        // Проверить что библиотека docx доступна
+        if (typeof window.docx === 'undefined') {
+          console.warn('[WARN] docx library not loaded, using fallback text format');
+          downloadAsText(text, 'improved_resume.docx');
+          return;
+        }
+        
+        // Создать документ с помощью docx.js
+        const sections = text.split('\n\n').map(paragraph => 
+          new window.docx.Paragraph({
+            text: paragraph.trim(),
+            spacing: { line: 360, lineRule: "auto" },
+            alignment: window.docx.AlignmentType.LEFT
+          })
+        );
+        
+        const doc = new window.docx.Document({
+          sections: [{
+            properties: {},
+            children: sections.length > 0 ? sections : [
+              new window.docx.Paragraph({
+                text: text,
+                spacing: { line: 360, lineRule: "auto" }
+              })
+            ]
+          }]
+        });
+        
+        // Скачать как DOCX
+        window.docx.Packer.toBlob(doc).then(blob => {
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = 'improved_resume.docx';
+          a.click();
+          URL.revokeObjectURL(a.href);
+          
+          // Сообщение об успехе
+          showDownloadSuccess('improved_resume.docx');
+        }).catch(err => {
+          console.error('[ERROR] Failed to create DOCX:', err);
+          downloadAsText(text, 'improved_resume.docx');
+        });
+      } catch (err) {
+        console.error('[ERROR] DOCX creation error:', err);
+        downloadAsText(text, 'improved_resume.docx');
+      }
+    } 
+    // ── ЕСЛИ TXT: Создать текстовый файл ──────────────────────────────────────
+    else if (format === 'txt') {
+      downloadAsText(text, 'improved_resume.txt');
+    } 
+    // ── ЕСЛИ PDF: Создать текстовый файл с расширением .pdf ────────────────────
+    else if (format === 'pdf') {
+      downloadAsText(text, 'improved_resume.pdf');
+    }
+  }
+  
+  // ── Вспомогательная функция для скачивания текста ────────────────────────────
+  function downloadAsText(text, filename) {
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    showDownloadSuccess(filename);
+  }
+  
+  // ── Показать сообщение об успехе ────────────────────────────────────────────
+  function showDownloadSuccess(filename) {
+    const msg = document.getElementById('improveModalMsg');
+    msg.style.display = 'block';
+    msg.style.color = '#34d399';
+    msg.textContent = `✓ Downloaded as ${filename}!`;
+    setTimeout(() => msg.style.display = 'none', 2500);
+  }
+</script>
+<style>
+  .info-modal-overlay {
+    display: none; position: fixed; inset: 0; z-index: 2000;
+    background: rgba(0,0,0,.6); backdrop-filter: blur(4px);
+    align-items: center; justify-content: center;
+  }
+  .info-modal-overlay.open { display: flex; }
+  .info-modal {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 16px; padding: 2rem; max-width: 480px; width: 90%;
+    position: relative; max-height: 80vh; overflow-y: auto;
+  }
+  .info-modal h3 { font-size: 1.3rem; margin-bottom: 1rem; }
+  .info-modal p, .info-modal li { color: var(--muted); font-size: .9rem; line-height: 1.7; }
+  .info-modal ul { padding-left: 1.2rem; margin-top: .5rem; }
+  .info-modal-close {
+    position: absolute; top: 1rem; right: 1rem;
+    background: none; border: none; color: var(--muted);
+    font-size: 1.2rem; cursor: pointer; line-height: 1;
+  }
+  .info-modal-close:hover { color: var(--text); }
+
+  /* Back to Top */
+  #backToTop {
+    display: none; position: fixed; bottom: 2rem; right: 2rem; z-index: 1500;
+    background: linear-gradient(135deg,#3b82f6,#06b6d4);
+    border: none; border-radius: 50%; width: 44px; height: 44px;
+    color: #fff; font-size: 1.2rem; cursor: pointer;
+    box-shadow: 0 4px 15px rgba(59,130,246,.4);
+    transition: opacity .3s, transform .3s;
+  }
+  #backToTop:hover { transform: translateY(-3px); }
+</style>
+
+<div class="info-modal-overlay" id="infoModal" onclick="if(event.target===this)closeInfoModal()">
+  <div class="info-modal">
+    <button class="info-modal-close" onclick="closeInfoModal()">✕</button>
+    <div id="infoModalContent"></div>
+  </div>
+</div>
+
+<button id="backToTop" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Back to top">↑</button>
+
+<script>
+  const infoContent = {
+    about: `<h3>About ResumeAI</h3>
+      <p>ResumeAI is an AI-powered resume analysis tool designed to help job seekers get more interviews. We use advanced language models to evaluate your resume against industry standards and ATS requirements.</p>
+      <p style="margin-top:.75rem">This project is currently in <strong>beta</strong>. We're continuously improving our analysis engine based on real recruiter feedback.</p>`,
+    contact: `<h3>Contact Us</h3>
+      <p>Have a question or feedback? We'd love to hear from you.</p>
+      <ul>
+        <li>Email: <a href="mailto:slvm972@gmail.com" style="color:var(--primary)">slvm972@gmail.com</a></li>
+        <li>Response time: within 24 hours on business days</li>
+      </ul>
+      <p style="margin-top:.75rem">For billing or payment issues, please contact Lemon Squeezy support directly.</p>`,
+    privacy: `<h3>Privacy Policy</h3>
+      <p>Last updated: January 2026</p>
+      <ul>
+        <li>We process your resume solely to generate analysis results.</li>
+        <li>Your resume content is not stored permanently on our servers.</li>
+        <li>We do not sell or share your data with third parties.</li>
+        <li>Payments are processed by Lemon Squeezy — we never see your card details.</li>
+        <li>We use session tokens stored in your browser (localStorage) to maintain login state.</li>
+      </ul>`,
+    terms: `<h3>Terms of Service</h3>
+      <p>Last updated: January 2026</p>
+      <ul>
+        <li>ResumeAI is a digital service — no physical goods are delivered.</li>
+        <li>You must be 18 or older to purchase a subscription.</li>
+        <li>Results are AI-generated and provided for informational purposes only.</li>
+        <li>We reserve the right to refuse service for misuse or abuse.</li>
+        <li>Refund requests are handled through Lemon Squeezy's refund policy.</li>
+      </ul>`
+  };
+
+  function openInfoModal(key) {
+    document.getElementById('infoModalContent').innerHTML = infoContent[key];
+    document.getElementById('infoModal').classList.add('open');
+  }
+  function closeInfoModal() {
+    document.getElementById('infoModal').classList.remove('open');
+  }
+
+  // Star rating
+  let selectedStars = 0;
+  document.getElementById('starRating').addEventListener('mouseover', e => {
+    if (!e.target.dataset.v) return;
+    const v = +e.target.dataset.v;
+    document.querySelectorAll('#starRating span').forEach((s, i) => {
+      s.textContent = i < v ? '⭐' : '☆';
+    });
+  });
+  document.getElementById('starRating').addEventListener('mouseleave', () => {
+    document.querySelectorAll('#starRating span').forEach((s, i) => {
+      s.textContent = i < selectedStars ? '⭐' : '☆';
+    });
+  });
+  document.getElementById('starRating').addEventListener('click', e => {
+    if (!e.target.dataset.v) return;
+    selectedStars = +e.target.dataset.v;
+    document.querySelectorAll('#starRating span').forEach((s, i) => {
+      s.textContent = i < selectedStars ? '⭐' : '☆';
+    });
+  });
+
+  async function loadReviews() {
+    try {
+      const res = await fetch('/api/reviews');
+      const reviews = await res.json();
+      const container = document.getElementById('reviewsList');
+      if (!reviews.length) { container.innerHTML = '<p style="color:var(--muted);text-align:center;grid-column:1/-1">No reviews yet. Be the first!</p>'; return; }
+      container.innerHTML = reviews.map(r => `
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:1.25rem">
+          <div style="font-size:1.1rem;margin-bottom:.5rem">${'⭐'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</div>
+          <p style="color:var(--muted);font-size:.9rem;line-height:1.6;margin-bottom:.75rem">"${r.text}"</p>
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <strong style="font-size:.85rem">${r.name}</strong>
+            <span style="font-size:.75rem;color:var(--muted)">${r.date}</span>
+          </div>
+        </div>`).join('');
+    } catch(e) {}
+  }
+
+  async function submitReview() {
+    const name = document.getElementById('reviewName').value.trim();
+    const text = document.getElementById('reviewText').value.trim();
+    const msg = document.getElementById('reviewMsg');
+    if (!name || !text || !selectedStars) {
+      msg.style.display = 'block'; msg.style.color = '#f87171';
+      msg.textContent = 'Please fill in all fields and select a rating.';
+      return;
+    }
+    try {
+      const res = await fetch('/api/reviews', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name, rating: selectedStars, text})
+      });
+      if (res.ok) {
+        msg.style.display = 'block'; msg.style.color = '#34d399';
+        msg.textContent = '✓ Thank you! Your review has been saved.';
+        document.getElementById('reviewName').value = '';
+        document.getElementById('reviewText').value = '';
+        selectedStars = 0;
+        document.querySelectorAll('#starRating span').forEach(s => s.textContent = '☆');
+        setTimeout(() => { msg.style.display = 'none'; }, 3000);
+        loadReviews();
+      }
+    } catch(e) {
+      msg.style.display = 'block'; msg.style.color = '#f87171';
+      msg.textContent = 'Server error. Please try again.';
+    }
+  }
+
+  loadReviews();
+  window.addEventListener('scroll', () => {
+    document.getElementById('backToTop').style.display =
+      window.scrollY > 400 ? 'flex' : 'none';
+  });
+  document.getElementById('backToTop').style.cssText += 'align-items:center;justify-content:center;';
 </script>
 </body>
 </html>
