@@ -697,16 +697,11 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
         f"3. Return ALL {n} blocks in the SAME order with the SAME ###ITEM_NNN### identifiers\n"
         f"4. Tokens like @@@A1B2C3D4E5F6@@@ are protected values — copy them EXACTLY as-is\n"
         f"5. Improve ONLY: job descriptions and skill descriptions — use stronger, more precise action verbs for what is already described. Do not add new clauses, outcomes, or explanations.\n"
-        f"6. Keep unchanged: everything that is a token, section headers, dates, IDs\n"
-        f"7. Multiline items: keep same number of lines, single newline between them\n"
-        f"8. Do NOT merge blocks, do NOT split blocks, do NOT add extra ###ITEM### markers\n"
-        f"9. NEVER invent or add anything not in the original: no new jobs, certifications, courses, achievements, responsibilities, skills, education, outcomes, results, or causal explanations (phrases like \"resulting in\", \"which improved\", \"leading to\", \"by leveraging\", \"ensuring\", \"driving\"). If a sentence has nothing to strengthen, return it unchanged rather than adding filler."
-    )
-
-    user_prompt = (
-        f"Improve this resume. Return all {n} blocks with their ###ITEM_NNN### identifiers.\n\n"
-        f"{ai_input}\n\n"
-        f"OUTPUT ({n} blocks):"
+        f"6. NEVER downgrade a verb or phrase to something weaker, more generic, or less professional than the original (example of a FORBIDDEN downgrade: \"Collaborated with\" → \"Worked with\"). Only replace a word if the replacement is strictly stronger or more precise (example of a CORRECT upgrade: \"Managed\" → \"Directed\"). If you are not confident the replacement is stronger, leave the original word unchanged.\n"
+        f"7. Keep unchanged: everything that is a token, section headers, dates, IDs\n"
+        f"8. Multiline items: keep same number of lines, single newline between them\n"
+        f"9. Do NOT merge blocks, do NOT split blocks, do NOT add extra ###ITEM### markers\n"
+        f"10. NEVER invent or add anything not in the original: no new jobs, certifications, courses, achievements, responsibilities, skills, education, outcomes, results, or causal explanations (phrases like \"resulting in\", \"which improved\", \"leading to\", \"by leveraging\", \"ensuring\", \"driving\"). If a sentence has nothing to strengthen, return it unchanged rather than adding filler."
     )
 
     payload = {
@@ -859,6 +854,8 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
             f"genuinely nothing to improve. Try again, but only change wording that can be genuinely "
             f"strengthened:\n\n"
             f"- Use a stronger, more precise action verb ONLY if a better one exists for what is already described\n"
+            f"- NEVER replace a word with a weaker or more generic synonym (e.g. \"Collaborated with\" → "
+            f"\"Worked with\" is FORBIDDEN). If unsure the replacement is stronger, keep the original word.\n"
             f"- Do NOT add new clauses, outcomes, or explanations of impact\n"
             f"- Do NOT add causal or result phrases (\"resulting in\", \"which improved\", \"leading to\", "
             f"\"by leveraging\", \"ensuring\", \"driving\", \"informing\")\n"
