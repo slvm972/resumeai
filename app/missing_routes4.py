@@ -101,7 +101,34 @@ def _para_has_complex_formatting(para):
     return False
 
 
-def _replace_para_text(para, new_text):
+def _apply_rtl_direction(para):
+    """
+    Выставить направление письма справа-налево (RTL) на параграфе:
+    - paragraph_format.alignment = RIGHT
+    - <w:bidi/> в pPr — направление параграфа
+    - <w:rtl/> в rPr каждого run — направление текста внутри run
+    Вызывается ПОСЛЕ установки нового текста, когда результат на
+    иврите/арабском — иначе Word отображает текст слева направо.
+    """
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+
+    para.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+
+    pPr = para._p.get_or_add_pPr()
+    if pPr.find(qn('w:bidi')) is None:
+        bidi = OxmlElement('w:bidi')
+        pPr.append(bidi)
+
+    for run in para.runs:
+        rPr = run._r.get_or_add_rPr()
+        if rPr.find(qn('w:rtl')) is None:
+            rtl = OxmlElement('w:rtl')
+            rPr.append(rtl)
+
+
+def _replace_para_text(para, new_text, is_rtl=False):
     """
     Run-safe замена текста параграфа.
     Стратегия:
@@ -111,13 +138,20 @@ def _replace_para_text(para, new_text):
        весь текст в первый run, остальные очищаем (форматирование не теряется)
     4. Неоднородное форматирование (bold+normal, hyperlinks, разные цвета) →
        НЕ ТРОГАЕМ, оставляем оригинал. Надёжность важнее обновления.
+
+    is_rtl: True если итоговый текст на иврите/арабском — тогда параграфу
+    и его runs выставляется направление письма справа-налево (RTL).
     """
     runs = para.runs
     if not runs:
         para.text = new_text
+        if is_rtl:
+            _apply_rtl_direction(para)
         return
     if len(runs) == 1:
         runs[0].text = new_text
+        if is_rtl:
+            _apply_rtl_direction(para)
         return
     # Проверяем сложность форматирования
     if _para_has_complex_formatting(para):
@@ -127,6 +161,8 @@ def _replace_para_text(para, new_text):
     runs[0].text = new_text
     for r in runs[1:]:
         r.text = ""
+    if is_rtl:
+        _apply_rtl_direction(para)
 
 
 # ---------------------------------------------------------------------------
@@ -262,7 +298,7 @@ def _apply_improved_text_to_docx(original_bytes, improved_text, item_ids):
         if item_id and item_id in id_to_text:
             new_text = id_to_text[item_id]
             is_rtl = _detect_language(new_text) in ('he', 'ar')
-   _replace_para_text(item["para"], new_text, is_rtl=is_rtl)
+            _replace_para_text(item["para"], new_text, is_rtl=is_rtl)
 
     buf = io.BytesIO()
     doc.save(buf)
