@@ -66,34 +66,6 @@ def _extract_retry_after_seconds(error_message, default=2.0, cap=12.0):
     except ValueError:
         return default
 
-
-def _detect_language(text):
-    """Определяет язык текста по Unicode символам."""
-    if not text:
-        return 'en'
-    total = sum(1 for c in text if c.isalpha())
-    if total == 0:
-        return 'en'
-    hebrew  = sum(1 for c in text if '\u0590' <= c <= '\u05FF')
-    arabic  = sum(1 for c in text if '\u0600' <= c <= '\u06FF')
-    cyrillic = sum(1 for c in text if '\u0400' <= c <= '\u04FF')
-    chinese = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
-    if hebrew / total > 0.15:
-        return 'he'
-    if arabic / total > 0.15:
-        return 'ar'
-    if cyrillic / total > 0.3:
-        # Украинские буквы-маркеры, отсутствующие в русском алфавите:
-        # і/І, ї/Ї, є/Є, ґ/Ґ
-        ukrainian_markers = sum(1 for c in text if c in 'іїєґІЇЄҐ')
-        if ukrainian_markers > 0:
-            return 'uk'
-        return 'ru'
-    if chinese / total > 0.1:
-        return 'zh'
-    return 'en'
-
-
 LANGUAGE_NAMES = {
     'he': 'Hebrew',
     'ar': 'Arabic',
