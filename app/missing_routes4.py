@@ -42,7 +42,16 @@ def _detect_language_simple(text):
         "Arabic":  sum(1 for c in sample if "\u0600" <= c <= "\u06ff"),
     }
     best = max(counts, key=counts.get)
-    return best if counts[best] > 5 else "English"
+    if counts[best] <= 5:
+        return "English"
+    if best == "Russian":
+        # Украинские буквы-маркеры, отсутствующие в русском алфавите:
+        # і/І, ї/Ї, є/Є, ґ/Ґ. Обе кириллицы попадают в один Unicode-диапазон
+        # выше, поэтому различаем их отдельно.
+        ukrainian_markers = sum(1 for c in sample if c in "іїєґІЇЄҐ")
+        if ukrainian_markers > 0:
+            return "Ukrainian"
+    return best
 
 
 def _extract_structured(doc):
