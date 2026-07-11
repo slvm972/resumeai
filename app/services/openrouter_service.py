@@ -45,6 +45,11 @@ def _detect_language(text):
     if arabic / total > 0.15:
         return 'ar'
     if cyrillic / total > 0.3:
+        # Украинские буквы-маркеры, отсутствующие в русском алфавите:
+        # і/І, ї/Ї, є/Є, ґ/Ґ
+        ukrainian_markers = sum(1 for c in text if c in 'іїєґІЇЄҐ')
+        if ukrainian_markers > 0:
+            return 'uk'
         return 'ru'
     if chinese / total > 0.1:
         return 'zh'
