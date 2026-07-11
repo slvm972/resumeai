@@ -9,6 +9,43 @@ import re
 import time
 import langid
 
+def _detect_language(text):
+    """
+    Определяет язык текста.
+    1. Fast-path на Unicode-диапазонах для иврита/арабского (RTL) —
+       проверено на живых данных, не трогаем.
+    2. Для остальных языков — langid (детерминированный, точный на
+       коротком тексте, без тяжёлых зависимостей).
+    3. Если langid вернул код не из поддерживаемого набора языков,
+       или произошёл сбой библиотеки — fallback на 'en'.
+    """
+    if not text:
+        return 'en'
+
+    total = sum(1 for c in text if c.isalpha())
+    if total == 0:
+        return 'en'
+
+    # --- Fast-path: RTL детекция по Unicode (не трогаем) ---
+    hebrew = sum(1 for c in text if '\u0590' <= c <= '\u05FF')
+    arabic = sum(1 for c in text if '\u0600' <= c <= '\u06FF')
+
+    if hebrew / total > 0.15:
+        return 'he'
+    if arabic / total > 0.15:
+        return 'ar'
+
+    # --- langid для остальных языков ---
+    try:
+        lang_code, _confidence = langid.classify(text)
+    except Exception:
+        return 'en'
+
+    if lang_code not in LANGUAGE_NAMES:
+        return 'en'
+
+    return lang_code
+
 logger = logging.getLogger(__name__)
 
 GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions'
