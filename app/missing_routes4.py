@@ -256,11 +256,13 @@ def _apply_improved_text_to_docx(original_bytes, improved_text, item_ids):
         i += 2
 
     # Применяем — ищем каждый элемент по его ID
+    from app.services.openrouter_service import _detect_language
     for idx, item in enumerate(orig_items):
         item_id = item_ids[idx] if idx < len(item_ids) else None
         if item_id and item_id in id_to_text:
             new_text = id_to_text[item_id]
-            _replace_para_text(item["para"], new_text)
+            is_rtl = _detect_language(new_text) in ('he', 'ar')
+   _replace_para_text(item["para"], new_text, is_rtl=is_rtl)
 
     buf = io.BytesIO()
     doc.save(buf)
