@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import time
+import langid
 
 logger = logging.getLogger(__name__)
 
