@@ -1,5 +1,6 @@
 # app/missing_routes4.py
 import re, uuid, time
+import langid
 
 # ---------------------------------------------------------------------------
 # Токен-маркеры — UUID-based, LLM не может "исправить" их
@@ -34,24 +35,54 @@ def _extract_full_text_from_docx(file_bytes):
     return "\n".join(parts)
 
 
+_LANGID_TO_NAME = {
+    'en': 'English',
+    'ru': 'Russian',
+    'uk': 'Ukrainian',
+    'he': 'Hebrew',
+    'ar': 'Arabic',
+    'zh': 'Chinese',
+}
+
+
 def _detect_language_simple(text):
+    """
+    Определяет язык резюме и возвращает ПОЛНОЕ НАЗВАНИЕ языка
+    (не код 'ru', а 'Russian') — это контракт функции, от него
+    зависит промт "Write ONLY in {detected_lang}" в
+    _run_improve_pipeline. Не менять формат возврата.
+
+    Порядок определения:
+    1. Unicode fast-path для Hebrew/Arabic — эти алфавиты
+       однозначно определяются по диапазону символов, без
+       обращения к langid (быстрее и надёжнее на коротких строках).
+    2. Для всех остальных языков (включая Russian/Ukrainian/English/
+       Chinese) — langid.classify(), код результата переводится
+       в полное название через словарь _LANGID_TO_NAME.
+    3. Fallback — 'English', если текст пустой, langid упал с
+       исключением, или вернул код, которого нет в словаре.
+    """
     sample = text[:500]
+
+    # Шаг 1: Unicode fast-path — Hebrew/Arabic (без изменений)
     counts = {
-        "Hebrew":  sum(1 for c in sample if "\u05d0" <= c <= "\u05ea"),
-        "Russian": sum(1 for c in sample if "\u0400" <= c <= "\u04ff"),
-        "Arabic":  sum(1 for c in sample if "\u0600" <= c <= "\u06ff"),
+        "Hebrew": sum(1 for c in sample if "\u05d0" <= c <= "\u05ea"),
+        "Arabic": sum(1 for c in sample if "\u0600" <= c <= "\u06ff"),
     }
-    best = max(counts, key=counts.get)
-    if counts[best] <= 5:
+    best_unicode = max(counts, key=counts.get)
+    if counts[best_unicode] > 5:
+        return best_unicode
+
+    # Шаг 2: langid — для Russian/Ukrainian/English/Chinese/прочих
+    if not sample.strip():
         return "English"
-    if best == "Russian":
-        # Украинские буквы-маркеры, отсутствующие в русском алфавите:
-        # і/І, ї/Ї, є/Є, ґ/Ґ. Обе кириллицы попадают в один Unicode-диапазон
-        # выше, поэтому различаем их отдельно.
-        ukrainian_markers = sum(1 for c in sample if c in "іїєґІЇЄҐ")
-        if ukrainian_markers > 0:
-            return "Ukrainian"
-    return best
+
+    try:
+        code, _confidence = langid.classify(sample)
+    except Exception:
+        return "English"
+
+    return _LANGID_TO_NAME.get(code, "English")
 
 
 def _extract_structured(doc):
@@ -110,34 +141,7 @@ def _para_has_complex_formatting(para):
     return False
 
 
-def _apply_rtl_direction(para):
-    """
-    Выставить направление письма справа-налево (RTL) на параграфе:
-    - paragraph_format.alignment = RIGHT
-    - <w:bidi/> в pPr — направление параграфа
-    - <w:rtl/> в rPr каждого run — направление текста внутри run
-    Вызывается ПОСЛЕ установки нового текста, когда результат на
-    иврите/арабском — иначе Word отображает текст слева направо.
-    """
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.oxml.ns import qn
-    from docx.oxml import OxmlElement
-
-    para.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-
-    pPr = para._p.get_or_add_pPr()
-    if pPr.find(qn('w:bidi')) is None:
-        bidi = OxmlElement('w:bidi')
-        pPr.append(bidi)
-
-    for run in para.runs:
-        rPr = run._r.get_or_add_rPr()
-        if rPr.find(qn('w:rtl')) is None:
-            rtl = OxmlElement('w:rtl')
-            rPr.append(rtl)
-
-
-def _replace_para_text(para, new_text, is_rtl=False):
+def _replace_para_text(para, new_text):
     """
     Run-safe замена текста параграфа.
     Стратегия:
@@ -147,20 +151,13 @@ def _replace_para_text(para, new_text, is_rtl=False):
        весь текст в первый run, остальные очищаем (форматирование не теряется)
     4. Неоднородное форматирование (bold+normal, hyperlinks, разные цвета) →
        НЕ ТРОГАЕМ, оставляем оригинал. Надёжность важнее обновления.
-
-    is_rtl: True если итоговый текст на иврите/арабском — тогда параграфу
-    и его runs выставляется направление письма справа-налево (RTL).
     """
     runs = para.runs
     if not runs:
         para.text = new_text
-        if is_rtl:
-            _apply_rtl_direction(para)
         return
     if len(runs) == 1:
         runs[0].text = new_text
-        if is_rtl:
-            _apply_rtl_direction(para)
         return
     # Проверяем сложность форматирования
     if _para_has_complex_formatting(para):
@@ -170,8 +167,6 @@ def _replace_para_text(para, new_text, is_rtl=False):
     runs[0].text = new_text
     for r in runs[1:]:
         r.text = ""
-    if is_rtl:
-        _apply_rtl_direction(para)
 
 
 # ---------------------------------------------------------------------------
@@ -301,13 +296,11 @@ def _apply_improved_text_to_docx(original_bytes, improved_text, item_ids):
         i += 2
 
     # Применяем — ищем каждый элемент по его ID
-    from app.services.openrouter_service import _detect_language
     for idx, item in enumerate(orig_items):
         item_id = item_ids[idx] if idx < len(item_ids) else None
         if item_id and item_id in id_to_text:
             new_text = id_to_text[item_id]
-            is_rtl = _detect_language(new_text) in ('he', 'ar')
-            _replace_para_text(item["para"], new_text, is_rtl=is_rtl)
+            _replace_para_text(item["para"], new_text)
 
     buf = io.BytesIO()
     doc.save(buf)
@@ -412,11 +405,11 @@ SECTION_HEADERS_SET = {
 }
 
 # Паттерны для классификации элементов
-_RE_PHONE    = re.compile(r"(?:\+\d{1,3}[\s\-]?)?\(?\d{2,4}\)?[\s\-]\d{3}[\s\-]\d{4,}|\d{9,}")
+_RE_PHONE    = re.compile(r"(?:\+\d{1,3}[\s\-]?)?\(?\d{2,4}\)?[\s\-]\d{3}[\s\-]\d{4,}|\d{9,}")
 _RE_EMAIL    = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 _RE_DATE_RANGE = re.compile(r"(?<!\d)(?:\d{4}\s*[-–]\s*\d{4}|[-–]\s*\d{4}|\d{4}\s*[-–])(?!\d)")
 _RE_DATE_BIRTH = re.compile(r"\d{2}[/.]\d{2}[/.]\d{4}")
-_RE_ID_NUM   = re.compile(r"\d{7,}")
+_RE_ID_NUM   = re.compile(r"\d{7,}")
 _RE_URL      = re.compile(r"https?://|www\.")
 _RE_LANG_LINE = re.compile(  # строка описания языка: "דיבור רמה גבוהה..."
     r"דיבור|קריאה|כתיבה"
