@@ -208,6 +208,7 @@ def _register_legacy_routes(app):
     @app.route('/api/login', methods=['POST'])
     def legacy_login():
         """Поддерживает и admin login (username/password) и user login (email/password)."""
+        from flask import current_app
         data = request.get_json() or {}
 
         username = data.get('username', '')
