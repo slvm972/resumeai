@@ -28,6 +28,14 @@ def create_app(config_name=None):
 
     CORS(app, origins=app.config.get('ALLOWED_ORIGINS', ['*']), supports_credentials=True)
 
+    # Создать таблицы, если их ещё нет (SQLite, free tier, миграций пока нет).
+    # db.create_all() создаёт только ОТСУТСТВУЮЩИЕ таблицы — существующие
+    # не трогает и не изменяет их схему. Модели импортируются явно, иначе
+    # SQLAlchemy может не знать о части таблиц на момент вызова.
+    with app.app_context():
+        from app import models  # noqa: F401 — регистрирует все модели в metadata
+        db.create_all()
+
     _register_blueprints(app)
     _register_legacy_routes(app)
 
