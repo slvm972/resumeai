@@ -29,6 +29,11 @@ main{flex:1;display:flex;align-items:center;justify-content:center;padding:2rem}
 .foot a{color:var(--accent);text-decoration:none}
 .back{display:flex;align-items:center;gap:.4rem;margin-top:1.5rem;justify-content:center;color:var(--muted);text-decoration:none;font-size:.85rem;transition:color .2s}
 .back:hover{color:var(--text)}
+/* ── Password show/hide toggle ── */
+.pwd-wrap{position:relative}
+.pwd-wrap input{width:100%;padding-right:2.6rem}
+.pwd-toggle{position:absolute;right:.6rem;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:1.05rem;line-height:1;padding:.2rem;color:var(--muted);user-select:none}
+.pwd-toggle:hover{color:var(--text)}
 </style>
 </head>
 <body>
@@ -53,7 +58,10 @@ main{flex:1;display:flex;align-items:center;justify-content:center;padding:2rem}
     </div>
     <div class="group">
       <label>Password</label>
-      <input type="password" id="password" placeholder="Enter admin password" autocomplete="current-password">
+      <div class="pwd-wrap">
+        <input type="password" id="password" placeholder="Enter admin password" autocomplete="current-password">
+        <button type="button" class="pwd-toggle" id="passwordToggleBtn" onclick="togglePasswordVisibility('password', this)" aria-label="Show password">👁</button>
+      </div>
     </div>
     
     <button class="btn" onclick="doLogin()">Login to Admin Panel</button>
@@ -66,6 +74,16 @@ main{flex:1;display:flex;align-items:center;justify-content:center;padding:2rem}
   </div>
 </main>
 <script>
+// ── Password show/hide toggle ─────────────────────────────────────────────
+function togglePasswordVisibility(inputId, btn) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  const showing = input.type === 'password';
+  input.type = showing ? 'text' : 'password';
+  btn.textContent = showing ? '🙈' : '👁';
+  btn.setAttribute('aria-label', showing ? 'Hide password' : 'Show password');
+}
+
 async function doLogin() {
   const username = document.getElementById('username').value.trim();
   const password = document.getElementById('password').value;

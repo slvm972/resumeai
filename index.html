@@ -242,6 +242,15 @@
     .modal-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
     .modal-error { color: #fca5a5; font-size: .82rem; margin-bottom: .75rem; display: none; }
     .modal-success { color: #6ee7b7; font-size: .82rem; margin-bottom: .75rem; display: none; }
+    /* ── Password show/hide toggle ── */
+    .pwd-wrap { position: relative; }
+    .pwd-wrap input { padding-right: 2.75rem; }
+    .pwd-toggle {
+      position: absolute; right: .7rem; top: 50%; transform: translateY(-50%);
+      background: none; border: none; cursor: pointer; font-size: 1.05rem;
+      line-height: 1; padding: .2rem; color: var(--muted); user-select: none;
+    }
+    .pwd-toggle:hover { color: var(--text); }
 
     /* ─── LOADER ──────────────────────────────────────── */
     .loader {
@@ -612,7 +621,10 @@
       </div>
       <div class="form-group">
         <label>Password</label>
-        <input type="password" id="loginPassword" placeholder="••••••••" />
+        <div class="pwd-wrap">
+          <input type="password" id="loginPassword" placeholder="••••••••" />
+          <button type="button" class="pwd-toggle" onclick="togglePasswordVisibility('loginPassword', this)" aria-label="Show password">👁</button>
+        </div>
       </div>
       <button class="btn-primary" style="width:100%;margin-top:.5rem" onclick="doLogin()">Sign In</button>
     </div>
@@ -628,7 +640,10 @@
       </div>
       <div class="form-group">
         <label>Password</label>
-        <input type="password" id="regPassword" placeholder="min. 6 characters" />
+        <div class="pwd-wrap">
+          <input type="password" id="regPassword" placeholder="min. 6 characters" />
+          <button type="button" class="pwd-toggle" onclick="togglePasswordVisibility('regPassword', this)" aria-label="Show password">👁</button>
+        </div>
       </div>
       <button class="btn-primary" style="width:100%;margin-top:.5rem" onclick="doRegister()">Create Account</button>
     </div>
@@ -794,6 +809,16 @@
 <!-- ─── JS ────────────────────────────────────────────── -->
 <script>
   const BACKEND_URL = 'http://127.0.0.1:5000/api/analyze';
+
+  // ── Password show/hide toggle ────────────────────────────────────────────
+  function togglePasswordVisibility(inputId, btn) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    const showing = input.type === 'password';
+    input.type = showing ? 'text' : 'password';
+    btn.textContent = showing ? '🙈' : '👁';
+    btn.setAttribute('aria-label', showing ? 'Hide password' : 'Show password');
+  }
 
   // Smooth anchor navigation (works even with overflow:hidden on body)
   function navScroll(id) {

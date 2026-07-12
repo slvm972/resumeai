@@ -37,6 +37,11 @@ main{flex:1;display:flex;align-items:center;justify-content:center;padding:2rem}
 .btn-github:hover{border-color:#aaa}
 .divider-row{display:flex;align-items:center;gap:.75rem;margin:.75rem 0;color:var(--muted);font-size:.8rem}
 .divider-row::before,.divider-row::after{content:'';flex:1;height:1px;background:var(--border)}
+/* ── Password show/hide toggle ── */
+.pwd-wrap{position:relative}
+.pwd-wrap input{width:100%;padding-right:2.6rem}
+.pwd-toggle{position:absolute;right:.6rem;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:1.05rem;line-height:1;padding:.2rem;color:var(--muted);user-select:none}
+.pwd-toggle:hover{color:var(--text)}
 </style>
 </head>
 <body>
@@ -69,7 +74,13 @@ main{flex:1;display:flex;align-items:center;justify-content:center;padding:2rem}
     <!-- LOGIN FORM -->
     <div id="formLogin">
       <div class="group"><label>Email</label><input type="email" id="lEmail" placeholder="you@example.com"/></div>
-      <div class="group"><label>Password</label><input type="password" id="lPass" placeholder="••••••••"/></div>
+      <div class="group">
+        <label>Password</label>
+        <div class="pwd-wrap">
+          <input type="password" id="lPass" placeholder="••••••••"/>
+          <button type="button" class="pwd-toggle" onclick="togglePasswordVisibility('lPass', this)" aria-label="Show password">👁</button>
+        </div>
+      </div>
       <button class="btn" onclick="doLogin()">Sign In →</button>
       <div class="foot">No account? <a href="#" onclick="switchTab('reg');return false">Sign up free</a></div>
     </div>
@@ -78,7 +89,13 @@ main{flex:1;display:flex;align-items:center;justify-content:center;padding:2rem}
     <div id="formReg" style="display:none">
       <div class="group"><label>Full Name</label><input type="text" id="rName" placeholder="John Doe"/></div>
       <div class="group"><label>Email</label><input type="email" id="rEmail" placeholder="you@example.com"/></div>
-      <div class="group"><label>Password</label><input type="password" id="rPass" placeholder="min. 6 characters"/></div>
+      <div class="group">
+        <label>Password</label>
+        <div class="pwd-wrap">
+          <input type="password" id="rPass" placeholder="min. 6 characters"/>
+          <button type="button" class="pwd-toggle" onclick="togglePasswordVisibility('rPass', this)" aria-label="Show password">👁</button>
+        </div>
+      </div>
       <button class="btn" onclick="doRegister()">Create Account →</button>
       <div class="foot">Already registered? <a href="#" onclick="switchTab('login');return false">Sign in</a></div>
     </div>
@@ -87,6 +104,16 @@ main{flex:1;display:flex;align-items:center;justify-content:center;padding:2rem}
   </div>
 </main>
 <script>
+// ── Password show/hide toggle ─────────────────────────────────────────────
+function togglePasswordVisibility(inputId, btn) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  const showing = input.type === 'password';
+  input.type = showing ? 'text' : 'password';
+  btn.textContent = showing ? '🙈' : '👁';
+  btn.setAttribute('aria-label', showing ? 'Hide password' : 'Show password');
+}
+
 const Auth = {
   getUsers()    { return JSON.parse(localStorage.getItem('rai_users')   || '{}'); },
   saveUsers(u)  { localStorage.setItem('rai_users', JSON.stringify(u)); },
