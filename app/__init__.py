@@ -202,19 +202,46 @@ def _register_legacy_routes(app):
         """Поддерживает и admin login (username/password) и user login (email/password)."""
         data = request.get_json() or {}
 
-        # Проверить admin credentials (старый hardcoded admin)
         username = data.get('username', '')
         password = data.get('password', '')
-        if username == 'admin' and password == 'admin123':
-            session['admin'] = 'admin'
-            session['user_id'] = None
-            session['user_name'] = 'admin'
-            session.permanent = True
-            return jsonify({
-                'success': True,
-                'message': 'Logged in successfully',
-                'is_admin': True,
-            })
+
+        # Admin credentials: логин — из ADMIN_EMAIL (config.py), пароль —
+        # bcrypt-хеш из ADMIN_PASSWORD_HASH. Ни хеш, ни пароль нигде в коде
+        # не хранятся в открытом виде.
+        admin_login = current_app.config.get('ADMIN_EMAIL', '')
+        admin_password_hash = current_app.config.get('ADMIN_PASSWORD_HASH')
+
+        if username and admin_login and username == admin_login:
+            if not admin_password_hash:
+                # ADMIN_PASSWORD_HASH не задан в production — админ-роут
+                # недоступен, а не работает с дефолтным паролем.
+                return jsonify({
+                    'success': False,
+                    'error': 'Admin login is not configured on this server',
+                }), 403
+
+            import bcrypt
+            try:
+                is_valid = bcrypt.checkpw(
+                    password.encode('utf-8'),
+                    admin_password_hash.encode('utf-8'),
+                )
+            except (ValueError, TypeError):
+                # Битый/некорректный хеш в env — тоже считаем "не сконфигурировано"
+                is_valid = False
+
+            if is_valid:
+                session['admin'] = 'admin'
+                session['user_id'] = None
+                session['user_name'] = 'admin'
+                session.permanent = True
+                return jsonify({
+                    'success': True,
+                    'message': 'Logged in successfully',
+                    'is_admin': True,
+                })
+
+            return jsonify({'success': False, 'error': 'Invalid admin credentials'}), 401
 
         # Обычный user login
         return _do_login()
