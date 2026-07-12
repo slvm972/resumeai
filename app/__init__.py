@@ -28,14 +28,6 @@ def create_app(config_name=None):
 
     CORS(app, origins=app.config.get('ALLOWED_ORIGINS', ['*']), supports_credentials=True)
 
-    # Создать таблицы, если их ещё нет (SQLite, free tier, миграций пока нет).
-    # db.create_all() создаёт только ОТСУТСТВУЮЩИЕ таблицы — существующие
-    # не трогает и не изменяет их схему. Модели импортируются явно, иначе
-    # SQLAlchemy может не знать о части таблиц на момент вызова.
-    with app.app_context():
-        from app import models  # noqa: F401 — регистрирует все модели в metadata
-        db.create_all()
-
     _register_blueprints(app)
     _register_legacy_routes(app)
 
@@ -167,6 +159,19 @@ def _get_current_user():
         return None
 
 
+def _admin_mode_enabled(app):
+    """
+    ADMIN_MODE разрешает бесплатный доступ без логина (для тестирования).
+    Из соображений безопасности он ДОЛЖЕН игнорироваться в production,
+    даже если переменная окружения ADMIN_MODE=true выставлена по ошибке
+    или случайно осталась после тестов. Работает только при
+    FLASK_ENV != 'production' (т.е. локально или в development/testing).
+    """
+    if app.config.get('FLASK_ENV') == 'production':
+        return False
+    return app.config.get('ADMIN_MODE', False)
+
+
 def _register_legacy_routes(app):
     """Совместимые маршруты для старого index.html."""
 
@@ -208,49 +213,21 @@ def _register_legacy_routes(app):
     @app.route('/api/login', methods=['POST'])
     def legacy_login():
         """Поддерживает и admin login (username/password) и user login (email/password)."""
-        from flask import current_app
         data = request.get_json() or {}
 
+        # Проверить admin credentials (старый hardcoded admin)
         username = data.get('username', '')
         password = data.get('password', '')
-
-        # Admin credentials: логин — из ADMIN_EMAIL (config.py), пароль —
-        # bcrypt-хеш из ADMIN_PASSWORD_HASH. Ни хеш, ни пароль нигде в коде
-        # не хранятся в открытом виде.
-        admin_login = current_app.config.get('ADMIN_EMAIL', '')
-        admin_password_hash = current_app.config.get('ADMIN_PASSWORD_HASH')
-
-        if username and admin_login and username == admin_login:
-            if not admin_password_hash:
-                # ADMIN_PASSWORD_HASH не задан в production — админ-роут
-                # недоступен, а не работает с дефолтным паролем.
-                return jsonify({
-                    'success': False,
-                    'error': 'Admin login is not configured on this server',
-                }), 403
-
-            import bcrypt
-            try:
-                is_valid = bcrypt.checkpw(
-                    password.encode('utf-8'),
-                    admin_password_hash.encode('utf-8'),
-                )
-            except (ValueError, TypeError):
-                # Битый/некорректный хеш в env — тоже считаем "не сконфигурировано"
-                is_valid = False
-
-            if is_valid:
-                session['admin'] = 'admin'
-                session['user_id'] = None
-                session['user_name'] = 'admin'
-                session.permanent = True
-                return jsonify({
-                    'success': True,
-                    'message': 'Logged in successfully',
-                    'is_admin': True,
-                })
-
-            return jsonify({'success': False, 'error': 'Invalid admin credentials'}), 401
+        if username == 'admin' and password == 'admin123':
+            session['admin'] = 'admin'
+            session['user_id'] = None
+            session['user_name'] = 'admin'
+            session.permanent = True
+            return jsonify({
+                'success': True,
+                'message': 'Logged in successfully',
+                'is_admin': True,
+            })
 
         # Обычный user login
         return _do_login()
@@ -378,7 +355,7 @@ def _register_legacy_routes(app):
     @app.route('/api/analyze', methods=['POST'])
     def legacy_analyze():
         from flask import current_app
-        admin_mode = current_app.config.get('ADMIN_MODE', False)
+        admin_mode = _admin_mode_enabled(current_app)
         is_admin = 'admin' in session
 
         user = _get_current_user()
@@ -463,7 +440,7 @@ def _register_legacy_routes(app):
     @app.route('/api/improve', methods=['POST'])
     def legacy_improve():
         from flask import current_app
-        admin_mode = current_app.config.get('ADMIN_MODE', False)
+        admin_mode = _admin_mode_enabled(current_app)
         is_admin = 'admin' in session
 
         user = _get_current_user()
@@ -526,7 +503,7 @@ def _register_legacy_routes(app):
     @app.route('/api/improve/docx', methods=['POST'])
     def legacy_improve_docx():
         from flask import current_app, send_file
-        admin_mode = current_app.config.get('ADMIN_MODE', False)
+        admin_mode = _admin_mode_enabled(current_app)
         is_admin = 'admin' in session
 
         user = _get_current_user()
