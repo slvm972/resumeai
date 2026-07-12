@@ -167,6 +167,19 @@ def _get_current_user():
         return None
 
 
+def _admin_mode_enabled(app):
+    """
+    ADMIN_MODE разрешает бесплатный доступ без логина (для тестирования).
+    Из соображений безопасности он ДОЛЖЕН игнорироваться в production,
+    даже если переменная окружения ADMIN_MODE=true выставлена по ошибке
+    или случайно осталась после тестов. Работает только при
+    FLASK_ENV != 'production' (т.е. локально или в development/testing).
+    """
+    if app.config.get('FLASK_ENV') == 'production':
+        return False
+    return app.config.get('ADMIN_MODE', False)
+
+
 def _register_legacy_routes(app):
     """Совместимые маршруты для старого index.html."""
 
@@ -378,7 +391,7 @@ def _register_legacy_routes(app):
     @app.route('/api/analyze', methods=['POST'])
     def legacy_analyze():
         from flask import current_app
-        admin_mode = current_app.config.get('ADMIN_MODE', False)
+        admin_mode = _admin_mode_enabled(current_app)
         is_admin = 'admin' in session
 
         user = _get_current_user()
@@ -463,7 +476,7 @@ def _register_legacy_routes(app):
     @app.route('/api/improve', methods=['POST'])
     def legacy_improve():
         from flask import current_app
-        admin_mode = current_app.config.get('ADMIN_MODE', False)
+        admin_mode = _admin_mode_enabled(current_app)
         is_admin = 'admin' in session
 
         user = _get_current_user()
@@ -526,7 +539,7 @@ def _register_legacy_routes(app):
     @app.route('/api/improve/docx', methods=['POST'])
     def legacy_improve_docx():
         from flask import current_app, send_file
-        admin_mode = current_app.config.get('ADMIN_MODE', False)
+        admin_mode = _admin_mode_enabled(current_app)
         is_admin = 'admin' in session
 
         user = _get_current_user()
