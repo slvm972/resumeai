@@ -22,6 +22,24 @@ def create_app(config_name=None):
 
     app.config.from_object(config.get(config_name, config['default']))
 
+    # -----------------------------------------------------------------
+    # Проверка безопасности: в production SECRET_KEY и JWT_SECRET_KEY
+    # обязаны быть заданы через переменные окружения. Если остались
+    # небезопасные дефолтные значения из config.py — падаем сразу,
+    # а не продолжаем работать со скомпрометированной безопасностью
+    # сессий/токенов для всех пользователей.
+    # -----------------------------------------------------------------
+    if app.config.get('FLASK_ENV') == 'production':
+        insecure_defaults = {
+            'SECRET_KEY': 'change-this-in-production',
+            'JWT_SECRET_KEY': 'jwt-secret-change-this',
+        }
+        for key, default_value in insecure_defaults.items():
+            if app.config.get(key) == default_value:
+                raise RuntimeError(
+                    f"{key} must be set via environment variable in production"
+                )
+
     db.init_app(app)
     jwt.init_app(app)
     mail.init_app(app)
