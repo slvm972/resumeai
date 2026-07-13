@@ -101,6 +101,26 @@ def create_app(config_name=None):
     def health():
         return {'status': 'ok', 'service': 'ResumeAI'}
 
+    @app.route('/api/debug/admin-check')
+    def debug_admin_check():
+        """ВРЕМЕННЫЙ роут для диагностики — удалить после использования!"""
+        import bcrypt
+        h = app.config.get('ADMIN_PASSWORD_HASH')
+        email = app.config.get('ADMIN_EMAIL')
+        if not h:
+            return {'hash_present': False}
+        try:
+            result = bcrypt.checkpw(b'MySecureAdminPass2026!', h.encode('utf-8'))
+        except Exception as e:
+            return {'hash_present': True, 'hash_length': len(h), 'error': str(e)}
+        return {
+            'hash_present': True,
+            'hash_length': len(h),
+            'hash_preview': h[:10] + '...' + h[-6:],
+            'admin_email': email,
+            'password_matches': result,
+        }
+
     return app
 
 
