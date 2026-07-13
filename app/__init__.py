@@ -147,7 +147,9 @@ def _extract_text_from_request():
                 text = '\n'.join(parts)
                 return text.strip()
             except Exception as e:
-                raise ValueError(f"Cannot read DOCX: {str(e)}")
+                from flask import current_app
+                current_app.logger.error(f"[_extract_text_from_request] DOCX parse failed: {e}")
+                raise ValueError("Cannot read DOCX file. Please check the file is not corrupted.")
 
         # TXT файл
         elif filename.endswith('.txt'):
@@ -328,7 +330,8 @@ def _register_legacy_routes(app):
             })
 
         except Exception as e:
-            return jsonify({'success': False, 'error': str(e)}), 500
+            app.logger.error(f"[legacy_admin_analyze] failed: {e}")
+            return jsonify({'success': False, 'error': 'Internal server error. Please try again.'}), 500
 
     @app.route('/api/admin/stats', methods=['GET'])
     def legacy_admin_stats():
@@ -496,7 +499,8 @@ def _register_legacy_routes(app):
         except ValueError as e:
             return jsonify({'success': False, 'error': str(e)}), 400
         except Exception as e:
-            return jsonify({'success': False, 'error': str(e)}), 500
+            app.logger.error(f"[legacy_analyze] failed: {e}")
+            return jsonify({'success': False, 'error': 'Internal server error. Please try again.'}), 500
 
     @app.route('/api/improve', methods=['POST'])
     def legacy_improve():
@@ -559,7 +563,7 @@ def _register_legacy_routes(app):
         except Exception as e:
             import traceback
             app.logger.error("legacy_improve failed: %s\n%s", e, traceback.format_exc())
-            return jsonify({'success': False, 'error': str(e)}), 500
+            return jsonify({'success': False, 'error': 'Internal server error. Please try again.'}), 500
 
     @app.route('/api/improve/docx', methods=['POST'])
     def legacy_improve_docx():
@@ -622,7 +626,8 @@ def _register_legacy_routes(app):
                 mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
 
         except Exception as e:
-            return jsonify({'success': False, 'error': str(e)}), 500
+            app.logger.error(f"[legacy_improve_docx] failed: {e}")
+            return jsonify({'success': False, 'error': 'Internal server error. Please try again.'}), 500
 
     # Регистрируем дополнительные маршруты из missing_routes4 (включая /api/admin/improve)
     from app.missing_routes4 import register_missing_routes
