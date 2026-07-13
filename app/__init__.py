@@ -14,7 +14,12 @@ mail = Mail()
 
 def create_app(config_name=None):
     if config_name is None:
-        config_name = os.environ.get('FLASK_ENV', 'development')
+        # Безопасный дефолт: если FLASK_ENV физически не задана на сервере,
+        # считаем это production, а не development. Иначе все security-
+        # проверки ниже (RuntimeError для SECRET_KEY/JWT_SECRET_KEY,
+        # блокировка ADMIN_MODE в _admin_mode_enabled) молча не сработают,
+        # потому что обе сравнивают именно с FLASK_ENV == 'production'.
+        config_name = os.environ.get('FLASK_ENV', 'production')
 
     app = Flask(__name__,
                 static_folder=os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static'),
