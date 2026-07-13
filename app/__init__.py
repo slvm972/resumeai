@@ -249,8 +249,8 @@ def _register_legacy_routes(app):
         from flask import current_app
         data = request.get_json() or {}
 
-        username = data.get('username', '')
-        password = data.get('password', '')
+        username = data.get('username', '').strip()
+        password = data.get('password', '').strip()
 
         # Admin credentials: логин — из ADMIN_EMAIL (config.py), пароль —
         # bcrypt-хеш из ADMIN_PASSWORD_HASH. Ни хеш, ни пароль нигде в коде
