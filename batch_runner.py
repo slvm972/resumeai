@@ -225,9 +225,18 @@ def main():
     parser.add_argument("--input", required=True, help="Папка с исходными .docx файлами")
     parser.add_argument("--output", required=True, help="Папка для результатов")
     parser.add_argument("--base-url", default="http://127.0.0.1:5000", help="Базовый URL сервера")
-    parser.add_argument("--admin-user", default="admin", help="Имя администратора")
-    parser.add_argument("--admin-pass", default="admin123", help="Пароль администратора")
+    parser.add_argument("--admin-user", default=None,
+                         help="Имя/email администратора (или переменная окружения ADMIN_EMAIL)")
+    parser.add_argument("--admin-pass", default=None,
+                         help="Пароль администратора (или переменная окружения ADMIN_PASSWORD)")
     args = parser.parse_args()
+
+    args.admin_user = args.admin_user or os.environ.get("ADMIN_EMAIL")
+    args.admin_pass = args.admin_pass or os.environ.get("ADMIN_PASSWORD")
+    if not args.admin_user or not args.admin_pass:
+        print("ERROR: укажите учётные данные администратора через --admin-user/--admin-pass "
+              "или переменные окружения ADMIN_EMAIL/ADMIN_PASSWORD")
+        sys.exit(1)
 
     input_dir = Path(args.input)
     output_dir = Path(args.output)
