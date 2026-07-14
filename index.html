@@ -1101,7 +1101,7 @@
     try {
       const res = await fetch('/api/user/me');
       const data = await res.json();
-      if (data.logged_in) { currentUser = data.user; updateNavAuth(); }
+      if (data.success) { currentUser = data.user; updateNavAuth(); }
     } catch(e) {}
   }
 
