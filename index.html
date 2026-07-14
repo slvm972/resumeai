@@ -1041,15 +1041,18 @@
     if (!name || !email || !pass) { showModalError('Please fill in all fields.'); return; }
     if (pass.length < 6) { showModalError('Password must be at least 6 characters.'); return; }
     try {
-      const res = await fetch('/api/register', {
+      const res = await fetch('/api/user/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, password: pass })
       });
       const data = await res.json();
       if (!res.ok) { showModalError(data.error || 'Registration error'); return; }
-      currentUser = data.user;
-      showModalSuccess('Account created! Welcome, ' + data.user.name + '! 🎉');
+      // Сервер не возвращает поле name (User.to_dict() его не содержит) —
+      // используем значение, введённое в форме, чтобы оно было доступно
+      // и здесь, и позже в updateNavAuth() через currentUser.name
+      currentUser = { ...data.user, name: name };
+      showModalSuccess('Account created! Welcome, ' + name + '! 🎉');
       setTimeout(() => { closeModal(); updateNavAuth(); }, 900);
     } catch(e) { showModalError('Server error. Try again.'); }
   }
