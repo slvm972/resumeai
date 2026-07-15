@@ -79,6 +79,10 @@ def create_app(config_name=None):
     @app.route('/dashboard')
     def dashboard_page():
         return send_from_directory(root_dir, 'dashboard.html')
+        
+    @app.route('/dashboard.html')
+    def dashboard_page_html():
+        return send_from_directory(root_dir, 'dashboard.html')    
 
     @app.route('/admin')
     def admin_page():
