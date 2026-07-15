@@ -41,7 +41,7 @@ resume-analyzer/
 
 ## 🚀 Quick Start (5 minutes)
 
-### Step 1: Set Up Backend
+### Step 1: Set  Up Backend
 
 ```bash
 # Navigate to backend folder
