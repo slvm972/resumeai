@@ -72,6 +72,10 @@ def create_app(config_name=None):
     def login_page():
         return send_from_directory(root_dir, 'login.html')
 
+    @app.route('/login.html')
+    def login_page_html():
+        return send_from_directory(root_dir, 'login.html')
+
     @app.route('/dashboard')
     def dashboard_page():
         return send_from_directory(root_dir, 'dashboard.html')
