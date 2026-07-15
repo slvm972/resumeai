@@ -80,6 +80,14 @@ def create_app(config_name=None):
     def admin_page():
         return send_from_directory(root_dir, 'admin.html')
 
+    @app.route('/history')
+    def history_page():
+        return send_from_directory(root_dir, 'history.html')
+
+    @app.route('/history.html')
+    def history_page_html():
+        return send_from_directory(root_dir, 'history.html')
+
     @app.route('/admin-login.html')
     def admin_login_page():
         # Старый admin использует этот файл
