@@ -528,6 +528,11 @@ def _register_legacy_routes(app):
         if not user and not (admin_mode or is_admin):
             return jsonify({'success': False, 'error': 'Please log in first'}), 401
 
+        if user and not is_admin:
+            subscription = user.get_active_subscription()
+            if subscription and subscription.plan_name == 'free':
+                return jsonify({'success': False, 'error': 'Improvements require Pro or Enterprise plan.'}), 403
+
         try:
             from app.missing_routes4 import _run_improve_pipeline
 
@@ -590,6 +595,11 @@ def _register_legacy_routes(app):
         user = _get_current_user()
         if not user and not (admin_mode or is_admin):
             return jsonify({'success': False, 'error': 'Please log in first'}), 401
+
+        if user and not is_admin:
+            subscription = user.get_active_subscription()
+            if subscription and subscription.plan_name == 'free':
+                return jsonify({'success': False, 'error': 'Improvements require Pro or Enterprise plan.'}), 403
 
         try:
             from app.missing_routes4 import _apply_improved_text_to_docx
