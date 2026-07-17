@@ -62,11 +62,6 @@ def create_app(config_name=None):
     _register_blueprints(app)
     _register_legacy_routes(app)
 
-    # === TEMP-B1-DBSTAMP START — удалить блок целиком вместе с app/routes/db_stamp_temp.py ===
-    from app.routes.db_stamp_temp import db_stamp_bp
-    app.register_blueprint(db_stamp_bp)
-    # === TEMP-B1-DBSTAMP END ===
-
     root_dir = os.path.dirname(os.path.dirname(__file__))
 
     @app.route('/')
