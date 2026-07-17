@@ -16,8 +16,16 @@ class Subscription(db.Model):
     next_billing_date = db.Column(db.DateTime, nullable=True)
     analysis_used = db.Column(db.Integer, nullable=False, default=0)
     improvement_used = db.Column(db.Integer, nullable=False, default=0)
+    # Накопительный остаток кредитов на Improve. Пополняется на +5 при каждой
+    # покупке пакета (one-time, без подписки) — покупки складываются (stacking),
+    # а не сбрасывают счётчик. Остаток = improvement_credits - improvement_used.
+    improvement_credits = db.Column(db.Integer, nullable=False, default=0)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def improvement_remaining(self):
+        """Сколько Improve-кредитов ещё доступно для использования."""
+        return max(self.improvement_credits - self.improvement_used, 0)
 
     def to_dict(self):
         return {
@@ -27,6 +35,8 @@ class Subscription(db.Model):
             'payment_provider': self.payment_provider,
             'analysis_used': self.analysis_used,
             'improvement_used': self.improvement_used,
+            'improvement_credits': self.improvement_credits,
+            'improvement_remaining': self.improvement_remaining(),
             'next_billing_date': self.next_billing_date.isoformat() if self.next_billing_date else None,
             'created_at': self.created_at.isoformat(),
         }

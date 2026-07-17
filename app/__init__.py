@@ -461,7 +461,7 @@ def _register_legacy_routes(app):
                     if subscription.analysis_used >= 2:
                         return jsonify({
                             'success': False,
-                            'error': 'Monthly limit reached. Upgrade to Pro.'
+                            'error': 'Monthly free limit reached. Buy an Improve Pack for unlimited analyses.'
                         }), 403
 
             # Использовать FakeUser если нет реального пользователя
@@ -530,8 +530,8 @@ def _register_legacy_routes(app):
 
         if user and not is_admin:
             subscription = user.get_active_subscription()
-            if subscription and subscription.plan_name == 'free':
-                return jsonify({'success': False, 'error': 'Improvements require Pro or Enterprise plan.'}), 403
+            if not subscription or subscription.improvement_remaining() <= 0:
+                return jsonify({'success': False, 'error': 'No Improve credits remaining. Buy an Improve Pack to continue.'}), 403
 
         try:
             from app.missing_routes4 import _run_improve_pipeline
@@ -566,6 +566,12 @@ def _register_legacy_routes(app):
             if not result.get('success'):
                 return jsonify({'success': False, 'error': result.get('error')}), result.get('status', 500)
 
+            # Списать один Improve-кредит — раньше этого шага не было вообще,
+            # то есть кредиты/квота на improve никогда фактически не расходовались.
+            if user and not is_admin and subscription:
+                subscription.improvement_used += 1
+                db.session.commit()
+
             if original_bytes:
                 import base64
                 session['original_docx_b64'] = base64.b64encode(original_bytes).decode('ascii')
@@ -599,7 +605,7 @@ def _register_legacy_routes(app):
         if user and not is_admin:
             subscription = user.get_active_subscription()
             if subscription and subscription.plan_name == 'free':
-                return jsonify({'success': False, 'error': 'Improvements require Pro or Enterprise plan.'}), 403
+                return jsonify({'success': False, 'error': 'No Improve credits remaining. Buy an Improve Pack to continue.'}), 403
 
         try:
             from app.missing_routes4 import _apply_improved_text_to_docx

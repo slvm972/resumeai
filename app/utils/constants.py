@@ -2,8 +2,7 @@
 
 # Планы подписки
 PLAN_FREE = 'free'
-PLAN_PRO = 'pro'
-PLAN_ENTERPRISE = 'enterprise'
+PLAN_CREDITS = 'credits5'  # разовая покупка (НЕ подписка) — пакет из 5 Improve-кредитов
 
 SUBSCRIPTION_PLANS = {
     PLAN_FREE: {
@@ -14,21 +13,18 @@ SUBSCRIPTION_PLANS = {
         'custom_api_key': False,
         'features': ['2 resume analyses per month', 'Basic feedback', 'Server API key'],
     },
-    PLAN_PRO: {
-        'display_name': 'Pro',
-        'price_usd': 19.99,
-        'analysis_quota': -1,  # безлимит
-        'improvement_quota': 50,
-        'custom_api_key': False,
-        'features': ['Unlimited analyses', '50 improvements/month', 'Priority support'],
-    },
-    PLAN_ENTERPRISE: {
-        'display_name': 'Enterprise',
+    PLAN_CREDITS: {
+        'display_name': 'Improve Pack',
         'price_usd': 9.99,
-        'analysis_quota': -1,
-        'improvement_quota': -1,
-        'custom_api_key': True,
-        'features': ['Unlimited everything', 'Custom API key', 'Dedicated support'],
+        'billing_type': 'one_time',       # маркер: не подписка, без автопродления
+        'credits_per_purchase': 5,        # сколько Improve-кредитов добавляет одна покупка
+        'analysis_quota': -1,             # безлимит
+        'custom_api_key': False,
+        'features': [
+            '5 resume improvements per purchase',
+            'Unlimited resume analyses',
+            'One-time payment — no subscription, no auto-renewal',
+        ],
     },
 }
 
