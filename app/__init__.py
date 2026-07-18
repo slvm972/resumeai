@@ -683,3 +683,6 @@ def _register_blueprints(app):
 
     from app.routes.analysis import analysis_bp
     app.register_blueprint(analysis_bp, url_prefix='/analysis')
+    
+    from app.routes.webhooks import webhooks_bp
+    app.register_blueprint(webhooks_bp, url_prefix='/webhooks')
