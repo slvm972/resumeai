@@ -76,6 +76,9 @@ class Config:
     ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL', 'admin@resumeai.com')
     ADMIN_PASSWORD_HASH = os.environ.get('ADMIN_PASSWORD_HASH')  # bcrypt-хеш, не сам пароль
 
+    # Lemon Squeezy
+    LEMONSQUEEZY_WEBHOOK_SECRET = os.environ.get('LEMONSQUEEZY_WEBHOOK_SECRET')
+
     # CORS
     ALLOWED_ORIGINS = os.environ.get(
         'ALLOWED_ORIGINS',
