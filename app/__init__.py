@@ -379,6 +379,45 @@ def _register_legacy_routes(app):
             'users': [u.to_dict() for u in users],
         })
 
+    # ВРЕМЕННЫЙ диагностический роут — раскрывает PII (email) через query param.
+    # Убрать после того как баг 403 / зачисление improvement_credits разобраны.
+    @app.route('/api/admin/debug/user-state', methods=['GET'])
+    def legacy_admin_debug_user_state():
+        if 'admin' not in session:
+            return jsonify({'error': 'Unauthorized'}), 401
+
+        email = request.args.get('email', '').strip().lower()
+        if not email:
+            return jsonify({'error': 'email query param required'}), 400
+
+        from app.models.user import User
+        from app.models.subscription import Subscription
+        from app.models.payment import Payment
+
+        users = User.query.filter(User.email.ilike(f'%{email}%')).all()
+        users_data = []
+        for u in users:
+            subs = Subscription.query.filter_by(user_id=u.id).all()
+            users_data.append({
+                'id': u.id, 'email': u.email, 'is_active': u.is_active,
+                'created_at': u.created_at.isoformat(),
+                'subscriptions': [{
+                    'sub_id': s.id, 'plan_name': s.plan_name, 'status': s.status,
+                    'analysis_used': s.analysis_used, 'improvement_used': s.improvement_used,
+                    'improvement_credits': s.improvement_credits,
+                    'created_at': s.created_at.isoformat(), 'updated_at': s.updated_at.isoformat(),
+                } for s in subs],
+            })
+
+        payments = Payment.query.filter(Payment.payer_email.ilike(f'%{email}%')).all()
+        payments_data = [{
+            'id': p.id, 'user_id': p.user_id, 'external_id': p.external_id,
+            'amount': p.amount, 'status': p.status, 'provider': p.provider,
+            'created_at': p.created_at.isoformat(),
+        } for p in payments]
+
+        return jsonify({'users': users_data, 'payments': payments_data})
+
     def _do_register():
         from app.services.auth_service import AuthService
         data = request.get_json() or {}
