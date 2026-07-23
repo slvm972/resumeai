@@ -23,10 +23,18 @@ class AuthService:
             db.session.flush()
 
             # Создать бесплатную подписку
+            # credits_granted/credits_used заданы явно — не полагаемся на
+            # column-default в модели для бизнес-логики выдачи стартовых
+            # кредитов: default=2 в Subscription сейчас даёт тот же результат,
+            # но если его когда-нибудь изменят по другой причине (например,
+            # для другого места создания Subscription), регистрация не должна
+            # молча изменить поведение.
             subscription = Subscription(
                 user_id=user.id,
                 plan_name='free',
                 status='active',
+                credits_granted=2,
+                credits_used=0,
             )
             db.session.add(subscription)
             db.session.commit()
