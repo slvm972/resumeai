@@ -498,12 +498,11 @@ def _register_legacy_routes(app):
             # Проверить квоту (только для обычных пользователей, не admin)
             if user and not is_admin:
                 subscription = user.get_active_subscription()
-                if subscription and subscription.plan_name == 'free':
-                    if subscription.analysis_used >= 2:
-                        return jsonify({
-                            'success': False,
-                            'error': 'Monthly free limit reached. Buy an Improve Pack for unlimited analyses.'
-                        }), 403
+                if subscription and subscription.credits_remaining() <= 0:
+                    return jsonify({
+                        'success': False,
+                        'error': 'No credits remaining. Buy a credit pack to continue.'
+                    }), 403
 
             # Использовать FakeUser если нет реального пользователя
             class FakeUser:
@@ -517,7 +516,8 @@ def _register_legacy_routes(app):
             if user and not is_admin:
                 subscription = user.get_active_subscription()
                 if subscription:
-                    subscription.analysis_used += 1
+                    subscription.analysis_used += 1      # legacy-статистика, читается /users/usage
+                    subscription.credits_used += 1        # новый единый пул — реальный источник доступа
                     db.session.commit()
                 UsageLog.log(user_id=user.id, action='analysis',
                             tokens=result.get('tokens_used', 0), status='success')
@@ -571,8 +571,8 @@ def _register_legacy_routes(app):
 
         if user and not is_admin:
             subscription = user.get_active_subscription()
-            if not subscription or subscription.improvement_remaining() <= 0:
-                return jsonify({'success': False, 'error': 'No Improve credits remaining. Buy an Improve Pack to continue.'}), 403
+            if not subscription or subscription.credits_remaining() <= 0:
+                return jsonify({'success': False, 'error': 'No credits remaining. Buy a credit pack to continue.'}), 403
 
         try:
             from app.missing_routes4 import _run_improve_pipeline
@@ -611,6 +611,7 @@ def _register_legacy_routes(app):
             # то есть кредиты/квота на improve никогда фактически не расходовались.
             if user and not is_admin and subscription:
                 subscription.improvement_used += 1
+                subscription.credits_used += 1
                 db.session.commit()
 
             if original_bytes:
@@ -645,8 +646,8 @@ def _register_legacy_routes(app):
 
         if user and not is_admin:
             subscription = user.get_active_subscription()
-            if subscription and subscription.plan_name == 'free':
-                return jsonify({'success': False, 'error': 'No Improve credits remaining. Buy an Improve Pack to continue.'}), 403
+            if subscription and subscription.credits_remaining() <= 0:
+                return jsonify({'success': False, 'error': 'No credits remaining. Buy a credit pack to continue.'}), 403
 
         try:
             from app.missing_routes4 import _apply_improved_text_to_docx
