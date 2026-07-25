@@ -704,6 +704,12 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
         f"10. NEVER invent or add anything not in the original: no new jobs, certifications, courses, achievements, responsibilities, skills, education, outcomes, results, or causal explanations (phrases like \"resulting in\", \"which improved\", \"leading to\", \"by leveraging\", \"ensuring\", \"driving\"). If a sentence has nothing to strengthen, return it unchanged rather than adding filler."
     )
 
+    user_prompt = (
+        f"Rewrite these {n} resume blocks according to the rules above. "
+        f"Return with ###ITEM_NNN### identifiers.\n\n"
+        f"{ai_input}\n\nOUTPUT ({n} blocks):"
+    )
+
     payload = {
         "model": "llama-3.3-70b-versatile",
         "messages": [
