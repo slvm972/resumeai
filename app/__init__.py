@@ -345,6 +345,7 @@ def _register_legacy_routes(app):
                 'strengths': result.get('strengths', []),
                 'improvements': result.get('improvements', []),
                 'key_skills': result.get('key_skills', []),
+                'is_admin': True,  # эндпоинт уже гейтится 'admin' in session выше — всегда True
             })
 
         except Exception as e:
@@ -551,6 +552,8 @@ def _register_legacy_routes(app):
                 'key_skills': result.get('key_skills', []),
                 'keywords': result.get('key_skills', []),           # saveToHistory ждёт keywords
                 'detected_language': result.get('detected_language', 'en'),
+                'is_admin': is_admin,
+                'credits_remaining': subscription.credits_remaining() if (user and not is_admin and subscription) else None,
             })
 
         except ValueError as e:

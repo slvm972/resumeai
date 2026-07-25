@@ -870,10 +870,55 @@
     btn.textContent = open ? '− Hide Job Description' : '+ Add Job Description (optional — for targeted analysis)';
   }
 
+  /* ─ Гостевая демо-заглушка ───────────────────────────────────────────
+     Незалогиненный посетитель не может вызывать /api/analyze (401 на
+     бэкенде), поэтому вместо реального запроса показываем фиксированный
+     демо-результат — тот же renderResult(), тот же заблюренный/locked
+     вид, что и у пользователя с исчерпанным пулом (is_admin=false,
+     credits_remaining=null у обоих естественным образом дают одинаковый
+     "locked" рендер — переиспользуем существующую логику без дублирования). */
+  const GUEST_DEMO_RESULT = {
+    __isDemo: true,
+    is_admin: false,
+    credits_remaining: null,
+    overall_score: 74,
+    ats_score: 68,
+    formatting_score: 80,
+    content_score: 72,
+    summary: 'This is a sample analysis so you can see what ResumeAI does. Sign up free to analyze your own resume — the real analysis is tailored to your actual experience and target role.',
+    strengths: ['Clear job titles', 'Consistent date formatting', 'Relevant keywords present'],
+    keywords: ['Project Management', 'Stakeholder Communication', 'Data Analysis', 'Agile', 'Team Leadership'],
+    improvements: [
+      'Add measurable outcomes to your top 3 bullet points (numbers, %, $)',
+      'Move your strongest achievement to the first line of each role',
+      'Trim the summary section to 2-3 sentences focused on impact',
+      'Replace generic verbs ("responsible for") with action verbs ("led", "drove")',
+      'Add a skills section matching keywords from your target job postings',
+    ],
+  };
+
+  function showGuestDemo() {
+    renderResult(GUEST_DEMO_RESULT);
+    // Переопределяем баннер под гостевой сценарий — у зарегистрированного
+    // пользователя с исчерпанным пулом freeBanner ведёт на #pricing,
+    // у гостя должен вести на регистрацию (у него ещё нет аккаунта).
+    const banner = document.getElementById('freeBanner');
+    banner.innerHTML = '🔒 <strong>Sample Analysis</strong> — Sign up free to analyze your real resume. ' +
+      '<a href="#" onclick="openModal();return false;" style="color:#60a5fa;text-decoration:underline;margin-left:.3rem">Create free account →</a>';
+  }
+
   /* ─ analyze ─ */
   analyzeBtn.addEventListener('click', async () => {
     if (!selectedFile) return;
     if (selectedFile.size > 5 * 1024 * 1024) { showError('File too large. Max 5 MB.'); return; }
+
+    if (!currentUser) {
+      // Гость: без реального запроса к бэкенду, показать демо
+      resultPanel.style.display = 'none';
+      errorBox.classList.remove('active');
+      showGuestDemo();
+      return;
+    }
 
     setLoading(true);
     resultPanel.style.display = 'none';
@@ -901,7 +946,13 @@
 
   /* ─ render rich result ─ */
   function renderResult(d) {
-    const isAdmin = d.is_admin === true;
+    // Полный вид показываем и настоящим admin-сессиям (is_admin===true), и
+    // любому залогиненному пользователю с активной подпиской — сигнал тому
+    // credits_remaining не null/undefined (бэкенд отдаёт null для гостя/admin).
+    // Раньше здесь проверялся только is_admin === true, из-за чего
+    // зарегистрированный обычный пользователь видел тот же урезанный вид,
+    // что и гость (баг, найден при живом тестировании).
+    const hasFullAccess = d.is_admin === true || (d.credits_remaining !== null && d.credits_remaining !== undefined);
 
     // overall score ring
     const score = d.overall_score ?? d.score ?? 0;
@@ -941,8 +992,8 @@
     il.innerHTML = '';
     const allImprovements = d.improvements || [];
 
-    if (isAdmin) {
-      // Admin: show everything
+    if (hasFullAccess) {
+      // Полный доступ: показать всё
       allImprovements.forEach(i => {
         const li = document.createElement('li'); li.textContent = i; il.appendChild(li);
       });
@@ -977,8 +1028,10 @@
       document.getElementById('jobMatchSection').style.display = 'none';
     }
 
-    // save to history
-    saveToHistory(d, selectedFile ? selectedFile.name : 'Resume');
+    // save to history (пропускаем для гостевого демо — это не реальный анализ)
+    if (!d.__isDemo) {
+      saveToHistory(d, selectedFile ? selectedFile.name : 'Resume');
+    }
 
     // store for improve feature
     lastAnalysisData = d;

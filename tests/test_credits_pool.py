@@ -266,3 +266,171 @@ def test_legacy_counters_still_increment_alongside_credits_used(client_app):
     assert sub.analysis_used == 1
     assert sub.improvement_used == 1
     assert sub.credits_used == 2
+
+
+# ===========================================================================
+# Шаг 4/6 — webhooks.py пополняет единый пул на +10
+# ===========================================================================
+
+def test_lemonsqueezy_webhook_tops_up_unified_pool(client_app, monkeypatch):
+    """
+    Реальный HMAC (не мок compare_digest) над телом запроса тестовым
+    секретом -> POST /webhooks/lemonsqueezy имитирует оплаченный
+    order_created для существующего пользователя с credits_granted=2.
+    Ожидание: credits_granted==12 (2 стартовых + 10 за покупку),
+    improvement_credits==5 (легаси-поле тоже выросло, не заменено).
+    """
+    import hmac
+    import hashlib
+    import json as json_lib
+
+    from app.services.auth_service import AuthService
+
+    app = client_app
+    client = app.test_client()
+
+    webhook_secret = 'test-webhook-secret'
+    app.config['LEMONSQUEEZY_WEBHOOK_SECRET'] = webhook_secret
+
+    result = AuthService.register('webhook-pool-test@example.com', 'somepassword123')
+    user = result['user']
+    sub = user.get_active_subscription()
+    assert sub.credits_granted == 2
+    assert sub.improvement_credits == 0
+
+    payload = {
+        'data': {
+            'attributes': {
+                'identifier': 'order-webhook-pool-test-001',
+                'user_email': 'webhook-pool-test@example.com',
+                'status': 'paid',
+                'total': 999,  # центы -> $9.99, ожидаемая цена пакета
+                'currency': 'usd',
+            }
+        }
+    }
+    raw_body = json_lib.dumps(payload).encode('utf-8')
+    signature = hmac.new(webhook_secret.encode('utf-8'), raw_body, hashlib.sha256).hexdigest()
+
+    resp = client.post(
+        '/webhooks/lemonsqueezy',
+        data=raw_body,
+        content_type='application/json',
+        headers={'X-Signature': signature, 'X-Event-Name': 'order_created'},
+    )
+    assert resp.status_code == 200
+
+    sub = user.get_active_subscription()
+    assert sub.credits_granted == 12
+    assert sub.improvement_credits == 5
+    assert sub.credits_remaining() == 12
+
+
+def test_lemonsqueezy_webhook_rejects_bad_signature(client_app):
+    """Regression guard: неверная подпись -> 401, пул не трогается."""
+    import json as json_lib
+
+    from app.services.auth_service import AuthService
+
+    app = client_app
+    client = app.test_client()
+    app.config['LEMONSQUEEZY_WEBHOOK_SECRET'] = 'test-webhook-secret'
+
+    result = AuthService.register('webhook-badsig-test@example.com', 'somepassword123')
+    user = result['user']
+
+    payload = {
+        'data': {
+            'attributes': {
+                'identifier': 'order-bad-sig-001',
+                'user_email': 'webhook-badsig-test@example.com',
+                'status': 'paid',
+                'total': 999,
+                'currency': 'usd',
+            }
+        }
+    }
+    raw_body = json_lib.dumps(payload).encode('utf-8')
+
+    resp = client.post(
+        '/webhooks/lemonsqueezy',
+        data=raw_body,
+        content_type='application/json',
+        headers={'X-Signature': 'not-a-real-signature', 'X-Event-Name': 'order_created'},
+    )
+    assert resp.status_code == 401
+
+    sub = user.get_active_subscription()
+    assert sub.credits_granted == 2
+    assert sub.improvement_credits == 0
+
+
+# ===========================================================================
+# Шаг 5/6 — /api/analyze возвращает is_admin и credits_remaining
+# ===========================================================================
+
+def test_analyze_response_includes_credits_remaining_for_regular_user(client_app):
+    """
+    Regression-тест на найденный и подтверждённый в Шаге 5 баг: ответ
+    /api/analyze не содержал is_admin/credits_remaining, из-за чего
+    фронтенд показывал зарегистрированному пользователю тот же урезанный
+    вид, что и гостю.
+    """
+    from unittest.mock import patch
+
+    app = client_app
+    client = app.test_client()
+    user = _register_and_login(app, client, 'analyze-response-fields-test@example.com')
+
+    with patch(
+        'app.services.openrouter_service.OpenRouterService.analyze_resume',
+        return_value=_FAKE_ANALYZE_RESULT,
+    ):
+        resp = client.post('/api/analyze', json={'resume_text': 'A' * 30})
+
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body['is_admin'] is False
+    # Свежий пользователь: 2 кредита выданы, 1 потрачен на этот же analyze
+    sub = user.get_active_subscription()
+    assert body['credits_remaining'] == sub.credits_remaining() == 1
+
+
+def test_analyze_response_credits_remaining_null_for_admin_session(client_app):
+    """Admin-сессия: is_admin=True, credits_remaining=None (квота не считается)."""
+    from unittest.mock import patch
+
+    app = client_app
+    client = app.test_client()
+    with client.session_transaction() as sess:
+        sess['admin'] = 'admin'
+
+    with patch(
+        'app.services.openrouter_service.OpenRouterService.analyze_resume',
+        return_value=_FAKE_ANALYZE_RESULT,
+    ):
+        resp = client.post('/api/analyze', json={'resume_text': 'A' * 30})
+
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body['is_admin'] is True
+    assert body['credits_remaining'] is None
+
+
+def test_admin_analyze_endpoint_response_includes_is_admin_true(client_app):
+    """/api/admin/analyze (панель admin.html) тоже отдаёт is_admin=True."""
+    from unittest.mock import patch
+
+    app = client_app
+    client = app.test_client()
+    with client.session_transaction() as sess:
+        sess['admin'] = 'admin'
+
+    with patch(
+        'app.services.openrouter_service.OpenRouterService.analyze_resume',
+        return_value=_FAKE_ANALYZE_RESULT,
+    ):
+        resp = client.post('/api/admin/analyze', json={'resume_text': 'A' * 30})
+
+    assert resp.status_code == 200
+    assert resp.get_json()['is_admin'] is True

@@ -76,7 +76,8 @@ def lemonsqueezy_webhook():
         if user:
             subscription = user.get_active_subscription()
             if subscription:
-                subscription.improvement_credits += 5
+                subscription.improvement_credits += 5   # legacy-статистика, читается /subscription/current
+                subscription.credits_granted += 10       # новый единый пул — реальный источник доступа
             else:
                 # Защитный случай — не должен происходить в норме
                 # (подписка создаётся при регистрации), но не роняем вебхук.
