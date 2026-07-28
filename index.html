@@ -1291,6 +1291,8 @@
   let lastJobDesc = null;
   let lastOriginalFormat = 'txt';   // формат загруженного файла (из /api/analyze)
   let lastImprovedFormat = 'txt';   // формат для скачивания (обновляется после improve)
+  let lastItemIds = null;
+  let lastImprovedRaw = null;   // сырой текст с ###ITEM_NNN### маркерами — нужен только для /api/improve/docx
 
   function closeImproveModal() {
     document.getElementById('improveModal').classList.remove('open');
@@ -1317,7 +1319,9 @@
       const data = await res.json();
       document.getElementById('improvingSpinner').style.display = 'none';
       if (data.improved_resume) {
-        document.getElementById('improvedText').textContent = data.improved_resume;
+        lastItemIds = data.item_ids || null;
+        lastImprovedRaw = data.improved_resume;
+        document.getElementById('improvedText').textContent = data.display_text || data.improved_resume;
         document.getElementById('improvedText').style.display = 'block';
         document.getElementById('improveActions').style.display = 'flex';
         
@@ -1351,12 +1355,50 @@
     setTimeout(() => msg.style.display = 'none', 2500);
   }
 
-  function downloadImproved() {
+  async function downloadImproved() {
     const text = document.getElementById('improvedText').textContent;
     const format = lastImprovedFormat || 'txt';
-    
-    // ── ЕСЛИ DOCX: Создать РЕАЛЬНЫЙ DOCX файл с помощью docx.js ──────────────
+
+    // ── ЕСЛИ DOCX и есть оригинальный .docx файл: сервер собирает docx,
+    //    сохраняя форматирование оригинала, вместо client-side docx.js ──────
     if (format === 'docx' || format === 'doc') {
+      if (selectedFile && selectedFile.name.toLowerCase().endsWith('.docx')) {
+        try {
+          const formData = new FormData();
+          formData.append('original_file', selectedFile);
+          formData.append('improved_resume', lastImprovedRaw || text);
+          if (lastItemIds) {
+            formData.append('item_ids', JSON.stringify(lastItemIds));
+          }
+          const response = await fetch('/api/improve/docx', {
+            method: 'POST',
+            body: formData
+          });
+          if (response.ok) {
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'improved_resume.docx'; a.click();
+            URL.revokeObjectURL(url);
+            showDownloadSuccess('improved_resume.docx');
+          } else {
+            const err = await response.json().catch(() => ({}));
+            const msg = document.getElementById('improveModalMsg');
+            msg.style.display = 'block';
+            msg.style.color = '#f87171';
+            msg.textContent = 'Error generating DOCX: ' + (err.error || response.status);
+          }
+        } catch (e) {
+          const msg = document.getElementById('improveModalMsg');
+          msg.style.display = 'block';
+          msg.style.color = '#f87171';
+          msg.textContent = 'Error: ' + e.message;
+        }
+        return;
+      }
+
+      // Нет оригинального .docx (гостевое демо / текстовый ввод) —
+      // прежнее клиентское поведение через docx.js, без изменений.
       try {
         // Проверить что библиотека docx доступна
         if (typeof window.docx === 'undefined') {
