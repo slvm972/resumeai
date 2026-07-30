@@ -11,18 +11,18 @@ SUBSCRIPTION_PLANS = {
         'analysis_quota': 2,
         'improvement_quota': 0,
         'custom_api_key': False,
-        'features': ['2 resume analyses per month', 'Basic feedback', 'Server API key'],
+        'features': ['2 free credits — use for analyses and improvements', 'Basic feedback', 'Server API key'],
     },
     PLAN_CREDITS: {
         'display_name': 'Improve Pack',
         'price_usd': 9.99,
         'billing_type': 'one_time',       # маркер: не подписка, без автопродления
-        'credits_per_purchase': 5,        # сколько Improve-кредитов добавляет одна покупка
+        'credits_per_purchase': 10,       # сколько кредитов единого пула добавляет одна покупка
         'analysis_quota': -1,             # безлимит
         'custom_api_key': False,
         'features': [
-            '5 resume improvements per purchase',
-            'Unlimited resume analyses',
+            '10 credits per purchase — use for analyses and improvements',
+            'Credits never expire, stack with each purchase',
             'One-time payment — no subscription, no auto-renewal',
         ],
     },

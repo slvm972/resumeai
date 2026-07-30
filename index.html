@@ -724,46 +724,22 @@
     <h2>Simple, Transparent Pricing</h2>
     <p>Choose the plan that fits your needs</p>
   </div>
-  <div class="pricing-grid">
-    <div class="plan-card">
-      <div class="plan-name">Starter</div>
-      <div class="plan-tagline">Perfect for trying out</div>
+  <p style="text-align:center;color:var(--muted);font-size:.9rem;margin-bottom:1.5rem">
+    New accounts get <strong style="color:var(--text)">2 free credits</strong> automatically — no card required.
+  </p>
+  <div class="pricing-grid" style="grid-template-columns:1fr;max-width:420px">
+    <div class="plan-card popular">
+      <div class="popular-badge">MOST POPULAR</div>
+      <div class="plan-name">Credit Pack</div>
+      <div class="plan-tagline">Pay once, use anytime</div>
       <div class="plan-price">$9.99 <span>one-time</span></div>
       <ul class="plan-features">
-        <li>3 resume analyses</li>
-        <li>Basic scoring</li>
-        <li>ATS optimization tips</li>
-        <li>24-hour access</li>
+        <li>10 credits — analyses and improvements</li>
+        <li>Credits never expire</li>
+        <li>Stack with each purchase</li>
+        <li>No subscription, no auto-renewal</li>
       </ul>
-      <a href="https://mostovoy-ai.lemonsqueezy.com/checkout/buy/5cea1ea6-7ae8-447d-953e-9f41366a205e" class="btn-plan btn-plan-outline">Get Started</a>
-    </div>
-    <div class="plan-card popular">
-      <div class="popular-badge">POPULAR</div>
-      <div class="plan-name">Professional</div>
-      <div class="plan-tagline">Best value</div>
-      <div class="plan-price">$29.99 <span>/ month</span></div>
-      <ul class="plan-features">
-        <li>Unlimited analyses</li>
-        <li>Advanced scoring</li>
-        <li>Industry-specific tips</li>
-        <li>Cover letter analysis</li>
-        <li>Priority support</li>
-        <li>Export as PDF</li>
-      </ul>
-      <a href="https://mostovoy-ai.lemonsqueezy.com/checkout/buy/5cea1ea6-7ae8-447d-953e-9f41366a205e" class="btn-plan btn-plan-primary">Go Pro</a>
-    </div>
-    <div class="plan-card">
-      <div class="plan-name">Enterprise</div>
-      <div class="plan-tagline">For teams</div>
-      <div class="plan-price">$99 <span>/ month</span></div>
-      <ul class="plan-features">
-        <li>Everything in Pro</li>
-        <li>Team accounts (10+)</li>
-        <li>Custom branding</li>
-        <li>API access</li>
-        <li>Dedicated manager</li>
-      </ul>
-      <a href="https://mostovoy-ai.lemonsqueezy.com/checkout/buy/5cea1ea6-7ae8-447d-953e-9f41366a205e" class="btn-plan btn-plan-outline">Contact Sales</a>
+      <a href="https://mostovoy-ai.lemonsqueezy.com/checkout/buy/5cea1ea6-7ae8-447d-953e-9f41366a205e" class="btn-plan btn-plan-primary">Buy Credits</a>
     </div>
   </div>
 </section>
@@ -946,6 +922,16 @@
 
   /* ─ render rich result ─ */
   function renderResult(d) {
+    // Сбросить баннер к исходному (не-демо) тексту — showGuestDemo() подменяет
+    // innerHTML на гостевой вариант, и без сброса он "утекает" в следующий
+    // рендер (например, зарегистрированный пользователь с locked-результатом
+    // после того как до этого был показан гостевой demo видел бы гостевой
+    // текст "Sample Analysis... Create free account" вместо "Free Preview").
+    // Текст — дословно исходная статическая разметка #freeBanner.
+    document.getElementById('freeBanner').innerHTML =
+      '🔒 <strong>Free Preview</strong> — You\'re seeing a partial analysis. ' +
+      '<a href="#" onclick="scrollToPricing();return false;" style="color:#60a5fa;text-decoration:underline;margin-left:.3rem">Unlock full analysis →</a>';
+
     // Полный вид показываем и настоящим admin-сессиям (is_admin===true), и
     // любому залогиненному пользователю с активной подпиской — сигнал тому
     // credits_remaining не null/undefined (бэкенд отдаёт null для гостя/admin).
