@@ -88,7 +88,10 @@ def _detect_language_simple(text):
 def _extract_structured(doc):
     """
     Вернуть список {'para': <Paragraph>, 'text': str} для всех
-    непустых элементов документа, обходя таблицы по позиции (ri, ci).
+    непустых элементов документа. Таблицы обходятся с дедупликацией
+    по identity XML-элемента ячейки (cell._tc), а не по позиции (ri, ci) —
+    это необходимо для merge-ячеек: python-docx возвращает один и тот же
+    объект _Cell на каждой позиции сетки, которую перекрывает merge.
     """
     items = []
     for para in doc.paragraphs:
@@ -98,7 +101,7 @@ def _extract_structured(doc):
         seen = set()
         for ri, row in enumerate(table.rows):
             for ci, cell in enumerate(row.cells):
-                key = (id(table), ri, ci)
+                key = id(cell._tc)
                 if key in seen:
                     continue
                 seen.add(key)
