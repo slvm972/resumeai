@@ -1070,3 +1070,49 @@ def register_missing_routes(app, _extract_text_from_request, _get_current_user):
 
         except Exception as e:
             return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# ODT-экспорт (Cycle O1) — только функция генерации, без Flask-роута.
+# Роут добавляется отдельным циклом (O2) после сверки с текущей логикой
+# списания кредитов в app/__init__.py.
+# ---------------------------------------------------------------------------
+
+def _generate_odt(text):
+    """
+    Сгенерировать .odt из текста improved_resume (с маркерами ###ITEM_NNN###,
+    которые здесь просто удаляются — ODT не привязан к структуре оригинала,
+    в отличие от DOCX-пути, где восстановление идёт по item_ids). Строки на
+    иврите получают RTL-стиль абзаца (writing-mode: rl-tb).
+
+    Проверено round-trip тестом (запись -> odf.opendocument.load -> чтение):
+    см. tests/test_odt_export.py.
+
+    ВАЖНО (найдено при верификации, не было в исходном наброске):
+    класс называется OpenDocumentText, а не OpendocumentText — с опечаткой
+    импорт падает немедленно. automaticstyles.addElement() — правильный
+    метод для регистрации автоматического стиля абзаца, менять не пришлось.
+    """
+    import re
+    import io
+    from odf.opendocument import OpenDocumentText
+    from odf.text import P
+    from odf.style import Style, ParagraphProperties
+
+    doc = OpenDocumentText()
+
+    rtl_style = Style(name="RTLParagraph", family="paragraph")
+    rtl_style.addElement(ParagraphProperties(writingmode="rl-tb"))
+    doc.automaticstyles.addElement(rtl_style)
+
+    clean = re.sub(r"###ITEM_\d+###", "", text)
+    for line in clean.split("\n"):
+        line = line.strip().lstrip("#").replace("**", "").replace("*", "").strip()
+        has_hebrew = any("\u0590" <= c <= "\u05FF" for c in line)
+        p = P(stylename=rtl_style if has_hebrew else None, text=line if line else None)
+        doc.text.addElement(p)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf
