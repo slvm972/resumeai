@@ -1438,9 +1438,36 @@
     else if (format === 'txt') {
       downloadAsText(text, 'improved_resume.txt');
     } 
-    // ── ЕСЛИ PDF: Создать текстовый файл с расширением .pdf ────────────────────
+    // ── ЕСЛИ PDF: реальный серверный PDF (Cycle P3), тот же паттерн что ODT ────
     else if (format === 'pdf') {
-      downloadAsText(text, 'improved_resume.pdf');
+      const btn = document.getElementById('downloadBtn');
+      const originalText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = '⏳ Generating...';
+      try {
+        const formData = new FormData();
+        formData.append('improved_resume', lastImprovedRaw || text);
+        const response = await fetch('/api/improve/pdf', { method: 'POST', body: formData });
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}));
+          throw new Error(err.error || `Server error ${response.status}`);
+        }
+        const blob = await response.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'improved_resume.pdf';
+        a.click();
+        URL.revokeObjectURL(a.href);
+        showDownloadSuccess('improved_resume.pdf');
+      } catch (e) {
+        const msg = document.getElementById('improveModalMsg');
+        msg.style.display = 'block';
+        msg.style.color = '#f87171';
+        msg.textContent = 'Error: ' + e.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
     }
   }
   
