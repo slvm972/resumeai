@@ -19,10 +19,23 @@ import sys
 
 sys.path.insert(0, '/home/claude/resumeai')
 
+# Безопасные тестовые значения ДО ЛЮБОГО импорта app/config — тот же паттерн,
+# что и в tests/test_odt_export.py / tests/test_credits_pool.py. Порядок
+# критичен: "import app.missing_routes4" ниже уже тянет за собой "import app"
+# (пакет), а тот на верхнем уровне делает "from config import config" — если
+# переменные окружения выставить после этого импорта, config.py закэшируется
+# с FLASK_ENV='production' по умолчанию и create_app('testing') позже упадёт
+# на проверке SECRET_KEY.
+os.environ['FLASK_ENV'] = 'testing'
+os.environ.setdefault('SECRET_KEY', 'test-secret-key-for-tests-only')
+os.environ.setdefault('JWT_SECRET_KEY', 'test-jwt-secret-for-tests-only')
+os.environ.setdefault('GROQ_API_KEY', 'test-groq-key-not-used-mocked-out')
+
 import pytest
 import PyPDF2
 
 import app.missing_routes4 as mr
+from app import create_app
 
 
 def _extract(buf):
@@ -203,3 +216,92 @@ def test_10_font_file_exists_and_is_static_ttf():
     from fontTools.ttLib import TTFont as FTFont
     ft = FTFont(mr._PDF_FONT_PATH)
     assert "fvar" not in ft, "Шрифт содержит таблицу fvar — это variable font, а не static instance"
+
+
+# ===========================================================================
+# Cycle P2 — HTTP-роут POST /api/improve/pdf
+# Зеркально tests/test_odt_export.py (Cycle O2): тот же fixture, тот же
+# способ авторизации через session_transaction(), те же три сценария.
+# ===========================================================================
+
+@pytest.fixture
+def client_app():
+    """Полноценный test client + доступ к app для запросов с сессией."""
+    app = create_app('testing')
+    app.config['TESTING'] = True
+    with app.app_context():
+        yield app
+
+
+def _register_and_login(app, client, email):
+    """Зарегистрировать пользователя (получает credits_granted=2, credits_used=0)
+    и поставить сессию — тот же способ авторизации, что использует живой legacy-фронтенд
+    (см. tests/test_credits_pool.py, tests/test_odt_export.py)."""
+    from app.services.auth_service import AuthService
+
+    result = AuthService.register(email, 'somepassword123')
+    user = result['user']
+    with client.session_transaction() as sess:
+        sess['user_id'] = user.id
+    return user
+
+
+_PDF_TEST_TEXT = '###ITEM_001###\nJohn Doe\n\n###ITEM_002###\nSoftware Engineer'
+
+
+def test_11_pdf_route_requires_login_returns_401(client_app):
+    """Незалогиненный, неадминский запрос -> 401, без каких-либо кредитов."""
+    app = client_app
+    client = app.test_client()
+
+    resp = client.post('/api/improve/pdf', data={'improved_resume': _PDF_TEST_TEXT})
+    assert resp.status_code == 401
+    assert resp.get_json()['success'] is False
+
+
+def test_12_pdf_route_returns_valid_pdf_when_credits_available(client_app):
+    """Залогиненный пользователь с credits_remaining() > 0 -> 200, корректный PDF."""
+    app = client_app
+    client = app.test_client()
+    user = _register_and_login(app, client, 'pdf-route-ok-test@example.com')
+
+    sub_before = user.get_active_subscription()
+    assert sub_before.credits_remaining() == 2
+
+    resp = client.post('/api/improve/pdf', data={'improved_resume': _PDF_TEST_TEXT})
+
+    assert resp.status_code == 200
+    assert 'application/pdf' in resp.content_type
+
+    # Тело ответа — валидный PDF: должен открыться через PyPDF2.PdfReader
+    reader, extracted = _extract(io.BytesIO(resp.data))
+    assert len(reader.pages) >= 1
+    assert 'John Doe' in extracted
+    assert 'Software Engineer' in extracted
+
+
+def test_13_pdf_route_blocks_and_does_not_double_charge_when_credits_exhausted(client_app):
+    """
+    Залогиненный пользователь с credits_remaining() == 0 -> 403, и credits_used
+    не меняется после запроса (прямая проверка "без повторного списания" —
+    списание кредита происходит только в /api/improve, не здесь).
+    """
+    app = client_app
+    client = app.test_client()
+    user = _register_and_login(app, client, 'pdf-route-exhausted-test@example.com')
+
+    sub = user.get_active_subscription()
+    sub.credits_used = sub.credits_granted  # исчерпать пул напрямую, без вызова /api/improve
+    from app import db
+    db.session.commit()
+
+    assert sub.credits_remaining() == 0
+    credits_used_before = sub.credits_used
+
+    resp = client.post('/api/improve/pdf', data={'improved_resume': _PDF_TEST_TEXT})
+
+    assert resp.status_code == 403
+    assert resp.get_json()['error'] == 'No credits remaining. Buy a credit pack to continue.'
+
+    sub_after = user.get_active_subscription()
+    assert sub_after.credits_used == credits_used_before
