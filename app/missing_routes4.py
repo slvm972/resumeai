@@ -1116,3 +1116,152 @@ def _generate_odt(text):
     doc.save(buf)
     buf.seek(0)
     return buf
+
+
+# ---------------------------------------------------------------------------
+# PDF-экспорт (Cycle P1) — только функция генерации, без Flask-роута.
+# Роут добавляется отдельным циклом (P2), фронтенд (замена текущего
+# фейкового .pdf-пути в downloadImproved()) — циклом (P3).
+# ---------------------------------------------------------------------------
+
+import os as _os_for_font_path
+
+# Alef (SIL OFL 1.1) — static Regular instance, google/fonts repo
+# (ofl/alef/Alef-Regular.ttf). Взят вместо Noto Sans Hebrew: в google/fonts
+# Noto Sans Hebrew существует ТОЛЬКО как variable font — там нет static/
+# подпапки для этого семейства. Регистрация variable-шрифта в reportlab
+# технически проходит (reportlab читает default master), но это скрытая
+# версийная зависимость того же класса риска, что уже ловили на поведении
+# конкретной версии python-docx с merge-ячейками (см.
+# tests/test_merged_cells_regression.py) — не хотим повторять паттерн.
+# Alef — настоящий static TTF, целиком под иврит, лицензия подтверждена
+# по факту скачанного файла: static/fonts/Alef-OFL.txt (SIL OFL 1.1,
+# явно разрешает "bundled, embedded, redistributed and/or sold with any
+# software").
+_PDF_FONT_NAME = "Alef"
+_PDF_FONT_PATH = _os_for_font_path.path.join(
+    _os_for_font_path.path.dirname(_os_for_font_path.path.dirname(_os_for_font_path.path.abspath(__file__))),
+    "static", "fonts", "Alef-Regular.ttf",
+)
+_pdf_font_registered = False
+
+
+def _ensure_pdf_font_registered():
+    """Зарегистрировать шрифт Alef в reportlab один раз за процесс."""
+    global _pdf_font_registered
+    if _pdf_font_registered:
+        return
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    pdfmetrics.registerFont(TTFont(_PDF_FONT_NAME, _PDF_FONT_PATH))
+    _pdf_font_registered = True
+
+
+def _generate_pdf(text):
+    """
+    Сгенерировать .pdf из текста improved_resume (с маркерами ###ITEM_NNN###,
+    которые здесь просто удаляются — как и в _generate_odt, PDF не привязан
+    к структуре оригинала, восстановление по item_ids здесь не нужно).
+
+    RTL: строки, содержащие иврит (диапазон \\u0590-\\u05FF, тот же что и
+    везде в проекте), прогоняются через bidi.algorithm.get_display()
+    (логический порядок символов -> визуальный порядок для LTR-рендеринга)
+    и рисуются выравниванием по правому краю (drawRightString). Остальные
+    строки — обычным drawString слева.
+
+    Перенос строк: greedy word-wrap по словам, измерение через
+    pdfmetrics.stringWidth на логическом (не bidi-переставленном) тексте —
+    перестановка применяется ПОСЛЕ переноса, к каждой уже готовой под-строке
+    отдельно, иначе разбиение по словам съезжает относительно визуального
+    порядка. Не идеальный перенос (не бьёт слово посередине, если оно само
+    шире доступной ширины) — этого достаточно для резюме.
+
+    Пагинация: при достижении нижнего поля — showPage() + повторная
+    setFont() (шрифт не сохраняется между страницами в reportlab).
+
+    ВАЖНО (найдено при верификации, не было в исходном наброске):
+    PyPDF2.extract_text() не гарантирует читаемый логический порядок для
+    ивритского/bidi-текста даже из корректно сгенерированного PDF — это
+    ограничение формата/библиотеки, не специфичное для этой функции.
+    Подробности и что реально проверено — см. tests/test_pdf_export.py
+    и отчёт цикла P1.
+    """
+    import re
+    import io
+    from reportlab.pdfgen import canvas as pdf_canvas
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfbase import pdfmetrics
+    from bidi.algorithm import get_display
+
+    _ensure_pdf_font_registered()
+
+    font_name = _PDF_FONT_NAME
+    font_size = 11
+    line_height = 15
+    margin = 50
+
+    page_w, page_h = A4
+    max_width = page_w - 2 * margin
+
+    buf = io.BytesIO()
+    c = pdf_canvas.Canvas(buf, pagesize=A4)
+    c.setFont(font_name, font_size)
+    y = page_h - margin
+
+    def _wrap(line):
+        words = [w for w in line.split(" ") if w != ""] or [""]
+        wrapped = []
+        current = words[0]
+        for w in words[1:]:
+            candidate = current + " " + w
+            if pdfmetrics.stringWidth(candidate, font_name, font_size) <= max_width:
+                current = candidate
+            else:
+                wrapped.append(current)
+                current = w
+        wrapped.append(current)
+        return wrapped
+
+    clean = re.sub(r"###ITEM_\d+###", "", text)
+    for raw_line in clean.split("\n"):
+        line = raw_line.strip().lstrip("#").replace("**", "").replace("*", "").strip()
+
+        if not line:
+            if y < margin + line_height:
+                c.showPage()
+                c.setFont(font_name, font_size)
+                y = page_h - margin
+            y -= line_height
+            continue
+
+        has_hebrew = any("\u0590" <= ch <= "\u05FF" for ch in line)
+
+        for sub_line in _wrap(line):
+            if y < margin + line_height:
+                c.showPage()
+                c.setFont(font_name, font_size)
+                y = page_h - margin
+            if has_hebrew:
+                c.drawRightString(page_w - margin, y, get_display(sub_line))
+            else:
+                c.drawString(margin, y, sub_line)
+            y -= line_height
+
+    # Явно финализировать последнюю страницу перед save(). Без этого:
+    # с кастомным TTF-шрифтом (Alef) страница, на которой ни разу не был
+    # вызван drawString/drawRightString (например, полностью пустой/
+    # пробельный текст на входе — только пустые строки, только y -=
+    # line_height без единого реального рисования), молча пропадает —
+    # PdfReader(...).pages даёт 0 страниц вместо ожидаемой минимум одной.
+    # Со встроенным Helvetica та же ситуация давала 1 страницу нормально;
+    # баг воспроизведён изолированно и подтверждён с обоими вариантами до
+    # применения фикса — см. tests/test_pdf_export.py::test_09 и отчёт
+    # цикла P1. showPage() здесь безопасен и не создаёт лишнюю пустую
+    # страницу в конце: любой showPage() внутри цикла выше всегда сразу
+    # продолжается рисованием на новой странице (полноценной строкой или
+    # хотя бы сдвигом y для пустой строки), то есть никогда не остаётся
+    # "висящим" последним вызовом цикла.
+    c.showPage()
+    c.save()
+    buf.seek(0)
+    return buf
