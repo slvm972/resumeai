@@ -120,6 +120,9 @@ h1{font-size:1.75rem;font-weight:700;margin-bottom:.35rem}
     <button class="btn" id="downloadDocxBtn" onclick="downloadDocx()" style="display:none;margin-top:1rem;width:100%;background:#2ecc71">
       рџ“Ґ Download as DOCX
     </button>
+    <button id="downloadOdtBtnAdmin" class="btn" onclick="downloadOdtAdmin()" style="margin-top:.5rem;width:100%;background:linear-gradient(135deg,#8b5cf6,#6366f1)">📄 Download as ODT</button>
+    <button id="downloadPdfBtnAdmin" class="btn" onclick="downloadPdfAdmin()" style="margin-top:.5rem;width:100%;background:linear-gradient(135deg,#3b82f6,#06b6d4)">📕 Download as PDF</button>
+    <button id="downloadRtfBtnAdmin" class="btn" onclick="downloadRtfAdmin()" style="margin-top:.5rem;width:100%;background:linear-gradient(135deg,#f59e0b,#ea580c)">📝 Download as RTF</button>
   </div>
 </main>
 
@@ -332,6 +335,43 @@ async function downloadDocx() {
     }
   } catch(e) { alert("Error: " + e.message); }
   finally { btn.textContent = "📥 Download as DOCX"; btn.disabled = false; }
+}
+
+async function downloadOdtAdmin() {
+  await _downloadAdminFormat('/api/improve/odt', 'improved_resume.odt', 'downloadOdtBtnAdmin');
+}
+async function downloadPdfAdmin() {
+  await _downloadAdminFormat('/api/improve/pdf', 'improved_resume.pdf', 'downloadPdfBtnAdmin');
+}
+async function downloadRtfAdmin() {
+  await _downloadAdminFormat('/api/improve/rtf', 'improved_resume.rtf', 'downloadRtfBtnAdmin');
+}
+
+async function _downloadAdminFormat(endpoint, filename, btnId) {
+  if (!improvedResumeText) { alert("No improved resume to download"); return; }
+  const btn = document.getElementById(btnId);
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "⏳ Generating...";
+  try {
+    const formData = new FormData();
+    formData.append('improved_resume', improvedResumeText);
+    const response = await fetch(endpoint, { method: 'POST', body: formData });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || `Server error ${response.status}`);
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert("Error: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
 }
 
 // Check authentication on page load
