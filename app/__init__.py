@@ -774,6 +774,41 @@ def _register_legacy_routes(app):
             app.logger.error(f"[legacy_improve_pdf] failed: {e}")
             return jsonify({'success': False, 'error': 'Internal server error. Please try again.'}), 500
 
+    @app.route('/api/improve/rtf', methods=['POST'])
+    def legacy_improve_rtf():
+        import io
+        from flask import current_app, send_file
+        admin_mode = _admin_mode_enabled(current_app)
+        is_admin = 'admin' in session
+
+        user = _get_current_user()
+        if not user and not (admin_mode or is_admin):
+            return jsonify({'success': False, 'error': 'Please log in first'}), 401
+
+        if user and not is_admin:
+            subscription = user.get_active_subscription()
+            if subscription and subscription.credits_remaining() <= 0:
+                return jsonify({'success': False, 'error': 'No credits remaining. Buy a credit pack to continue.'}), 403
+
+        try:
+            improved_text = request.form.get('improved_resume') or ''
+            if not improved_text:
+                data = request.get_json() or {}
+                improved_text = data.get('improved_resume', '')
+
+            if not improved_text:
+                return jsonify({'success': False, 'error': 'No text provided'}), 400
+
+            from app.missing_routes4 import _generate_rtf
+            buf = _generate_rtf(improved_text)
+            return send_file(
+                io.BytesIO(buf), as_attachment=True, download_name='improved_resume.rtf',
+                mimetype='application/rtf',
+            )
+        except Exception as e:
+            app.logger.error(f"[legacy_improve_rtf] failed: {e}")
+            return jsonify({'success': False, 'error': 'Internal server error. Please try again.'}), 500
+
     # Регистрируем дополнительные маршруты из missing_routes4 (включая /api/admin/improve)
     from app.missing_routes4 import register_missing_routes
     register_missing_routes(app, _extract_text_from_request, _get_current_user)
