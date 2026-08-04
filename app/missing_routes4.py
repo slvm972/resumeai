@@ -1265,3 +1265,78 @@ def _generate_pdf(text):
     c.save()
     buf.seek(0)
     return buf
+
+
+# ---------------------------------------------------------------------------
+# RTF-экспорт (Cycle R1) — только функция генерации, без Flask-роута.
+# Роут — отдельным циклом (R2), фронтенд — циклом (R3).
+# ---------------------------------------------------------------------------
+
+def _generate_rtf(text):
+    """
+    Сгенерировать .rtf из текста improved_resume (с маркерами ###ITEM_NNN###,
+    которые здесь просто удаляются — как и в _generate_odt/_generate_pdf,
+    RTF не привязан к структуре оригинала).
+
+    В отличие от PDF, направление RTL/LTR в RTF задаётся управляющими
+    словами (\\rtlch/\\ltrch), а не физической перестановкой символов —
+    python-bidi здесь НЕ используется и не нужен: текст остаётся в
+    исходном логическом порядке символов, как он есть в строке.
+
+    Проверено round-trip тестом (запись -> striprtf.rtf_to_text() ->
+    сравнение с очищенным исходником): см. tests/test_rtf_export.py.
+
+    ВАЖНО (эмпирическая проверка при разработке цикла, для честности
+    отчёта): в отличие от PDF, где RTL-текст при обратном извлечении
+    предсказуемо страдал на смешанных RTL+LTR строках (см. отчёт цикла
+    P1), здесь round-trip оказался точным даже на смешанном
+    иврит+цифры+email контенте — потому что RTF не переставляет символы
+    физически (в отличие от bidi.get_display(), применяемого в
+    _generate_pdf), направление — это только метаданные отображения,
+    которые striprtf на чтении игнорирует и просто отдаёт исходную
+    последовательность символов. Проверено на латинице, чистом иврите,
+    смешанных строках, markdown-звёздочках, спецсимволах RTF
+    (backslash/фигурные скобки) и пустом/пробельном вводе — везде
+    точное совпадение. Набросок из промта сработал без правок.
+    """
+    import re
+
+    def _escape_rtf(s):
+        # Экранировать RTF-спецсимволы, затем не-ASCII через \uN? escape.
+        out = []
+        for ch in s:
+            if ch == '\\':
+                out.append('\\\\')
+            elif ch == '{':
+                out.append('\\{')
+            elif ch == '}':
+                out.append('\\}')
+            elif ord(ch) > 127:
+                code = ord(ch)
+                if code > 32767:
+                    code -= 65536
+                out.append(f'\\u{code}?')
+            else:
+                out.append(ch)
+        return ''.join(out)
+
+    clean = re.sub(r"###ITEM_\d+###", "", text)
+
+    body = []
+    for line in clean.split("\n"):
+        line = line.strip().lstrip('#').replace('**', '').replace('*', '').strip()
+        has_hebrew = any('\u0590' <= c <= '\u05FF' for c in line)
+        escaped = _escape_rtf(line)
+        if has_hebrew:
+            body.append(f"\\rtlch\\rtlpar\\qr {escaped}\\par")
+        else:
+            body.append(f"\\ltrch\\ltrpar\\ql {escaped}\\par")
+
+    rtf = (
+        r"{\rtf1\ansi\ansicpg1252\uc1\deff0"
+        r"{\fonttbl{\f0\fswiss\fcharset0 Arial;}}"
+        r"\f0\fs24 "
+        + "\n".join(body)
+        + "}"
+    )
+    return rtf.encode('utf-8')
