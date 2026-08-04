@@ -1267,6 +1267,7 @@
       <button class="btn-primary" onclick="copyImproved()" style="flex:1">📋 Copy to Clipboard</button>
       <button id="downloadBtn" class="btn-primary" onclick="downloadImproved()" style="flex:1;background:linear-gradient(135deg,#10b981,#06b6d4)">⬇️ Download as TXT</button>
       <button id="downloadOdtBtn" class="btn-primary" onclick="downloadOdt()" style="flex:1;background:linear-gradient(135deg,#8b5cf6,#6366f1)">📄 ODT (Google Docs)</button>
+      <button id="downloadRtfBtn" class="btn-primary" onclick="downloadRtf()" style="flex:1;background:linear-gradient(135deg,#f59e0b,#ea580c)">📝 RTF (Word-compatible)</button>
     </div>
     <p id="improveModalMsg" style="font-size:.8rem;text-align:center;margin-top:.5rem;display:none"></p>
   </div>
@@ -1512,6 +1513,38 @@
       a.click();
       URL.revokeObjectURL(a.href);
       showDownloadSuccess('improved_resume.odt');
+    } catch (e) {
+      const msg = document.getElementById('improveModalMsg');
+      msg.style.display = 'block';
+      msg.style.color = '#f87171';
+      msg.textContent = 'Error: ' + e.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  }
+
+  // ── Скачать улучшенное резюме как RTF (Cycle R3) ──────────────────────────
+  async function downloadRtf() {
+    const btn = document.getElementById('downloadRtfBtn');
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ Generating...';
+    try {
+      const formData = new FormData();
+      formData.append('improved_resume', lastImprovedRaw || document.getElementById('improvedText').textContent);
+      const response = await fetch('/api/improve/rtf', { method: 'POST', body: formData });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || `Server error ${response.status}`);
+      }
+      const blob = await response.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'improved_resume.rtf';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      showDownloadSuccess('improved_resume.rtf');
     } catch (e) {
       const msg = document.getElementById('improveModalMsg');
       msg.style.display = 'block';
