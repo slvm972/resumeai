@@ -1,5 +1,5 @@
 # app/missing_routes4.py
-import re, uuid, time
+import os, re, uuid, time, tempfile
 import langid
 
 # ---------------------------------------------------------------------------
@@ -13,6 +13,54 @@ def _make_token():
 # Маркер разделитель элементов
 def _make_sep():
     return "###ITEM_{}###"
+
+
+# ---------------------------------------------------------------------------
+# Временное хранение загруженного .docx на диске — замена
+# session['original_docx_b64'] (переполнял 4KB лимит cookie-based сессии
+# уже на файлах ~3KB+, браузер тихо отбрасывал куку, следующий запрос молча
+# уходил в деградированный fallback без форматирования оригинала).
+# В session теперь кладётся только короткий токен (session['original_docx_token']),
+# сам файл — на диске в tempfile.gettempdir()/resumeai_uploads/<token>.
+# ---------------------------------------------------------------------------
+
+_TEMP_UPLOAD_DIR = os.path.join(tempfile.gettempdir(), "resumeai_uploads")
+
+
+def _save_temp_upload(file_bytes):
+    """Сохранить файл на диск, вернуть короткий токен для session вместо base64."""
+    os.makedirs(_TEMP_UPLOAD_DIR, exist_ok=True)
+    _cleanup_old_temp_uploads()
+    token = uuid.uuid4().hex
+    path = os.path.join(_TEMP_UPLOAD_DIR, token)
+    with open(path, "wb") as f:
+        f.write(file_bytes)
+    return token
+
+
+def _load_temp_upload(token):
+    """Прочитать файл по токену из session. None, если не найден/истёк."""
+    if not token:
+        return None
+    path = os.path.join(_TEMP_UPLOAD_DIR, token)
+    if not os.path.exists(path):
+        return None
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def _cleanup_old_temp_uploads(max_age_seconds=3600):
+    """Удалить файлы старше часа — opportunistic garbage collection на каждую новую запись."""
+    if not os.path.isdir(_TEMP_UPLOAD_DIR):
+        return
+    now = time.time()
+    for fname in os.listdir(_TEMP_UPLOAD_DIR):
+        path = os.path.join(_TEMP_UPLOAD_DIR, fname)
+        try:
+            if os.path.isfile(path) and (now - os.path.getmtime(path)) > max_age_seconds:
+                os.remove(path)
+        except OSError:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -1003,8 +1051,7 @@ def register_missing_routes(app, _extract_text_from_request, _get_current_user):
                 return jsonify({"success": False, "error": result.get("error")}), result.get("status", 500)
 
             if original_bytes:
-                import base64
-                session["original_docx_b64"] = base64.b64encode(original_bytes).decode("ascii")
+                session["original_docx_token"] = _save_temp_upload(original_bytes)
                 session["item_ids"] = result["item_ids"]
 
             return jsonify(result)
@@ -1021,7 +1068,6 @@ def register_missing_routes(app, _extract_text_from_request, _get_current_user):
         try:
             from docx import Document
             from docx.shared import Pt
-            import base64
 
             original_file = request.files.get("original_file")
             improved_text = request.form.get("improved_resume") or ""
@@ -1049,9 +1095,10 @@ def register_missing_routes(app, _extract_text_from_request, _get_current_user):
                 return send_file(buf, as_attachment=True, download_name="improved_resume.docx",
                     mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
-            b64 = session.get("original_docx_b64")
-            if b64:
-                buf = _apply_improved_text_to_docx(base64.b64decode(b64), improved_text, item_ids)
+            token = session.get("original_docx_token")
+            file_bytes = _load_temp_upload(token)
+            if file_bytes:
+                buf = _apply_improved_text_to_docx(file_bytes, improved_text, item_ids)
                 return send_file(buf, as_attachment=True, download_name="improved_resume.docx",
                     mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 

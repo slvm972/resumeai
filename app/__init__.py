@@ -618,8 +618,8 @@ def _register_legacy_routes(app):
                 db.session.commit()
 
             if original_bytes:
-                import base64
-                session['original_docx_b64'] = base64.b64encode(original_bytes).decode('ascii')
+                from app.missing_routes4 import _save_temp_upload
+                session['original_docx_token'] = _save_temp_upload(original_bytes)
                 session['item_ids'] = result['item_ids']
 
             return jsonify({
@@ -653,10 +653,10 @@ def _register_legacy_routes(app):
                 return jsonify({'success': False, 'error': 'No credits remaining. Buy a credit pack to continue.'}), 403
 
         try:
-            from app.missing_routes4 import _apply_improved_text_to_docx
+            from app.missing_routes4 import _apply_improved_text_to_docx, _load_temp_upload
             from docx import Document
             from docx.shared import Pt
-            import io, base64, json as json_lib
+            import io, json as json_lib
 
             original_file = request.files.get('original_file')
             improved_text = request.form.get('improved_resume') or ''
@@ -682,9 +682,10 @@ def _register_legacy_routes(app):
                 return send_file(buf, as_attachment=True, download_name='improved_resume.docx',
                     mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
 
-            b64 = session.get('original_docx_b64')
-            if b64:
-                buf = _apply_improved_text_to_docx(base64.b64decode(b64), improved_text, item_ids)
+            token = session.get('original_docx_token')
+            file_bytes = _load_temp_upload(token)
+            if file_bytes:
+                buf = _apply_improved_text_to_docx(file_bytes, improved_text, item_ids)
                 return send_file(buf, as_attachment=True, download_name='improved_resume.docx',
                     mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
 

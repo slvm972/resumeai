@@ -2,7 +2,7 @@
 Стресс-тесты missing_routes4.py — 30 сценариев.
 Запуск: python -m pytest tests/test_missing_routes4.py -v
 """
-import sys, io, re, pytest
+import sys, io, re, os, time, uuid, pytest
 sys.path.insert(0, '/home/claude/resumeai')
 import importlib, app.missing_routes4 as mr
 importlib.reload(mr)
@@ -664,3 +664,72 @@ def test_BACKOFF2_caps_at_maximum():
 def test_BACKOFF3_default_when_unparseable():
     """Если формат сообщения не распознан — используется default."""
     assert mr._extract_retry_after_seconds("some unrelated error", default=2.0) == 2.0
+
+# ===========================================================================
+# TEMP_UPLOAD — замена session['original_docx_b64'] на диск-based хранение
+# с коротким токеном в session (переполнение 4KB cookie-лимита, см. отчёт
+# диагностики). _save_temp_upload / _load_temp_upload / _cleanup_old_temp_uploads
+# ===========================================================================
+
+def test_TEMP1_save_and_load_roundtrip_byte_exact():
+    """Сохранённый файл читается обратно байт-в-байт идентично."""
+    original = b"\x00\x01\xffPK\x03\x04 fake docx bytes \xe2\x98\x83 " * 50
+    token = mr._save_temp_upload(original)
+    assert isinstance(token, str) and len(token) == 32  # uuid4().hex
+    loaded = mr._load_temp_upload(token)
+    assert loaded == original
+
+def test_TEMP2_load_missing_token_returns_none():
+    """Несуществующий/случайный токен -> None, без исключения."""
+    assert mr._load_temp_upload(uuid.uuid4().hex) is None
+
+def test_TEMP3_load_empty_token_returns_none():
+    """Пустой/None токен (ключа не было в session) -> None, без исключения."""
+    assert mr._load_temp_upload(None) is None
+    assert mr._load_temp_upload("") is None
+
+def test_TEMP4_cleanup_removes_old_keeps_fresh():
+    """
+    _cleanup_old_temp_uploads: файл с искусственно состаренным mtime (> max_age)
+    удаляется, свежий файл — остаётся.
+    """
+    old_token = mr._save_temp_upload(b"old content")
+    fresh_token = mr._save_temp_upload(b"fresh content")
+
+    old_path = os.path.join(mr._TEMP_UPLOAD_DIR, old_token)
+    # Искусственно состарить: mtime на 2 часа в прошлом (max_age по умолчанию — 1 час)
+    old_time = time.time() - 7200
+    os.utime(old_path, (old_time, old_time))
+
+    mr._cleanup_old_temp_uploads(max_age_seconds=3600)
+
+    assert not os.path.exists(old_path), "Старый файл не был удалён"
+    assert mr._load_temp_upload(fresh_token) == b"fresh content", "Свежий файл был ошибочно удалён"
+
+def test_TEMP5_cleanup_custom_max_age_boundary():
+    """Regression guard: файл чуть младше max_age не удаляется."""
+    token = mr._save_temp_upload(b"boundary content")
+    path = os.path.join(mr._TEMP_UPLOAD_DIR, token)
+    recent_time = time.time() - 10  # 10 секунд назад, max_age по умолчанию — час
+    os.utime(path, (recent_time, recent_time))
+
+    mr._cleanup_old_temp_uploads(max_age_seconds=3600)
+
+    assert mr._load_temp_upload(token) == b"boundary content"
+
+def test_TEMP6_save_triggers_opportunistic_cleanup_of_others():
+    """
+    _save_temp_upload вызывает _cleanup_old_temp_uploads() перед записью —
+    состаренный файл, сохранённый ранее, должен исчезнуть после следующего
+    _save_temp_upload(), даже если _cleanup_old_temp_uploads не вызывается
+    напрямую в тесте.
+    """
+    stale_token = mr._save_temp_upload(b"will become stale")
+    stale_path = os.path.join(mr._TEMP_UPLOAD_DIR, stale_token)
+    old_time = time.time() - 7200
+    os.utime(stale_path, (old_time, old_time))
+
+    # Новая запись должна опportunistically вычистить устаревший файл
+    mr._save_temp_upload(b"new upload triggers cleanup")
+
+    assert not os.path.exists(stale_path), "Opportunistic cleanup при новой записи не сработал"
