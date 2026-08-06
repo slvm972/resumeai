@@ -1268,6 +1268,7 @@
       <button id="downloadBtn" class="btn-primary" onclick="downloadImproved()" style="flex:1;background:linear-gradient(135deg,#10b981,#06b6d4)">⬇️ Download as TXT</button>
       <button id="downloadOdtBtn" class="btn-primary" onclick="downloadOdt()" style="flex:1;background:linear-gradient(135deg,#8b5cf6,#6366f1)">📄 ODT (Google Docs)</button>
       <button id="downloadRtfBtn" class="btn-primary" onclick="downloadRtf()" style="flex:1;background:linear-gradient(135deg,#f59e0b,#ea580c)">📝 RTF (Word-compatible)</button>
+      <button id="downloadPdfBtn" class="btn-primary" onclick="downloadPdf()" style="flex:1;background:linear-gradient(135deg,#3b82f6,#06b6d4)">📕 PDF</button>
     </div>
     <p id="improveModalMsg" style="font-size:.8rem;text-align:center;margin-top:.5rem;display:none"></p>
   </div>
@@ -1317,10 +1318,11 @@
         lastImprovedFormat = data.original_format || lastOriginalFormat || 'txt';
         
         // ── ИЗМЕНИТЬ ТЕКСТ КНОПКИ НА ОСНОВЕ ФОРМАТА ─────────────────────────
-        const formatName = lastImprovedFormat === 'docx' ? 'DOCX' : 
-                           lastImprovedFormat === 'pdf' ? 'PDF' :
-                           lastImprovedFormat === 'txt' ? 'TXT' :
-                           lastImprovedFormat.toUpperCase();
+        // PDF больше не обрабатывается этой кнопкой — для него есть отдельная
+        // постоянная кнопка #downloadPdfBtn / downloadPdf(). Эта кнопка
+        // ограничена DOCX/TXT: любой другой формат (включая 'pdf') трактуется
+        // как TXT — и в подписи, и в обработчике клика ниже (см. downloadImproved).
+        const formatName = lastImprovedFormat === 'docx' ? 'DOCX' : 'TXT';
         document.getElementById('downloadBtn').textContent = `⬇️ Download as ${formatName}`;
       } else {
         throw new Error(data.error || 'Unknown error');
@@ -1435,40 +1437,10 @@
         downloadAsText(text, 'improved_resume.docx');
       }
     } 
-    // ── ЕСЛИ TXT: Создать текстовый файл ──────────────────────────────────────
-    else if (format === 'txt') {
+    // ── ЕСЛИ TXT (или любой другой формат, отличный от DOCX — PDF теперь
+    //    у себя в отдельной постоянной кнопке): создать текстовый файл ───────
+    else {
       downloadAsText(text, 'improved_resume.txt');
-    } 
-    // ── ЕСЛИ PDF: реальный серверный PDF (Cycle P3), тот же паттерн что ODT ────
-    else if (format === 'pdf') {
-      const btn = document.getElementById('downloadBtn');
-      const originalText = btn.textContent;
-      btn.disabled = true;
-      btn.textContent = '⏳ Generating...';
-      try {
-        const formData = new FormData();
-        formData.append('improved_resume', lastImprovedRaw || text);
-        const response = await fetch('/api/improve/pdf', { method: 'POST', body: formData });
-        if (!response.ok) {
-          const err = await response.json().catch(() => ({}));
-          throw new Error(err.error || `Server error ${response.status}`);
-        }
-        const blob = await response.blob();
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'improved_resume.pdf';
-        a.click();
-        URL.revokeObjectURL(a.href);
-        showDownloadSuccess('improved_resume.pdf');
-      } catch (e) {
-        const msg = document.getElementById('improveModalMsg');
-        msg.style.display = 'block';
-        msg.style.color = '#f87171';
-        msg.textContent = 'Error: ' + e.message;
-      } finally {
-        btn.disabled = false;
-        btn.textContent = originalText;
-      }
     }
   }
   
@@ -1545,6 +1517,38 @@
       a.click();
       URL.revokeObjectURL(a.href);
       showDownloadSuccess('improved_resume.rtf');
+    } catch (e) {
+      const msg = document.getElementById('improveModalMsg');
+      msg.style.display = 'block';
+      msg.style.color = '#f87171';
+      msg.textContent = 'Error: ' + e.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  }
+
+  // ── Скачать улучшенное резюме как PDF (Cycle P-btn) ────────────────────────
+  async function downloadPdf() {
+    const btn = document.getElementById('downloadPdfBtn');
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ Generating...';
+    try {
+      const formData = new FormData();
+      formData.append('improved_resume', lastImprovedRaw || document.getElementById('improvedText').textContent);
+      const response = await fetch('/api/improve/pdf', { method: 'POST', body: formData });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || `Server error ${response.status}`);
+      }
+      const blob = await response.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'improved_resume.pdf';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      showDownloadSuccess('improved_resume.pdf');
     } catch (e) {
       const msg = document.getElementById('improveModalMsg');
       msg.style.display = 'block';
