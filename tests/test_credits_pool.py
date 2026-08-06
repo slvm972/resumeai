@@ -434,3 +434,76 @@ def test_admin_analyze_endpoint_response_includes_is_admin_true(client_app):
 
     assert resp.status_code == 200
     assert resp.get_json()['is_admin'] is True
+
+
+# ===========================================================================
+# Regression — legacy_admin_improve больше не пишет original_docx_token
+# в session для не-.docx загрузок (session['original_docx_token'] нужен
+# только legacy_admin_improve_docx для .docx-реконструкции; для PDF/DOC он
+# бесполезно тратил бы disk-write, и потенциально привёл бы к попытке
+# распарсить не-docx байты через python-docx, если бы дошло до
+# _apply_improved_text_to_docx — по факту кода до этого не доходит, см.
+# docstring теста ниже, но условие сужено на источнике).
+# ===========================================================================
+
+def test_admin_improve_non_docx_upload_does_not_set_session_token(client_app):
+    """
+    /api/admin/improve с .pdf-файлом -> session['original_docx_token'] НЕ
+    устанавливается (сужение условия: session-запись срабатывает только для
+    filename.lower().endswith('.docx')).
+    """
+    from unittest.mock import patch
+    import io as _io
+
+    app = client_app
+    client = app.test_client()
+    with client.session_transaction() as sess:
+        sess['admin'] = 'admin'
+
+    with patch(
+        'app.missing_routes4._run_improve_pipeline',
+        return_value=_FAKE_IMPROVE_RESULT,
+    ):
+        resp = client.post(
+            '/api/admin/improve',
+            data={'file': (_io.BytesIO(b'%PDF-1.4 fake pdf content'), 'resume.pdf')},
+            content_type='multipart/form-data',
+        )
+
+    assert resp.status_code == 200, resp.get_json()
+
+    with client.session_transaction() as sess:
+        assert 'original_docx_token' not in sess
+        # item_ids тоже не должен записываться в session для не-docx —
+        # он пишется в той же ветке if, что и token.
+        assert 'item_ids' not in sess
+
+
+def test_admin_improve_docx_upload_still_sets_session_token(client_app):
+    """
+    Regression guard: для реального .docx-сценария поведение не изменилось —
+    session['original_docx_token'] по-прежнему устанавливается.
+    """
+    from unittest.mock import patch
+    import io as _io
+
+    app = client_app
+    client = app.test_client()
+    with client.session_transaction() as sess:
+        sess['admin'] = 'admin'
+
+    with patch(
+        'app.missing_routes4._run_improve_pipeline',
+        return_value=_FAKE_IMPROVE_RESULT,
+    ):
+        resp = client.post(
+            '/api/admin/improve',
+            data={'file': (_io.BytesIO(b'PK\x03\x04 fake docx content'), 'resume.docx')},
+            content_type='multipart/form-data',
+        )
+
+    assert resp.status_code == 200, resp.get_json()
+
+    with client.session_transaction() as sess:
+        assert 'original_docx_token' in sess
+        assert sess['item_ids'] == _FAKE_IMPROVE_RESULT['item_ids']

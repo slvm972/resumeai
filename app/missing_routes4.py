@@ -1050,7 +1050,7 @@ def register_missing_routes(app, _extract_text_from_request, _get_current_user):
             if not result.get("success"):
                 return jsonify({"success": False, "error": result.get("error")}), result.get("status", 500)
 
-            if original_bytes:
+            if original_bytes and filename and filename.lower().endswith('.docx'):
                 session["original_docx_token"] = _save_temp_upload(original_bytes)
                 session["item_ids"] = result["item_ids"]
 
