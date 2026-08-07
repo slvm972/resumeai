@@ -140,22 +140,33 @@ def _extract_structured(doc):
     по identity XML-элемента ячейки (cell._tc), а не по позиции (ri, ci) —
     это необходимо для merge-ячеек: python-docx возвращает один и тот же
     объект _Cell на каждой позиции сетки, которую перекрывает merge.
+
+    ВАЖНО: все ячейки таблицы сначала материализуются в один список
+    (all_cells) ДО начала дедупликации. Если ходить по table.rows/row.cells
+    построчно и сразу дедуплицировать, то _Cell-обёртки предыдущей строки
+    становятся недостижимы и CPython может немедленно освободить их память —
+    а следующий _Cell, созданный для СОВСЕМ ДРУГОЙ ячейки, может получить
+    тот же id(), что и уже "виденный" объект. Тогда реальная, уникальная
+    ячейка ошибочно считается дубликатом и её текст молча теряется (баг
+    подтверждён эмпирически: на таблице без единого merge пропадали
+    случайные ячейки). Материализация держит все _Cell живыми одновременно,
+    поэтому id() не может быть переиспользован до конца обхода таблицы.
     """
     items = []
     for para in doc.paragraphs:
         if para.text.strip():
             items.append({"para": para, "text": para.text.strip()})
     for table in doc.tables:
+        all_cells = [cell for row in table.rows for cell in row.cells]
         seen = set()
-        for ri, row in enumerate(table.rows):
-            for ci, cell in enumerate(row.cells):
-                key = id(cell._tc)
-                if key in seen:
-                    continue
-                seen.add(key)
-                for para in cell.paragraphs:
-                    if para.text.strip():
-                        items.append({"para": para, "text": para.text.strip()})
+        for cell in all_cells:
+            key = id(cell._tc)
+            if key in seen:
+                continue
+            seen.add(key)
+            for para in cell.paragraphs:
+                if para.text.strip():
+                    items.append({"para": para, "text": para.text.strip()})
     return items
 
 
