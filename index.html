@@ -1296,15 +1296,33 @@
     document.getElementById('improveModalMsg').style.display = 'none';
 
     try {
-      const res = await fetch('/api/improve', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          resume_text: lastResumeText,
-          analysis: lastAnalysisData,
-          original_format: lastOriginalFormat   // передаём формат исходного файла
-        })
-      });
+      let res;
+      // Предпочитаем отправку РЕАЛЬНОГО файла (как уже делает admin.html) —
+      // тогда /api/improve извлекает items через _extract_structured()
+      // (гранулярность ячеек), той же функцией, что использует downloadImproved()
+      // при скачивании DOCX через /api/improve/docx. Это устраняет рассинхрон
+      // item_ids между генерацией и скачиванием (диагностировано и подтверждено
+      // мок-тестом в циклах D1/D2 — раньше сюда уходил уже сплющенный текст
+      // с гранулярностью рядов таблицы, не совпадавшей с гранулярностью ячеек
+      // на этапе скачивания).
+      // JSON с resume_text остаётся fallback-путём на случай, если файл почему-то
+      // не выбран (selectedFile не установлен) — чтобы не сломать существующее
+      // поведение для таких сценариев.
+      if (selectedFile) {
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        res = await fetch('/api/improve', { method: 'POST', body: formData });
+      } else {
+        res = await fetch('/api/improve', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            resume_text: lastResumeText,
+            analysis: lastAnalysisData,
+            original_format: lastOriginalFormat   // передаём формат исходного файла
+          })
+        });
+      }
       const data = await res.json();
       document.getElementById('improvingSpinner').style.display = 'none';
       if (data.improved_resume) {
