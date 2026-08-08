@@ -219,6 +219,77 @@ def test_10_font_file_exists_and_is_static_ttf():
 
 
 # ===========================================================================
+# Cycle P-cyr — Alef не содержит кириллицу: PDF для русского/украинского
+# резюме рисовал пустые квадраты вместо букв. Фикс: второй LTR-шрифт
+# (FiraSans) для всех НЕ-ивритских строк, Alef остаётся только для иврита.
+# ===========================================================================
+
+def test_14_latin_font_file_exists_and_is_static_ttf():
+    """Тот же контракт, что test_10, но для добавленного LTR-шрифта."""
+    assert os.path.exists(mr._PDF_FONT_PATH_LATIN), f"Font file missing: {mr._PDF_FONT_PATH_LATIN}"
+    from fontTools.ttLib import TTFont as FTFont
+    ft = FTFont(mr._PDF_FONT_PATH_LATIN)
+    assert "fvar" not in ft, "Шрифт содержит таблицу fvar — это variable font, а не static instance"
+
+
+def test_15_latin_font_covers_cyrillic_glyphs():
+    """Регрессионный барьер именно на найденный баг: если LTR-шрифт когда-
+    нибудь заменят на что-то без кириллицы — этот тест должен упасть раньше,
+    чем баг снова доедет до прода."""
+    from fontTools.ttLib import TTFont as FTFont
+    ft = FTFont(mr._PDF_FONT_PATH_LATIN)
+    covered = set()
+    for t in ft["cmap"].tables:
+        covered |= set(t.cmap.keys())
+    cyrillic_sample = "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдеёжзийклмнопрстуфхцчшщъыьэюя"
+    missing = [c for c in cyrillic_sample if ord(c) not in covered]
+    assert not missing, f"В шрифте отсутствуют кириллические глифы: {missing}"
+
+
+def test_16_latin_font_covers_accented_latin_glyphs():
+    """Заодно фиксируем то, что уже работало (расширенная латиница —
+    французский/испанский/итальянский/польский/чешский/немецкий) — чтобы
+    будущая замена шрифта не потеряла и это по пути."""
+    from fontTools.ttLib import TTFont as FTFont
+    ft = FTFont(mr._PDF_FONT_PATH_LATIN)
+    covered = set()
+    for t in ft["cmap"].tables:
+        covered |= set(t.cmap.keys())
+    accented_sample = "éèçàêôñáíóúàòùìłąężśćńčšřěůýäöüß"
+    missing = [c for c in accented_sample if ord(c) not in covered]
+    assert not missing, f"В шрифте отсутствуют символы расширенной латиницы: {missing}"
+
+
+def test_17_cyrillic_text_renders_without_exception_and_is_extractable():
+    """Сквозная проверка на уровне _generate_pdf(): кириллический текст не
+    падает и извлекается обратно (раньше здесь были бы пустые квадраты —
+    но extract_text() на них тоже не упал бы молча, поэтому проверяем
+    именно содержимое, а не только факт отсутствия исключения)."""
+    text = "###ITEM_001###\nИванов Иван Иванович\nОпыт роботи: розробка програмного забезпечення."
+    buf = mr._generate_pdf(text)
+    reader, extracted = _extract(buf)
+    assert len(reader.pages) >= 1
+    assert "Иванов" in extracted
+    assert "Опыт" in extracted
+
+
+def test_18_mixed_hebrew_and_cyrillic_in_same_document_no_exception():
+    """Документ, где одни строки на иврите (шрифт Alef), а другие на
+    кириллице (шрифт FiraSans) — переключение шрифта построчно не должно
+    падать и не должно путать перенос строк (word-wrap меряет ширину
+    шрифтом СВОЕЙ строки, не шрифтом предыдущей)."""
+    text = (
+        "###ITEM_001###\n"
+        "מוסתובוי סלבה — תמיכה טכנית\n"
+        "###ITEM_002###\n"
+        "Иванов Иван Иванович — опытный инженер-программист с большим стажем работы.\n"
+    )
+    buf = mr._generate_pdf(text)
+    reader, _ = _extract(buf)
+    assert len(reader.pages) >= 1
+
+
+# ===========================================================================
 # Cycle P2 — HTTP-роут POST /api/improve/pdf
 # Зеркально tests/test_odt_export.py (Cycle O2): тот же fixture, тот же
 # способ авторизации через session_transaction(), те же три сценария.

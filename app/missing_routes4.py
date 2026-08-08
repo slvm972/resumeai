@@ -1201,17 +1201,38 @@ _PDF_FONT_PATH = _os_for_font_path.path.join(
     _os_for_font_path.path.dirname(_os_for_font_path.path.dirname(_os_for_font_path.path.abspath(__file__))),
     "static", "fonts", "Alef-Regular.ttf",
 )
+
+# Fira Sans (SIL OFL 1.1) — static Regular instance, тот же google/fonts репо
+# (ofl/firasans/FiraSans-Regular.ttf), тот же принцип выбора: настоящий
+# static TTF, не variable-инстанс.
+# Причина добавления: Alef покрывает иврит и, неожиданно, расширенную
+# латиницу (é/ñ/ł/č/ü и т.п. — проверено через fontTools.getBestCmap на
+# всех cmap-подтаблицах), но НЕ содержит ни одного кириллического глифа —
+# то есть PDF для уже заявленных на сайте русского/украинского резюме молча
+# рисовал пустые квадраты вместо букв. Fira Sans проверена так же (все
+# cmap-подтаблицы): полное покрytие кириллицы + той же расширенной
+# латиницы. Используется как LTR-шрифт по умолчанию для всех НЕ-ивритских
+# строк; Alef остаётся только для строк с ивритскими символами (та же
+# эвристика \\u0590-\\u05FF, что уже была).
+_PDF_FONT_NAME_LATIN = "FiraSans"
+_PDF_FONT_PATH_LATIN = _os_for_font_path.path.join(
+    _os_for_font_path.path.dirname(_os_for_font_path.path.dirname(_os_for_font_path.path.abspath(__file__))),
+    "static", "fonts", "FiraSans-Regular.ttf",
+)
+
 _pdf_font_registered = False
 
 
 def _ensure_pdf_font_registered():
-    """Зарегистрировать шрифт Alef в reportlab один раз за процесс."""
+    """Зарегистрировать оба PDF-шрифта (Alef — иврит, FiraSans — всё
+    остальное, включая кириллицу) в reportlab один раз за процесс."""
     global _pdf_font_registered
     if _pdf_font_registered:
         return
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
     pdfmetrics.registerFont(TTFont(_PDF_FONT_NAME, _PDF_FONT_PATH))
+    pdfmetrics.registerFont(TTFont(_PDF_FONT_NAME_LATIN, _PDF_FONT_PATH_LATIN))
     _pdf_font_registered = True
 
 
@@ -1224,15 +1245,20 @@ def _generate_pdf(text):
     RTL: строки, содержащие иврит (диапазон \\u0590-\\u05FF, тот же что и
     везде в проекте), прогоняются через bidi.algorithm.get_display()
     (логический порядок символов -> визуальный порядок для LTR-рендеринга)
-    и рисуются выравниванием по правому краю (drawRightString). Остальные
-    строки — обычным drawString слева.
+    и рисуются выравниванием по правому краю (drawRightString), шрифтом
+    Alef. Остальные строки (латиница, кириллица) — обычным drawString
+    слева, шрифтом FiraSans (см. комментарий у _PDF_FONT_NAME_LATIN —
+    Alef кириллицу не содержит).
 
     Перенос строк: greedy word-wrap по словам, измерение через
-    pdfmetrics.stringWidth на логическом (не bidi-переставленном) тексте —
-    перестановка применяется ПОСЛЕ переноса, к каждой уже готовой под-строке
-    отдельно, иначе разбиение по словам съезжает относительно визуального
-    порядка. Не идеальный перенос (не бьёт слово посередине, если оно само
-    шире доступной ширины) — этого достаточно для резюме.
+    pdfmetrics.stringWidth на логическом (не bidi-переставленном) тексте,
+    ширины символов берутся из шрифта КОНКРЕТНОЙ строки (Alef или
+    FiraSans — они разные, нельзя мерить одним шрифтом текст, который
+    будет нарисован другим) — перестановка применяется ПОСЛЕ переноса,
+    к каждой уже готовой под-строке отдельно, иначе разбиение по словам
+    съезжает относительно визуального порядка. Не идеальный перенос (не
+    бьёт слово посередине, если оно само шире доступной ширины) — этого
+    достаточно для резюме.
 
     Пагинация: при достижении нижнего поля — showPage() + повторная
     setFont() (шрифт не сохраняется между страницами в reportlab).
@@ -1253,7 +1279,8 @@ def _generate_pdf(text):
 
     _ensure_pdf_font_registered()
 
-    font_name = _PDF_FONT_NAME
+    font_hebrew = _PDF_FONT_NAME
+    font_latin = _PDF_FONT_NAME_LATIN
     font_size = 11
     line_height = 15
     margin = 50
@@ -1263,10 +1290,10 @@ def _generate_pdf(text):
 
     buf = io.BytesIO()
     c = pdf_canvas.Canvas(buf, pagesize=A4)
-    c.setFont(font_name, font_size)
+    c.setFont(font_latin, font_size)
     y = page_h - margin
 
-    def _wrap(line):
+    def _wrap(line, font_name):
         words = [w for w in line.split(" ") if w != ""] or [""]
         wrapped = []
         current = words[0]
@@ -1287,18 +1314,23 @@ def _generate_pdf(text):
         if not line:
             if y < margin + line_height:
                 c.showPage()
-                c.setFont(font_name, font_size)
+                c.setFont(font_latin, font_size)
                 y = page_h - margin
             y -= line_height
             continue
 
         has_hebrew = any("\u0590" <= ch <= "\u05FF" for ch in line)
+        line_font = font_hebrew if has_hebrew else font_latin
 
-        for sub_line in _wrap(line):
+        for sub_line in _wrap(line, line_font):
             if y < margin + line_height:
                 c.showPage()
-                c.setFont(font_name, font_size)
                 y = page_h - margin
+            # Явно перед каждой отрисовкой — предыдущая строка могла
+            # использовать другой шрифт (Alef/FiraSans чередуются по
+            # тексту), reportlab не хранит "текущий" шрифт между строками
+            # надёжно для наших целей, поэтому не полагаемся на состояние.
+            c.setFont(line_font, font_size)
             if has_hebrew:
                 c.drawRightString(page_w - margin, y, get_display(sub_line))
             else:
