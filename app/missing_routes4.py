@@ -1220,12 +1220,40 @@ _PDF_FONT_PATH_LATIN = _os_for_font_path.path.join(
     "static", "fonts", "FiraSans-Regular.ttf",
 )
 
+# Noto Sans Arabic (SIL OFL 1.1) — google/fonts repo (ofl/notosansarabic/
+# NotoSansArabic[wdth,wght].ttf). ОТКЛОНЕНИЕ от принципа "всегда static TTF"
+# (см. комментарий у Alef выше) — проверено эмпирически и задокументировано
+# намеренно, а не по недосмотру:
+#   - У Noto Sans Arabic/CJK НЕТ static-инстансов в формате, который вообще
+#     принимает reportlab. В noto-cjk репозитории (аналог для арабского не
+#     проверялся отдельно, но тот же паттерн подтверждён на китайском —
+#     см. отчёт по шагу 1 для CJK) static-сборки существуют только как
+#     OTF/CFF (PostScript outlines) — reportlab.pdfbase.ttfonts.TTFont их
+#     физически не грузит: TTFError "postscript outlines are not supported".
+#     Проверено напрямую попыткой регистрации, не предположение.
+#   - Единственный формат, который reportlab принимает (glyf/TrueType) —
+#     только variable font. Риск, из-за которого Alef/FiraSans выбирались
+#     static (непредсказуемый default instance — см. ниже пример с
+#     китайским, где default оказался Thin=100), здесь ПРОВЕРЕН и не
+#     воспроизвёлся: у NotoSansArabic[wdth,wght].ttf default инстанс оси
+#     wght = 400 (Regular), что подтверждено через fontTools (f['fvar'].axes)
+#     и визуальной проверкой отрендеренного PDF. Файл сохранён под именем
+#     NotoSansArabic-VF.ttf (суффикс VF — variable font) умышленно, чтобы
+#     не выдавать его за static-инстанс при будущих ревью кода.
+#   - Вес ~825 КБ — некритично (для сравнения FiraSans ~450 КБ).
+_PDF_FONT_NAME_ARABIC = "NotoArabic"
+_PDF_FONT_PATH_ARABIC = _os_for_font_path.path.join(
+    _os_for_font_path.path.dirname(_os_for_font_path.path.dirname(_os_for_font_path.path.abspath(__file__))),
+    "static", "fonts", "NotoSansArabic-VF.ttf",
+)
+
 _pdf_font_registered = False
 
 
 def _ensure_pdf_font_registered():
-    """Зарегистрировать оба PDF-шрифта (Alef — иврит, FiraSans — всё
-    остальное, включая кириллицу) в reportlab один раз за процесс."""
+    """Зарегистрировать все PDF-шрифты (Alef — иврит, FiraSans — всё
+    остальное включая кириллицу, NotoArabic — арабский) в reportlab один
+    раз за процесс."""
     global _pdf_font_registered
     if _pdf_font_registered:
         return
@@ -1233,6 +1261,7 @@ def _ensure_pdf_font_registered():
     from reportlab.pdfbase.ttfonts import TTFont
     pdfmetrics.registerFont(TTFont(_PDF_FONT_NAME, _PDF_FONT_PATH))
     pdfmetrics.registerFont(TTFont(_PDF_FONT_NAME_LATIN, _PDF_FONT_PATH_LATIN))
+    pdfmetrics.registerFont(TTFont(_PDF_FONT_NAME_ARABIC, _PDF_FONT_PATH_ARABIC))
     _pdf_font_registered = True
 
 
@@ -1246,9 +1275,23 @@ def _generate_pdf(text):
     везде в проекте), прогоняются через bidi.algorithm.get_display()
     (логический порядок символов -> визуальный порядок для LTR-рендеринга)
     и рисуются выравниванием по правому краю (drawRightString), шрифтом
-    Alef. Остальные строки (латиница, кириллица) — обычным drawString
-    слева, шрифтом FiraSans (см. комментарий у _PDF_FONT_NAME_LATIN —
-    Alef кириллицу не содержит).
+    Alef. Строки с арабским (диапазон \\u0600-\\u06FF) — тем же
+    drawRightString, шрифтом NotoArabic, НО перед get_display() дополнительно
+    прогоняются через arabic_reshaper.reshape(). Это не опечатка и не лишний
+    шаг: иврит и арабский оба RTL, но только у арабского буквы физически
+    меняют начертание (contextual shaping: изолированная/начальная/
+    срединная/конечная форма + лигатуры типа lam-alef) в зависимости от
+    соседних букв. Без reshape() reportlab рисует каждую букву в
+    изолированной форме — технически не ошибка на уровне кода (PDF
+    валиден), но визуально неверный, нечитаемый для носителя языка текст.
+    Проверено визуально (рендер в PNG) на обоих вариантах — без reshape
+    буквы стоят раздельно, с reshape — слитно, как положено. У иврита
+    такой проблемы нет: ивритские буквы не меняют форму от соседей, только
+    порядок написания (bidi без shaping — стандартное и достаточное
+    решение для иврита, но недостаточное для арабского).
+    Остальные строки (латиница, кириллица) — обычным drawString слева,
+    шрифтом FiraSans (см. комментарий у _PDF_FONT_NAME_LATIN — Alef
+    кириллицу не содержит).
 
     Перенос строк: greedy word-wrap по словам, измерение через
     pdfmetrics.stringWidth на логическом (не bidi-переставленном) тексте,
@@ -1276,11 +1319,13 @@ def _generate_pdf(text):
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfbase import pdfmetrics
     from bidi.algorithm import get_display
+    import arabic_reshaper
 
     _ensure_pdf_font_registered()
 
     font_hebrew = _PDF_FONT_NAME
     font_latin = _PDF_FONT_NAME_LATIN
+    font_arabic = _PDF_FONT_NAME_ARABIC
     font_size = 11
     line_height = 15
     margin = 50
@@ -1320,19 +1365,30 @@ def _generate_pdf(text):
             continue
 
         has_hebrew = any("\u0590" <= ch <= "\u05FF" for ch in line)
-        line_font = font_hebrew if has_hebrew else font_latin
+        has_arabic = any("\u0600" <= ch <= "\u06FF" for ch in line)
+        if has_hebrew:
+            line_font = font_hebrew
+        elif has_arabic:
+            line_font = font_arabic
+        else:
+            line_font = font_latin
 
         for sub_line in _wrap(line, line_font):
             if y < margin + line_height:
                 c.showPage()
                 y = page_h - margin
             # Явно перед каждой отрисовкой — предыдущая строка могла
-            # использовать другой шрифт (Alef/FiraSans чередуются по
-            # тексту), reportlab не хранит "текущий" шрифт между строками
+            # использовать другой шрифт (Alef/FiraSans/NotoArabic чередуются
+            # по тексту), reportlab не хранит "текущий" шрифт между строками
             # надёжно для наших целей, поэтому не полагаемся на состояние.
             c.setFont(line_font, font_size)
             if has_hebrew:
                 c.drawRightString(page_w - margin, y, get_display(sub_line))
+            elif has_arabic:
+                # Арабский требует shaping ДО bidi-переупорядочивания —
+                # см. подробное объяснение в docstring функции выше.
+                shaped = arabic_reshaper.reshape(sub_line)
+                c.drawRightString(page_w - margin, y, get_display(shaped))
             else:
                 c.drawString(margin, y, sub_line)
             y -= line_height

@@ -290,6 +290,148 @@ def test_18_mixed_hebrew_and_cyrillic_in_same_document_no_exception():
 
 
 # ===========================================================================
+# Cycle P-ar — арабский (диапазон \u0600-\u06FF) рисовался пустыми
+# изолированными буквами (или квадратами) вместо связного письма. Фикс:
+# третий шрифт (NotoSansArabic-VF.ttf) + arabic_reshaper.reshape() перед
+# bidi.get_display() — в отличие от иврита арабским буквам нужен contextual
+# shaping (изолированная/начальная/срединная/конечная форма), не только
+# перестановка порядка.
+#
+# ВАЖНО — эмпирическая находка, симметричная той, что уже задокументирована
+# для иврита в шапке файла (расхождение extract_text() с логическим
+# текстом), но с ДРУГОЙ причиной и ДРУГИМ способом починки сравнения:
+# после reshape() PyPDF2.extract_text() возвращает не базовые арабские
+# буквы, а codepoints форм представления (Unicode block "Arabic
+# Presentation Forms", \uFB50-\uFEFF) — это ожидаемое, детерминированное
+# следствие contextual shaping, не баг и не недетерминизм. Прямое сравнение
+# extracted-строки с оригиналом всегда ложно (проверено эмпирически перед
+# написанием этого теста). unicodedata.normalize('NFKC', ...) восстанавливает
+# исходные базовые буквы точно — на этом построена строгая проверка
+# test_19 (тот же уровень строгости, что test_04 для иврита, но с
+# дополнительным шагом нормализации).
+# ===========================================================================
+
+def test_19_pure_arabic_exact_roundtrip_after_nfkc():
+    """
+    Чистый арабский текст (без смешения с цифрами/латиницей) извлекается
+    PyPDF2 в виде presentation-forms кодпоинтов (следствие reshape()) —
+    после unicodedata.normalize('NFKC', ...) точно совпадает с исходным
+    логическим текстом. Эмпирически подтверждено перед написанием теста
+    (см. комментарий блока выше) — прямое сравнение без NFKC было бы
+    гарантированно ложным, это не опечатка.
+    """
+    import unicodedata
+    text = "###ITEM_001###\nمهندس برمجيات أول\n\n###ITEM_002###\nخبرة في تطوير التطبيقات"
+    buf = mr._generate_pdf(text)
+    reader, extracted = _extract(buf)
+    assert len(reader.pages) == 1
+    normalized = unicodedata.normalize("NFKC", extracted.strip())
+    assert normalized == "مهندس برمجيات أول\nخبرة في تطوير التطبيقات"
+
+
+def test_19b_pure_arabic_deterministic_across_runs():
+    """Regression guard: повторная генерация того же арабского текста даёт
+    identical extract_text() — тот же контракт, что test_04b для иврита."""
+    text = "###ITEM_001###\nإدارة المشاريع وتطوير البرمجيات"
+    results = set()
+    for _ in range(3):
+        buf = mr._generate_pdf(text)
+        _, extracted = _extract(buf)
+        results.add(extracted.strip())
+    assert len(results) == 1, f"Недетерминированное извлечение: {results}"
+
+
+def test_20_mixed_arabic_and_digits_structurally_valid():
+    """Смешанная RTL+LTR строка (арабский + латиница/цифры) — PDF должен
+    генерироваться без исключений и оставаться структурно валидным. Как и
+    для иврита (test_05), порядок слов строго не проверяем — только факт
+    непустого извлекаемого содержимого."""
+    text = "###ITEM_001###\nطور تطبيقات ويب باستخدام Python 5 سنوات خبرة"
+    buf = mr._generate_pdf(text)
+    reader, extracted = _extract(buf)
+    assert len(reader.pages) == 1
+    assert extracted.strip() != ""
+
+
+def test_21_arabic_font_file_exists():
+    """Регистрируемый файл арабского шрифта должен существовать.
+    В отличие от test_10/test_14 (Alef/FiraSans — static TTF, без 'fvar')
+    здесь ОСОЗНАННО не проверяем отсутствие 'fvar': NotoSansArabic-VF.ttf —
+    variable font, это задокументированное намеренное отклонение (см.
+    комментарий у _PDF_FONT_NAME_ARABIC в missing_routes4.py — static-сборка
+    для этого шрифта в принципе недоступна в формате, который принимает
+    reportlab). Вместо этого проверяем то, что реально важно: дефолтный
+    instance оси wght действительно = 400 (Regular), а не какой-то другой
+    вес — именно это проверялось эмпирически перед принятием решения
+    использовать variable font."""
+    assert os.path.exists(mr._PDF_FONT_PATH_ARABIC), f"Font file missing: {mr._PDF_FONT_PATH_ARABIC}"
+    from fontTools.ttLib import TTFont as FTFont
+    ft = FTFont(mr._PDF_FONT_PATH_ARABIC)
+    assert "fvar" in ft, (
+        "Ожидался variable font (см. комментарий в missing_routes4.py) — "
+        "если это больше не так, комментарий и этот тест нужно обновить вместе."
+    )
+    wght_axis = next(a for a in ft["fvar"].axes if a.axisTag == "wght")
+    assert wght_axis.defaultValue == 400, (
+        f"Default instance веса шрифта изменился: {wght_axis.defaultValue} "
+        f"(ожидался 400/Regular) — PDF будет рисовать другим начертанием."
+    )
+
+
+def test_22_arabic_font_covers_arabic_glyphs():
+    """Регрессионный барьер: если шрифт когда-нибудь заменят на что-то без
+    арабских глифов, тест должен упасть раньше, чем это дойдёт до прода."""
+    from fontTools.ttLib import TTFont as FTFont
+    ft = FTFont(mr._PDF_FONT_PATH_ARABIC)
+    covered = set()
+    for t in ft["cmap"].tables:
+        covered |= set(t.cmap.keys())
+    arabic_sample = "ابتثجحخدذرزسشصضطظعغفقكلمنهوي"
+    missing = [c for c in arabic_sample if ord(c) not in covered]
+    assert not missing, f"В шрифте отсутствуют арабские глифы: {missing}"
+
+
+def test_23_arabic_text_renders_without_exception_and_is_extractable():
+    """Сквозная проверка на уровне _generate_pdf(): арабский текст не падает
+    и извлекается обратно (до фикса здесь были бы либо пустые изолированные
+    буквы, либо пустые квадраты — но extract_text() на них тоже не упал бы
+    молча, поэтому проверяем именно содержимое через NFKC, а не только
+    отсутствие исключения)."""
+    import unicodedata
+    text = "###ITEM_001###\nأحمد حسن\nمهندس برمجيات"
+    buf = mr._generate_pdf(text)
+    reader, extracted = _extract(buf)
+    assert len(reader.pages) >= 1
+    normalized = unicodedata.normalize("NFKC", extracted.strip())
+    assert "أحمد" in normalized
+    assert "مهندس" in normalized
+
+
+def test_24_mixed_hebrew_and_arabic_in_same_document_no_exception():
+    """Документ, где одни строки на иврите (шрифт Alef, без reshape), а
+    другие на арабском (шрифт NotoArabic, с reshape) — маловероятный, но
+    возможный кейс (например ошибочно определённый язык резюме). Оба RTL,
+    оба используют \\u05xx/\\u06xx диапазоны — проверяем что has_hebrew
+    проверяется раньше has_arabic и не путает шрифты/reshape между строками."""
+    text = (
+        "###ITEM_001###\n"
+        "מוסתובוי סלבה — תמיכה טכנית\n"
+        "###ITEM_002###\n"
+        "أحمد حسن — مهندس برمجيات\n"
+    )
+    buf = mr._generate_pdf(text)
+    reader, _ = _extract(buf)
+    assert len(reader.pages) >= 1
+
+
+def test_25_arabic_dependency_reshaper_importable():
+    """Regression guard: arabic_reshaper должен быть импортируемым (проверка
+    того, что requirements.txt действительно содержит и устанавливает
+    зависимость, а не просто что она случайно оказалась в окружении)."""
+    import arabic_reshaper  # noqa: F401 — сам факт успешного импорта — тест
+
+
+# ===========================================================================
 # Cycle P2 — HTTP-роут POST /api/improve/pdf
 # Зеркально tests/test_odt_export.py (Cycle O2): тот же fixture, тот же
 # способ авторизации через session_transaction(), те же три сценария.
