@@ -1247,13 +1247,47 @@ _PDF_FONT_PATH_ARABIC = _os_for_font_path.path.join(
     "static", "fonts", "NotoSansArabic-VF.ttf",
 )
 
+# WenQuanYi Micro Hei (Apache License 2.0 / GPLv3-with-font-embedding-
+# exception, dual license — см. static/fonts/WenQuanYiMicroHei-Apache2-
+# LICENSE.txt и WenQuanYiMicroHei-GPLv3-LICENSE.txt, оба файла — реально
+# скачанные тексты лицензий из official source repo, не пересказ по памяти).
+# ОТКЛОНЕНИЕ от принципа "всегда static TTF", но в ДРУГУЮ сторону, чем у
+# NotoSansArabic-VF выше: здесь как раз НАЙДЕН настоящий static-инстанс —
+# проверено (Cycle CN — диагностика и research), что готовые CJK static
+# сборки Noto (OTF, оба найденных файла 8МБ/16МБ) физически не грузятся
+# reportlab.pdfbase.ttfonts.TTFont: TTFError "postscript outlines are not
+# supported" (CFF-контуры, не glyf). Единственный найденный glyf-вариант
+# от Noto — variable font с default wght=100 (Thin), то есть "ложный успех"
+# по аналогии с риском, уже пойманным у Alef/FiraSans (см. их комментарии
+# выше) — здесь default НЕ подошёл бы, в отличие от NotoSansArabic-VF, где
+# default оказался верным 400/Regular.
+# WenQuanYi Micro Hei снимает обе проблемы разом: это подлинный static TTF
+# (не .ttc — оригинальный файл распространяется как TrueType Collection
+# из двух начертаний, "Micro Hei" и "Micro Hei Mono"; здесь извлечён и
+# сохранён ТОЛЬКО первый subfont через fontTools — TTCollection.fonts[0].
+# save(...) — как отдельный самостоятельный .ttf), контуры glyf, вес Regular
+# подтверждён из name table (nameID=2 "Regular") и визуальной проверкой
+# (штрих сопоставимой толщины с латинской строкой на том же рендере — не
+# тонкий/hairline, как было бы у ложного default-инстанса variable font).
+# Покрытие: 20 932 CJK-глифа в диапазоне \\u4E00-\\u9FFF (полное для целей
+# резюме). Вес файла — 4.4 МБ, для сравнения: NotoSansArabic-VF ~825 КБ,
+# FiraSans ~450 КБ — WenQuanYi заметно тяжелее остальных трёх шрифтов
+# проекта вместе взятых, но это ожидаемо для полного CJK-шрифта (тысячи
+# уникальных глифов против десятков latin/cyrillic/arabic) и остаётся
+# приемлемым для бесплатного тарифа Render.
+_PDF_FONT_NAME_CJK = "WenQuanYiMicroHei"
+_PDF_FONT_PATH_CJK = _os_for_font_path.path.join(
+    _os_for_font_path.path.dirname(_os_for_font_path.path.dirname(_os_for_font_path.path.abspath(__file__))),
+    "static", "fonts", "WenQuanYiMicroHei-Regular.ttf",
+)
+
 _pdf_font_registered = False
 
 
 def _ensure_pdf_font_registered():
     """Зарегистрировать все PDF-шрифты (Alef — иврит, FiraSans — всё
-    остальное включая кириллицу, NotoArabic — арабский) в reportlab один
-    раз за процесс."""
+    остальное включая кириллицу, NotoArabic — арабский, WenQuanYiMicroHei —
+    китайский) в reportlab один раз за процесс."""
     global _pdf_font_registered
     if _pdf_font_registered:
         return
@@ -1262,6 +1296,7 @@ def _ensure_pdf_font_registered():
     pdfmetrics.registerFont(TTFont(_PDF_FONT_NAME, _PDF_FONT_PATH))
     pdfmetrics.registerFont(TTFont(_PDF_FONT_NAME_LATIN, _PDF_FONT_PATH_LATIN))
     pdfmetrics.registerFont(TTFont(_PDF_FONT_NAME_ARABIC, _PDF_FONT_PATH_ARABIC))
+    pdfmetrics.registerFont(TTFont(_PDF_FONT_NAME_CJK, _PDF_FONT_PATH_CJK))
     _pdf_font_registered = True
 
 
@@ -1289,6 +1324,14 @@ def _generate_pdf(text):
     такой проблемы нет: ивритские буквы не меняют форму от соседей, только
     порядок написания (bidi без shaping — стандартное и достаточное
     решение для иврита, но недостаточное для арабского).
+    Китайский: строки, содержащие символы диапазона \\u4E00-\\u9FFF,
+    рисуются обычным drawString слева (LTR — не RTL, bidi/reshape не
+    применяются, в отличие от иврита/арабского выше), шрифтом
+    WenQuanYiMicroHei. См. комментарий у _PDF_FONT_NAME_CJK — единственный
+    из четырёх шрифтов проекта, для которого удалось найти подлинный
+    static TTF без необходимости идти на variable-font компромисс (как
+    пришлось для NotoSansArabic-VF).
+
     Остальные строки (латиница, кириллица) — обычным drawString слева,
     шрифтом FiraSans (см. комментарий у _PDF_FONT_NAME_LATIN — Alef
     кириллицу не содержит).
@@ -1326,6 +1369,7 @@ def _generate_pdf(text):
     font_hebrew = _PDF_FONT_NAME
     font_latin = _PDF_FONT_NAME_LATIN
     font_arabic = _PDF_FONT_NAME_ARABIC
+    font_cjk = _PDF_FONT_NAME_CJK
     font_size = 11
     line_height = 15
     margin = 50
@@ -1366,10 +1410,13 @@ def _generate_pdf(text):
 
         has_hebrew = any("\u0590" <= ch <= "\u05FF" for ch in line)
         has_arabic = any("\u0600" <= ch <= "\u06FF" for ch in line)
+        has_cjk = any("\u4E00" <= ch <= "\u9FFF" for ch in line)
         if has_hebrew:
             line_font = font_hebrew
         elif has_arabic:
             line_font = font_arabic
+        elif has_cjk:
+            line_font = font_cjk
         else:
             line_font = font_latin
 

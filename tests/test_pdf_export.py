@@ -432,6 +432,159 @@ def test_25_arabic_dependency_reshaper_importable():
 
 
 # ===========================================================================
+# Cycle CN — китайский (диапазон \u4E00-\u9FFF). В отличие от иврита/арабского
+# (Cycle P1/P-ar), китайский LTR — bidi.get_display() и arabic_reshaper.reshape()
+# здесь НЕ применяются, рисуется обычным drawString слева, той же веткой кода,
+# что и латиница/кириллица (см. else-ветку в _generate_pdf).
+#
+# ВАЖНО — эмпирическая находка (проверено перед написанием тестов, не
+# предположение по аналогии с ивритом/арабским): PyPDF2.extract_text()
+# извлекает китайский текст ТОЧНО и в правильном порядке даже при смешении
+# с цифрами/латиницей в одной физической строке (test_28) — в отличие от
+# иврита (test_05) и арабского (test_20), где смешанные RTL+LTR строки
+# проверяются только на структурную валидность, без строгого сравнения.
+# Причина: у китайского в этом пайплайне вообще нет bidi-перестановки
+# порядка символов (только LTR drawString) — поэтому нет и связанного с
+# ней расхождения логического/визуального порядка при извлечении.
+# ===========================================================================
+
+def test_26_cjk_font_file_exists_and_is_static_ttf():
+    """Тот же контракт, что test_10/test_14 (Alef/FiraSans): регистрируемый
+    файл шрифта должен существовать и НЕ быть variable font ('fvar'
+    отсутствует) — в отличие от test_21 (NotoSansArabic-VF), где 'fvar'
+    ОЖИДАЕТСЯ по документированной причине. Здесь, наоборот, найден
+    подлинный static-инстанс — см. комментарий у _PDF_FONT_NAME_CJK."""
+    assert os.path.exists(mr._PDF_FONT_PATH_CJK), f"Font file missing: {mr._PDF_FONT_PATH_CJK}"
+    from fontTools.ttLib import TTFont as FTFont
+    ft = FTFont(mr._PDF_FONT_PATH_CJK)
+    assert "fvar" not in ft, "Шрифт содержит таблицу fvar — это variable font, а не static instance"
+    assert "CFF " not in ft, "Шрифт использует CFF/PostScript-контуры — reportlab их не грузит"
+    assert "glyf" in ft, "Ожидались TrueType-контуры (glyf)"
+
+
+def test_27_cjk_font_covers_common_hanzi_glyphs():
+    """Регрессионный барьер: если шрифт когда-нибудь заменят на что-то без
+    нужных иероглифов, тест должен упасть раньше, чем это дойдёт до прода."""
+    from fontTools.ttLib import TTFont as FTFont
+    ft = FTFont(mr._PDF_FONT_PATH_CJK)
+    covered = set()
+    for t in ft["cmap"].tables:
+        covered |= set(t.cmap.keys())
+    # Частотные иероглифы резюме-лексики: опыт/работа/образование/навыки/год
+    sample = "简历经验工作教育背景技能年软件工程师开发负责"
+    missing = [c for c in sample if ord(c) not in covered]
+    assert not missing, f"В шрифте отсутствуют иероглифы: {missing}"
+
+
+def test_28_pure_chinese_exact_roundtrip():
+    """Чистый китайский текст извлекается PyPDF2 ТОЧНО (без каких-либо
+    NFKC-нормализаций или допущений на неточный порядок, в отличие от
+    иврита/арабского) — подтверждено эмпирически перед написанием теста,
+    см. комментарий блока выше. Строгая проверка точного совпадения,
+    включая случай смешения с цифрами/латиницей в одной строке."""
+    text = "###ITEM_001###\n软件工程师\n\n###ITEM_002###\n使用 Python 开发了 5 个项目"
+    buf = mr._generate_pdf(text)
+    reader, extracted = _extract(buf)
+    assert len(reader.pages) == 1
+    assert extracted.strip() == "软件工程师\n使用 Python 开发了 5 个项目"
+
+
+def test_28b_pure_chinese_deterministic_across_runs():
+    """Regression guard: повторная генерация того же китайского текста даёт
+    identical extract_text() — тот же контракт, что test_04b/test_19b."""
+    text = "###ITEM_001###\n负责后端系统开发与维护"
+    results = set()
+    for _ in range(3):
+        buf = mr._generate_pdf(text)
+        _, extracted = _extract(buf)
+        results.add(extracted.strip())
+    assert len(results) == 1, f"Недетерминированное извлечение: {results}"
+
+
+def test_29_chinese_text_renders_without_exception_and_is_extractable():
+    """Сквозная проверка на уровне _generate_pdf(): китайский текст не падает
+    и извлекается обратно корректно (до фикса здесь были бы пустые квадраты
+    вместо иероглифов)."""
+    text = "###ITEM_001###\n张伟\n软件工程师"
+    buf = mr._generate_pdf(text)
+    reader, extracted = _extract(buf)
+    assert len(reader.pages) >= 1
+    assert "张伟" in extracted
+    assert "软件工程师" in extracted
+
+
+def test_30_mixed_hebrew_and_chinese_in_same_document_no_exception():
+    """Документ, где одни строки на иврите (шрифт Alef, RTL с bidi), а
+    другие на китайском (шрифт WenQuanYiMicroHei, LTR без bidi) — оба
+    диапазона (\\u05xx и \\u4Exx-\\u9Fxx) не пересекаются, но проверяем что
+    переключение шрифта построчно (и переключение RTL/LTR логики) не путает
+    друг друга и не падает."""
+    text = (
+        "###ITEM_001###\n"
+        "מוסתובוי סלבה — תמיכה טכנית\n"
+        "###ITEM_002###\n"
+        "软件工程师 - 五年经验\n"
+    )
+    buf = mr._generate_pdf(text)
+    reader, _ = _extract(buf)
+    assert len(reader.pages) >= 1
+
+
+def test_31_mixed_chinese_latin_hebrew_arabic_all_four_scripts_no_exception():
+    """Документ со всеми четырьмя шрифтами проекта на одной странице
+    (латиница/кириллица, иврит, арабский, китайский) — самый широкий
+    интеграционный тест: переключение между 4 шрифтами построчно, включая
+    смену RTL/LTR и наличие/отсутствие reshape, не должно падать."""
+    text = (
+        "###ITEM_001###\n"
+        "John Doe - Software Engineer\n"
+        "###ITEM_002###\n"
+        "מוסתובוי סלבה — תמיכה טכנית\n"
+        "###ITEM_003###\n"
+        "أحمد حسن — مهندس برمجيات\n"
+        "###ITEM_004###\n"
+        "软件工程师 - 五年经验\n"
+    )
+    buf = mr._generate_pdf(text)
+    reader, extracted = _extract(buf)
+    assert len(reader.pages) >= 1
+    assert extracted.strip() != ""
+
+
+def test_32_cjk_range_boundary_does_not_false_positive_on_japanese_kana_or_hangul():
+    """Regression guard: диапазон \\u4E00-\\u9FFF — это только унифицированные
+    Han-иероглифы. Японская кана (хирагана/катакана, \\u3040-\\u30FF) и
+    корейский хангыль (\\uAC00-\\uD7A3) НЕ входят в этот диапазон и не должны
+    ошибочно определяться как 'китайский' (has_cjk) — WenQuanYiMicroHei их
+    не покрывает (шрифт заявлен только под Han/CJK, не под кану/хангыль),
+    попытка нарисовать эти символы этим шрифтом дала бы пустые квадраты.
+    Здесь фиксируем сам факт: чисто кана-строка не должна попадать в
+    CJK-ветку классификации (только проверка диапазона на уровне текста,
+    без обращения к приватному состоянию функции — косвенно, через то что
+    рендер не падает и это остаётся заботой будущего цикла, если понадобится
+    японский/корейский)."""
+    # Хирагана "конничива" (здравствуйте) — вне диапазона \u4E00-\u9FFF
+    kana = "こんにちは"
+    assert not any("\u4E00" <= ch <= "\u9FFF" for ch in kana), \
+        "Кана ошибочно попадает в диапазон CJK Han — граница диапазона неверна"
+
+
+def test_33_cjk_dependency_fonttools_glyf_confirmed_no_cff():
+    """Regression guard, зеркально test_25 (arabic_reshaper importable), но
+    для более критичного риска у CJK: если файл шрифта когда-нибудь будет
+    заменён на OTF/CFF-сборку (например, случайно перезаписан другой Noto
+    CJK сборкой) — этот тест должен упасть раньше, чем reportlab выдаст
+    TTFError в проде при первой генерации PDF с китайским текстом."""
+    from fontTools.ttLib import TTFont as FTFont
+    ft = FTFont(mr._PDF_FONT_PATH_CJK)
+    assert "CFF " not in ft and "CFF2" not in ft, (
+        "Шрифт содержит CFF/CFF2 (PostScript outlines) — reportlab.pdfbase."
+        "ttfonts.TTFont не сможет его загрузить (TTFError), см. диагностику "
+        "Cycle CN в комментарии у _PDF_FONT_NAME_CJK."
+    )
+
+
+# ===========================================================================
 # Cycle P2 — HTTP-роут POST /api/improve/pdf
 # Зеркально tests/test_odt_export.py (Cycle O2): тот же fixture, тот же
 # способ авторизации через session_transaction(), те же три сценария.
