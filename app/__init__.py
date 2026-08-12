@@ -169,6 +169,52 @@ def _extract_text_from_request():
                 current_app.logger.error(f"[_extract_text_from_request] DOCX parse failed: {e}")
                 raise ValueError("Cannot read DOCX file. Please check the file is not corrupted.")
 
+        # ODT файл (OpenDocument Text)
+        elif filename.endswith('.odt'):
+            try:
+                from odf.opendocument import load
+                from odf.table import Table, TableRow, TableCell
+                from odf import teletype
+                import io
+                doc = load(io.BytesIO(file.read()))
+                parts = []
+                # Читать параграфы и заголовки верхнего уровня (не внутри
+                # таблиц) — doc.text.childNodes включает и текстовые узлы
+                # таблиц, поэтому фильтруем строго по qname 'p'/'h', чтобы
+                # не задублировать текст, который отдельно читается из
+                # таблиц ниже. 'h' (<text:h>) — это заголовки (Heading 1,
+                # Heading 2 и т.д.), они семантически такой же текстовый
+                # блок верхнего уровня, как обычный параграф, и часто несут
+                # имя резюме / названия секций — без них текст резюме
+                # молча теряет ключевые заголовки.
+                for child in doc.text.childNodes:
+                    qn = getattr(child, 'qname', None)
+                    if qn and qn[1] in ('p', 'h'):
+                        txt = teletype.extractText(child).strip()
+                        if txt:
+                            parts.append(txt)
+                # Читать таблицы (резюме часто хранятся в таблицах!)
+                for table in doc.getElementsByType(Table):
+                    for row in table.getElementsByType(TableRow):
+                        row_texts = []
+                        for cell in row.getElementsByType(TableCell):
+                            t = teletype.extractText(cell).strip()
+                            if t:
+                                row_texts.append(t)
+                        # убрать дубликаты ячеек
+                        seen = []
+                        for t in row_texts:
+                            if t not in seen:
+                                seen.append(t)
+                        if seen:
+                            parts.append(' | '.join(seen))
+                text = '\n'.join(parts)
+                return text.strip()
+            except Exception as e:
+                from flask import current_app
+                current_app.logger.error(f"[_extract_text_from_request] ODT parse failed: {e}")
+                raise ValueError("Cannot read ODT file. Please check the file is not corrupted.")
+
         # TXT файл
         elif filename.endswith('.txt'):
             return file.read().decode('utf-8', errors='ignore').strip()
