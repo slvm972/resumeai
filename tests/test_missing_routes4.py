@@ -733,3 +733,100 @@ def test_TEMP6_save_triggers_opportunistic_cleanup_of_others():
     mr._save_temp_upload(b"new upload triggers cleanup")
 
     assert not os.path.exists(stale_path), "Opportunistic cleanup при новой записи не сработал"
+
+# ===========================================================================
+# EMPTYBULLET — реальный кейс из production-файла k_h20231_updated.docx:
+# один docx-параграф из 4 строк (буллеты, разделённые <w:br/>), последняя
+# строка — голый "•" без текста после него. Найдено при диагностике
+# репорта пользователя про "пустой буллет" — расследование показало, что
+# этот пустой буллет уже присутствует в ИСХОДНОМ файле (не побочный
+# продукт AI-пайплайна и не связан с Cycle D1/D2). Тесты ниже фиксируют,
+# что пайплайн корректно СОХРАНЯЕТ такую строку, а не теряет/схлопывает
+# её — на уровне полного apply-to-docx и на уровне _replace_para_text.
+# ===========================================================================
+
+def _make_multiline_bullet_docx(lines):
+    """Собрать docx с ОДНИМ параграфом из нескольких строк, разделённых
+    <w:br/> (не отдельными параграфами) — так же, как в реальном файле
+    k_h20231_updated.docx, где все 4 буллета лежат в одном para.text
+    через '\\n'."""
+    from docx import Document
+    doc = Document()
+    para = doc.add_paragraph()
+    for i, line in enumerate(lines):
+        if i > 0:
+            para.add_run().add_break()
+        para.add_run(line)
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf.read()
+
+def test_EMPTYBULLET1_trailing_empty_bullet_survives_full_docx_roundtrip():
+    """Full-pipeline regression: multi-line item чьи последняя строка —
+    голый '•' без текста, должен пройти _extract_structured ->
+    _apply_improved_text_to_docx без потери этой строки, если AI вернул
+    блок без изменений (реалистичный случай — freeze/no-op на этой строке)."""
+    lines = [
+        "• תמיכה ותחזוקה במחשבים ורשתות",
+        "• התקנה ותפעול תוכנות וחומרה",
+        "• עריכת וידאו והפקת מוזיקה",
+        "•",
+    ]
+    raw = _make_multiline_bullet_docx(lines)
+
+    from docx import Document
+    orig_items = mr._extract_structured(Document(io.BytesIO(raw)))
+    assert len(orig_items) == 1
+    original_text = orig_items[0]["text"]
+    assert original_text.endswith(NL + "•"), "Источник теста не воспроизводит реальный кейс"
+
+    item_ids = ["001"]
+    # AI вернул блок БЕЗ изменений (типичный no-op ответ на неулучшаемый пункт)
+    improved = f"###ITEM_001###{NL}{original_text}"
+    buf = mr._apply_improved_text_to_docx(raw, improved, item_ids)
+
+    result_items = mr._extract_structured(Document(buf))
+    assert len(result_items) == 1
+    assert result_items[0]["text"] == original_text, (
+        f"Пустой буллет потерян/искажён при roundtrip: {result_items[0]['text']!r}"
+    )
+    assert result_items[0]["text"].split(NL)[-1] == "•", \
+        "Последняя строка (голый буллет) не сохранилась как отдельная пустая строка"
+
+def test_EMPTYBULLET2_replace_para_text_preserves_trailing_bullet_when_earlier_lines_change():
+    """_replace_para_text должен корректно записать многострочный текст
+    где ИЗМЕНИЛИСЬ только первые строки, а последняя (голый '•') осталась
+    как есть — типичный случай когда AI улучшил формулировки, но нечего
+    было улучшить в пустом буллете."""
+    from docx import Document
+    doc = Document()
+    para = doc.add_paragraph()
+    orig_lines = ["• תמיכה ותחזוקה במחשבים ורשתות", "• התקנה ותפעול תוכנות וחומרה", "•"]
+    for i, line in enumerate(orig_lines):
+        if i > 0:
+            para.add_run().add_break()
+        para.add_run(line)
+
+    new_lines = ["• תמיכה ותחזוקה מתקדמת במחשבים ורשתות", "• התקנה ותפעול מומחי של תוכנות וחומרה", "•"]
+    new_text = NL.join(new_lines)
+    mr._replace_para_text(para, new_text)
+
+    assert para.text == new_text
+    assert para.text.split(NL)[-1] == "•", \
+        "Голый буллет потерян при замене текста параграфа с изменёнными соседними строками"
+
+def test_EMPTYBULLET3_source_file_pattern_is_freeze_or_improve_but_never_dropped():
+    """Regression guard на уровне классификации: multi-line item, содержащий
+    Hebrew-глаголы-маркеры (תמיכה/התקנה — реальные слова из production-файла)
+    ДОЛЖЕН классифицироваться как 'improve' (не 'freeze'), чтобы не быть
+    ошибочно пропущенным мимо AI — сам факт классификации не должен зависеть
+    от того, что последняя строка внутри блока пустая."""
+    text = (
+        "• תמיכה ותחזוקה במחשבים ורשתות" + NL +
+        "• התקנה ותפעול תוכנות וחומרה" + NL +
+        "• עריכת וידאו והפקת מוזיקה" + NL +
+        "•"
+    )
+    result = mr._classify_item(text, 7, 9)
+    assert result == "improve", f"Реальный production-блок с буллетами классифицирован как {result!r}, ожидали 'improve'"
