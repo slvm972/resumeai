@@ -186,15 +186,30 @@ uploadArea.addEventListener('drop', (e) => {
 async function uploadFile(file) {
   // Validate file
   const maxSize = 5 * 1024 * 1024; // 5MB
-  const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
-  
+
+  // MIME types actually parsed server-side (see _extract_text_from_request /
+  // missing_routes4.py): PDF, DOCX, ODT, TXT. DOC removed — server cannot read it.
+  const allowedMimeTypes = [
+    'application/pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+    'application/vnd.oasis.opendocument.text',                                  // .odt
+    'text/plain',                                                               // .txt
+  ];
+  // Extension fallback: file.type is populated from the OS's MIME registry, and
+  // less common types like .odt are not always registered there (some browsers
+  // then report '' or 'application/octet-stream' instead of the real MIME type).
+  // Checking the extension too avoids false rejections in that case.
+  const allowedExtensions = ['.pdf', '.docx', '.odt', '.txt'];
+  const nameLower = (file.name || '').toLowerCase();
+  const hasAllowedExtension = allowedExtensions.some(ext => nameLower.endsWith(ext));
+
   if (file.size > maxSize) {
     alert('File size must be less than 5MB');
     return;
   }
-  
-  if (!allowedTypes.includes(file.type)) {
-    alert('Please upload a PDF, DOC, or DOCX file');
+
+  if (!allowedMimeTypes.includes(file.type) && !hasAllowedExtension) {
+    alert('Please upload a PDF, DOCX, ODT, or TXT file');
     return;
   }
 
