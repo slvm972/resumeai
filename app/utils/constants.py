@@ -2,7 +2,9 @@
 
 # Планы подписки
 PLAN_FREE = 'free'
-PLAN_CREDITS = 'credits5'  # разовая покупка (НЕ подписка) — пакет из 5 Improve-кредитов
+PLAN_CREDITS = 'credits5'  # разовая покупка (НЕ подписка). Имя 'credits5' — исторически
+# сложившееся (не переименовывать: уже записано как plan_name в проде для существующих
+# пользователей), реально означает пакет из 10 Improve-кредитов — см. credits_per_purchase ниже.
 
 SUBSCRIPTION_PLANS = {
     PLAN_FREE: {

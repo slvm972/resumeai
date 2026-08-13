@@ -450,8 +450,12 @@ def _register_legacy_routes(app):
                 'created_at': u.created_at.isoformat(),
                 'subscriptions': [{
                     'sub_id': s.id, 'plan_name': s.plan_name, 'status': s.status,
+                    # Легаси-поля (Improve-only счётчик, оставлены для обратной совместимости)
                     'analysis_used': s.analysis_used, 'improvement_used': s.improvement_used,
                     'improvement_credits': s.improvement_credits,
+                    # Новый единый пул кредитов (analyze + improve вместе)
+                    'credits_granted': s.credits_granted, 'credits_used': s.credits_used,
+                    'credits_remaining': s.credits_remaining(),
                     'created_at': s.created_at.isoformat(), 'updated_at': s.updated_at.isoformat(),
                 } for s in subs],
             })
