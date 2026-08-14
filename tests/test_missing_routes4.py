@@ -830,3 +830,55 @@ def test_EMPTYBULLET3_source_file_pattern_is_freeze_or_improve_but_never_dropped
     )
     result = mr._classify_item(text, 7, 9)
     assert result == "improve", f"Реальный production-блок с буллетами классифицирован как {result!r}, ожидали 'improve'"
+
+# ===========================================================================
+# DOUBLENL — расследование пользовательского репорта: в одном из старых
+# output-файлов (improved_resume (34).docx) буллет-блок item 005 содержал
+# ДВОЙНОЙ перенос строки (\n\n) между буллетами вместо одинарного, хотя
+# исходник имел одинарный \n. Расследование (см. diagnostic cycle):
+# захвачен РЕАЛЬНЫЙ ответ сервера (quality_report + improved_resume) для
+# k_h20231_updated.docx через DevTools Network tab. Текст item 005 в этом
+# реальном захваченном improved_resume уже содержит ОДИНАРНЫЙ \n между
+# всеми 4 строками буллетов. Прогон через ТЕКУЩИЙ _apply_improved_text_to_docx
+# с реальными байтами исходника + этим реальным текстом НЕ воспроизводит
+# удвоение — результат тоже одинарный \n. Вывод: баг в текущем коде
+# отсутствует (файл (34).docx — снимок более старой генерации, не
+# текущего кода). Тест ниже фиксирует это твёрдо, чтобы не тратить время
+# на повторное расследование в будущем.
+# ===========================================================================
+
+def test_DOUBLENL1_real_captured_bullet_block_survives_apply_without_doubling():
+    """Regression guard: реальный текст item 005 (буллет-блок), захваченный
+    из фактического ответа сервера после прохождения AI + Quality Gate,
+    должен применяться в docx с СОХРАНЕНИЕМ одинарного NL между строками —
+    без удвоения, которое наблюдалось в старом output-файле."""
+    # Точный текст item 005 из реального захваченного improved_resume
+    # (Network tab, /api/admin/improve, k_h20231_updated.docx)
+    real_improved_item005 = (
+        "• תמיכה ותחזוקה מתקדמת במחשבים ורשתות" + NL +
+        "• התקנה ותפעול מומחי של תוכנות וחומרה" + NL +
+        "• עריכה מקצועית של וידאו והפקת מוזיקה" + NL +
+        "•"
+    )
+    assert (NL + NL) not in real_improved_item005, \
+        "Сам захваченный текст из реального ответа сервера уже содержит двойной NL — баг живой на уровне AI/regex-схлопывания"
+
+    # Синтетический источник с идентичной структурой (один параграф, 4 строки через <w:br/>)
+    raw = _make_multiline_bullet_docx([
+        "• תמיכה ותחזוקה במחשבים ורשתות",
+        "• התקנה ותפעול תוכנות וחומרה",
+        "• עריכת וידאו והפקת מוזיקה",
+        "•",
+    ])
+    from docx import Document
+    item_ids = ["001"]
+    improved = f"###ITEM_001###{NL}{real_improved_item005}"
+    buf = mr._apply_improved_text_to_docx(raw, improved, item_ids)
+
+    result_items = mr._extract_structured(Document(buf))
+    result_text = result_items[0]["text"]
+    assert (NL + NL) not in result_text, (
+        f"РЕГРЕССИЯ: _apply_improved_text_to_docx удваивает NL при записи реального "
+        f"AI-текста в docx: {result_text!r}"
+    )
+    assert result_text == real_improved_item005
