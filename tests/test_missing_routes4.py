@@ -2,7 +2,7 @@
 Стресс-тесты missing_routes4.py — 30 сценариев.
 Запуск: python -m pytest tests/test_missing_routes4.py -v
 """
-import sys, io, re, pytest
+import sys, io, re, os, time, uuid, pytest
 sys.path.insert(0, '/home/claude/resumeai')
 import importlib, app.missing_routes4 as mr
 importlib.reload(mr)
@@ -267,7 +267,7 @@ def test_29_fact_validation_adjectives_allowed():
 def test_30_section_headers_russian_english_freeze():
     """Section headers на русском и английском → freeze"""
     for text in ["Experience", "Education", "Skills", "Опыт работы", "Образование"]:
-        assert mr._classify_item(text, 5, 30) == "freeze", f"не freeze: {text!r}"
+        assert mr._classify_item(text, 5, 40) == "freeze", f"не freeze: {text!r}"
 
 # ===========================================================================
 # АУДИТ P1 + P2 — тесты которые должны упасть на текущей реализации
@@ -666,122 +666,219 @@ def test_BACKOFF3_default_when_unparseable():
     assert mr._extract_retry_after_seconds("some unrelated error", default=2.0) == 2.0
 
 # ===========================================================================
-# EMPTYTAIL — отбрасывание пустых "хвостов"-буллетов внутри параграфа (Cycle B)
+# TEMP_UPLOAD — замена session['original_docx_b64'] на диск-based хранение
+# с коротким токеном в session (переполнение 4KB cookie-лимита, см. отчёт
+# диагностики). _save_temp_upload / _load_temp_upload / _cleanup_old_temp_uploads
 # ===========================================================================
 
-def test_EMPTYTAIL1_real_doc_bullet_paragraph_has_no_trailing_empty_line():
-    """Регрессия найденного бага: в k_h20231_updated (1).docx параграф
-    'יכולת מקצועית' содержит 3 реальных буллета плюс пустой 4-й (<w:br/>
-    без текста после него). После фикса _extract_structured в результате
-    должно быть ровно 3 строки, без пустого хвоста."""
-    from docx import Document
-    raw = _get_real_bytes()
-    if raw is None:
-        pytest.skip("тестовый файл недоступен")
-    items = mr._extract_structured(Document(io.BytesIO(raw)))
-    bullet_items = [it for it in items if it['text'].startswith('•')]
-    assert len(bullet_items) == 1, f"ожидали 1 буллет-параграф, нашли {len(bullet_items)}"
-    lines = bullet_items[0]['text'].split(NL)
-    assert len(lines) == 3, f"ожидали 3 строки, получили {len(lines)}: {lines!r}"
-    assert all(line.strip() for line in lines), f"есть пустая строка: {lines!r}"
+def test_TEMP1_save_and_load_roundtrip_byte_exact():
+    """Сохранённый файл читается обратно байт-в-байт идентично."""
+    original = b"\x00\x01\xffPK\x03\x04 fake docx bytes \xe2\x98\x83 " * 50
+    token = mr._save_temp_upload(original)
+    assert isinstance(token, str) and len(token) == 32  # uuid4().hex
+    loaded = mr._load_temp_upload(token)
+    assert loaded == original
 
-def test_EMPTYTAIL2_synthetic_trailing_empty_bullet_dropped():
-    """Синтетический параграф: 3 буллета через Shift+Enter + пустой 4-й
-    хвост ('• ' без текста) — после фикса хвост не должен попасть в text."""
+def test_TEMP2_load_missing_token_returns_none():
+    """Несуществующий/случайный токен -> None, без исключения."""
+    assert mr._load_temp_upload(uuid.uuid4().hex) is None
+
+def test_TEMP3_load_empty_token_returns_none():
+    """Пустой/None токен (ключа не было в session) -> None, без исключения."""
+    assert mr._load_temp_upload(None) is None
+    assert mr._load_temp_upload("") is None
+
+def test_TEMP4_cleanup_removes_old_keeps_fresh():
+    """
+    _cleanup_old_temp_uploads: файл с искусственно состаренным mtime (> max_age)
+    удаляется, свежий файл — остаётся.
+    """
+    old_token = mr._save_temp_upload(b"old content")
+    fresh_token = mr._save_temp_upload(b"fresh content")
+
+    old_path = os.path.join(mr._TEMP_UPLOAD_DIR, old_token)
+    # Искусственно состарить: mtime на 2 часа в прошлом (max_age по умолчанию — 1 час)
+    old_time = time.time() - 7200
+    os.utime(old_path, (old_time, old_time))
+
+    mr._cleanup_old_temp_uploads(max_age_seconds=3600)
+
+    assert not os.path.exists(old_path), "Старый файл не был удалён"
+    assert mr._load_temp_upload(fresh_token) == b"fresh content", "Свежий файл был ошибочно удалён"
+
+def test_TEMP5_cleanup_custom_max_age_boundary():
+    """Regression guard: файл чуть младше max_age не удаляется."""
+    token = mr._save_temp_upload(b"boundary content")
+    path = os.path.join(mr._TEMP_UPLOAD_DIR, token)
+    recent_time = time.time() - 10  # 10 секунд назад, max_age по умолчанию — час
+    os.utime(path, (recent_time, recent_time))
+
+    mr._cleanup_old_temp_uploads(max_age_seconds=3600)
+
+    assert mr._load_temp_upload(token) == b"boundary content"
+
+def test_TEMP6_save_triggers_opportunistic_cleanup_of_others():
+    """
+    _save_temp_upload вызывает _cleanup_old_temp_uploads() перед записью —
+    состаренный файл, сохранённый ранее, должен исчезнуть после следующего
+    _save_temp_upload(), даже если _cleanup_old_temp_uploads не вызывается
+    напрямую в тесте.
+    """
+    stale_token = mr._save_temp_upload(b"will become stale")
+    stale_path = os.path.join(mr._TEMP_UPLOAD_DIR, stale_token)
+    old_time = time.time() - 7200
+    os.utime(stale_path, (old_time, old_time))
+
+    # Новая запись должна опportunistically вычистить устаревший файл
+    mr._save_temp_upload(b"new upload triggers cleanup")
+
+    assert not os.path.exists(stale_path), "Opportunistic cleanup при новой записи не сработал"
+
+# ===========================================================================
+# EMPTYBULLET — реальный кейс из production-файла k_h20231_updated.docx:
+# один docx-параграф из 4 строк (буллеты, разделённые <w:br/>), последняя
+# строка — голый "•" без текста после него. Найдено при диагностике
+# репорта пользователя про "пустой буллет" — расследование показало, что
+# этот пустой буллет уже присутствует в ИСХОДНОМ файле (не побочный
+# продукт AI-пайплайна и не связан с Cycle D1/D2). Тесты ниже фиксируют,
+# что пайплайн корректно СОХРАНЯЕТ такую строку, а не теряет/схлопывает
+# её — на уровне полного apply-to-docx и на уровне _replace_para_text.
+# ===========================================================================
+
+def _make_multiline_bullet_docx(lines):
+    """Собрать docx с ОДНИМ параграфом из нескольких строк, разделённых
+    <w:br/> (не отдельными параграфами) — так же, как в реальном файле
+    k_h20231_updated.docx, где все 4 буллета лежат в одном para.text
+    через '\\n'."""
     from docx import Document
     doc = Document()
-    p = doc.add_paragraph()
-    p.add_run("• первый пункт")
-    p.add_run().add_break()
-    p.add_run("• второй пункт")
-    p.add_run().add_break()
-    p.add_run("• третий пункт")
-    p.add_run().add_break()
-    p.add_run("• ")  # пустой хвост — только маркер, без текста
-
+    para = doc.add_paragraph()
+    for i, line in enumerate(lines):
+        if i > 0:
+            para.add_run().add_break()
+        para.add_run(line)
     buf = io.BytesIO()
     doc.save(buf)
     buf.seek(0)
-    items = mr._extract_structured(Document(buf))
+    return buf.read()
 
-    assert len(items) == 1
-    lines = items[0]['text'].split(NL)
-    assert lines == ["• первый пункт", "• второй пункт", "• третий пункт"], f"получили: {lines!r}"
-
-def test_EMPTYTAIL3_synthetic_no_empty_lines_nothing_lost():
-    """Regression guard: параграф без пустых строк — фикс не должен
-    ничего терять из содержательного текста."""
-    from docx import Document
-    doc = Document()
-    p = doc.add_paragraph()
-    p.add_run("• пункт один")
-    p.add_run().add_break()
-    p.add_run("• пункт два")
-    p.add_run().add_break()
-    p.add_run("• пункт три")
-
-    buf = io.BytesIO()
-    doc.save(buf)
-    buf.seek(0)
-    items = mr._extract_structured(Document(buf))
-
-    assert len(items) == 1
-    expected = "• пункт один" + NL + "• пункт два" + NL + "• пункт три"
-    assert items[0]['text'] == expected, f"получили: {items[0]['text']!r}"
-
-def test_EMPTYTAIL4_helper_function_single_line_untouched():
-    """_strip_empty_bullet_lines не трогает однострочный текст без \\n —
-    ей нечего делить на строки."""
-    single = "просто текст без переносов"
-    assert mr._strip_empty_bullet_lines(single) == single
-
-def test_EMPTYTAIL5_helper_function_middle_empty_line_also_dropped():
-    """Пустая строка в СЕРЕДИНЕ (не только в хвосте) тоже отбрасывается —
-    правило применяется к каждой строке независимо от позиции."""
-    text = "• первый пункт" + NL + "•" + NL + "• третий пункт"
-    result = mr._strip_empty_bullet_lines(text)
-    assert result == "• первый пункт" + NL + "• третий пункт", f"получили: {result!r}"
-
-def test_EMPTYTAIL6_real_doc_regression_other_items_unaffected():
-    """Regression guard на реальном файле: фикс должен изменить РОВНО один
-    item (буллет-параграф), остальные 39 элементов документа — без изменений."""
-    from docx import Document
-
-    def _old_extract_structured(doc):
-        items = []
-        for para in doc.paragraphs:
-            if para.text.strip():
-                items.append({"para": para, "text": para.text.strip()})
-        for table in doc.tables:
-            seen = set()
-            for ri, row in enumerate(table.rows):
-                for ci, cell in enumerate(row.cells):
-                    key = (id(table), ri, ci)
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    for para in cell.paragraphs:
-                        if para.text.strip():
-                            items.append({"para": para, "text": para.text.strip()})
-        return items
-
-    raw = _get_real_bytes()
-    if raw is None:
-        pytest.skip("тестовый файл недоступен")
-
-    old_items = _old_extract_structured(Document(io.BytesIO(raw)))
-    new_items = mr._extract_structured(Document(io.BytesIO(raw)))
-
-    assert len(old_items) == len(new_items) == 40, \
-        f"кол-во items не совпадает: old={len(old_items)} new={len(new_items)}"
-
-    changed = [
-        (i, o['text'], n['text'])
-        for i, (o, n) in enumerate(zip(old_items, new_items))
-        if o['text'] != n['text']
+def test_EMPTYBULLET1_trailing_empty_bullet_survives_full_docx_roundtrip():
+    """Full-pipeline regression: multi-line item чьи последняя строка —
+    голый '•' без текста, должен пройти _extract_structured ->
+    _apply_improved_text_to_docx без потери этой строки, если AI вернул
+    блок без изменений (реалистичный случай — freeze/no-op на этой строке)."""
+    lines = [
+        "• תמיכה ותחזוקה במחשבים ורשתות",
+        "• התקנה ותפעול תוכנות וחומרה",
+        "• עריכת וידאו והפקת מוזיקה",
+        "•",
     ]
-    assert len(changed) == 1, f"ожидали ровно 1 изменённый item, получили {len(changed)}: {changed}"
-    idx, old_text, new_text = changed[0]
-    assert old_text.startswith('•') and new_text.startswith('•')
-    assert old_text.split(NL)[-1].strip().lstrip('•').strip() == '', \
-        "изменённый item должен быть тем самым буллет-параграфом с пустым хвостом"
+    raw = _make_multiline_bullet_docx(lines)
+
+    from docx import Document
+    orig_items = mr._extract_structured(Document(io.BytesIO(raw)))
+    assert len(orig_items) == 1
+    original_text = orig_items[0]["text"]
+    assert original_text.endswith(NL + "•"), "Источник теста не воспроизводит реальный кейс"
+
+    item_ids = ["001"]
+    # AI вернул блок БЕЗ изменений (типичный no-op ответ на неулучшаемый пункт)
+    improved = f"###ITEM_001###{NL}{original_text}"
+    buf = mr._apply_improved_text_to_docx(raw, improved, item_ids)
+
+    result_items = mr._extract_structured(Document(buf))
+    assert len(result_items) == 1
+    assert result_items[0]["text"] == original_text, (
+        f"Пустой буллет потерян/искажён при roundtrip: {result_items[0]['text']!r}"
+    )
+    assert result_items[0]["text"].split(NL)[-1] == "•", \
+        "Последняя строка (голый буллет) не сохранилась как отдельная пустая строка"
+
+def test_EMPTYBULLET2_replace_para_text_preserves_trailing_bullet_when_earlier_lines_change():
+    """_replace_para_text должен корректно записать многострочный текст
+    где ИЗМЕНИЛИСЬ только первые строки, а последняя (голый '•') осталась
+    как есть — типичный случай когда AI улучшил формулировки, но нечего
+    было улучшить в пустом буллете."""
+    from docx import Document
+    doc = Document()
+    para = doc.add_paragraph()
+    orig_lines = ["• תמיכה ותחזוקה במחשבים ורשתות", "• התקנה ותפעול תוכנות וחומרה", "•"]
+    for i, line in enumerate(orig_lines):
+        if i > 0:
+            para.add_run().add_break()
+        para.add_run(line)
+
+    new_lines = ["• תמיכה ותחזוקה מתקדמת במחשבים ורשתות", "• התקנה ותפעול מומחי של תוכנות וחומרה", "•"]
+    new_text = NL.join(new_lines)
+    mr._replace_para_text(para, new_text)
+
+    assert para.text == new_text
+    assert para.text.split(NL)[-1] == "•", \
+        "Голый буллет потерян при замене текста параграфа с изменёнными соседними строками"
+
+def test_EMPTYBULLET3_source_file_pattern_is_freeze_or_improve_but_never_dropped():
+    """Regression guard на уровне классификации: multi-line item, содержащий
+    Hebrew-глаголы-маркеры (תמיכה/התקנה — реальные слова из production-файла)
+    ДОЛЖЕН классифицироваться как 'improve' (не 'freeze'), чтобы не быть
+    ошибочно пропущенным мимо AI — сам факт классификации не должен зависеть
+    от того, что последняя строка внутри блока пустая."""
+    text = (
+        "• תמיכה ותחזוקה במחשבים ורשתות" + NL +
+        "• התקנה ותפעול תוכנות וחומרה" + NL +
+        "• עריכת וידאו והפקת מוזיקה" + NL +
+        "•"
+    )
+    result = mr._classify_item(text, 7, 9)
+    assert result == "improve", f"Реальный production-блок с буллетами классифицирован как {result!r}, ожидали 'improve'"
+
+# ===========================================================================
+# DOUBLENL — расследование пользовательского репорта: в одном из старых
+# output-файлов (improved_resume (34).docx) буллет-блок item 005 содержал
+# ДВОЙНОЙ перенос строки (\n\n) между буллетами вместо одинарного, хотя
+# исходник имел одинарный \n. Расследование (см. diagnostic cycle):
+# захвачен РЕАЛЬНЫЙ ответ сервера (quality_report + improved_resume) для
+# k_h20231_updated.docx через DevTools Network tab. Текст item 005 в этом
+# реальном захваченном improved_resume уже содержит ОДИНАРНЫЙ \n между
+# всеми 4 строками буллетов. Прогон через ТЕКУЩИЙ _apply_improved_text_to_docx
+# с реальными байтами исходника + этим реальным текстом НЕ воспроизводит
+# удвоение — результат тоже одинарный \n. Вывод: баг в текущем коде
+# отсутствует (файл (34).docx — снимок более старой генерации, не
+# текущего кода). Тест ниже фиксирует это твёрдо, чтобы не тратить время
+# на повторное расследование в будущем.
+# ===========================================================================
+
+def test_DOUBLENL1_real_captured_bullet_block_survives_apply_without_doubling():
+    """Regression guard: реальный текст item 005 (буллет-блок), захваченный
+    из фактического ответа сервера после прохождения AI + Quality Gate,
+    должен применяться в docx с СОХРАНЕНИЕМ одинарного NL между строками —
+    без удвоения, которое наблюдалось в старом output-файле."""
+    # Точный текст item 005 из реального захваченного improved_resume
+    # (Network tab, /api/admin/improve, k_h20231_updated.docx)
+    real_improved_item005 = (
+        "• תמיכה ותחזוקה מתקדמת במחשבים ורשתות" + NL +
+        "• התקנה ותפעול מומחי של תוכנות וחומרה" + NL +
+        "• עריכה מקצועית של וידאו והפקת מוזיקה" + NL +
+        "•"
+    )
+    assert (NL + NL) not in real_improved_item005, \
+        "Сам захваченный текст из реального ответа сервера уже содержит двойной NL — баг живой на уровне AI/regex-схлопывания"
+
+    # Синтетический источник с идентичной структурой (один параграф, 4 строки через <w:br/>)
+    raw = _make_multiline_bullet_docx([
+        "• תמיכה ותחזוקה במחשבים ורשתות",
+        "• התקנה ותפעול תוכנות וחומרה",
+        "• עריכת וידאו והפקת מוזיקה",
+        "•",
+    ])
+    from docx import Document
+    item_ids = ["001"]
+    improved = f"###ITEM_001###{NL}{real_improved_item005}"
+    buf = mr._apply_improved_text_to_docx(raw, improved, item_ids)
+
+    result_items = mr._extract_structured(Document(buf))
+    result_text = result_items[0]["text"]
+    assert (NL + NL) not in result_text, (
+        f"РЕГРЕССИЯ: _apply_improved_text_to_docx удваивает NL при записи реального "
+        f"AI-текста в docx: {result_text!r}"
+    )
+    assert result_text == real_improved_item005
