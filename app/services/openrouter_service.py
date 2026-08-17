@@ -49,7 +49,7 @@ def _detect_language(text):
 logger = logging.getLogger(__name__)
 
 GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions'
-GROQ_MODEL = 'llama-3.1-8b-instant'
+GROQ_MODEL = 'openai/gpt-oss-20b'
 
 
 def _extract_retry_after_seconds(error_message, default=2.0, cap=12.0):

@@ -773,7 +773,7 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
     )
 
     payload = {
-        "model": "llama-3.3-70b-versatile",
+        "model": "openai/gpt-oss-120b",
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": user_prompt},
@@ -789,7 +789,7 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
     )
 
     if resp.status_code == 429:
-        payload["model"] = "llama-3.1-8b-instant"
+        payload["model"] = "openai/gpt-oss-20b"
         resp = req_lib.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
@@ -942,7 +942,7 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
         )
 
         retry_payload = {
-            "model": "llama-3.3-70b-versatile",
+            "model": "openai/gpt-oss-120b",
             "messages": [
                 {"role": "system", "content": retry_system},
                 {"role": "user", "content": retry_user},
@@ -958,7 +958,7 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
         )
 
         if resp2.status_code == 429:
-            retry_payload["model"] = "llama-3.1-8b-instant"
+            retry_payload["model"] = "openai/gpt-oss-20b"
             resp2 = req_lib.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
