@@ -1,5 +1,5 @@
 # app/missing_routes4.py
-import re, uuid, time
+import os, re, uuid, time, tempfile
 import langid
 
 # ---------------------------------------------------------------------------
@@ -13,6 +13,54 @@ def _make_token():
 # Маркер разделитель элементов
 def _make_sep():
     return "###ITEM_{}###"
+
+
+# ---------------------------------------------------------------------------
+# Временное хранение загруженного .docx на диске — замена
+# session['original_docx_b64'] (переполнял 4KB лимит cookie-based сессии
+# уже на файлах ~3KB+, браузер тихо отбрасывал куку, следующий запрос молча
+# уходил в деградированный fallback без форматирования оригинала).
+# В session теперь кладётся только короткий токен (session['original_docx_token']),
+# сам файл — на диске в tempfile.gettempdir()/resumeai_uploads/<token>.
+# ---------------------------------------------------------------------------
+
+_TEMP_UPLOAD_DIR = os.path.join(tempfile.gettempdir(), "resumeai_uploads")
+
+
+def _save_temp_upload(file_bytes):
+    """Сохранить файл на диск, вернуть короткий токен для session вместо base64."""
+    os.makedirs(_TEMP_UPLOAD_DIR, exist_ok=True)
+    _cleanup_old_temp_uploads()
+    token = uuid.uuid4().hex
+    path = os.path.join(_TEMP_UPLOAD_DIR, token)
+    with open(path, "wb") as f:
+        f.write(file_bytes)
+    return token
+
+
+def _load_temp_upload(token):
+    """Прочитать файл по токену из session. None, если не найден/истёк."""
+    if not token:
+        return None
+    path = os.path.join(_TEMP_UPLOAD_DIR, token)
+    if not os.path.exists(path):
+        return None
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def _cleanup_old_temp_uploads(max_age_seconds=3600):
+    """Удалить файлы старше часа — opportunistic garbage collection на каждую новую запись."""
+    if not os.path.isdir(_TEMP_UPLOAD_DIR):
+        return
+    now = time.time()
+    for fname in os.listdir(_TEMP_UPLOAD_DIR):
+        path = os.path.join(_TEMP_UPLOAD_DIR, fname)
+        try:
+            if os.path.isfile(path) and (now - os.path.getmtime(path)) > max_age_seconds:
+                os.remove(path)
+        except OSError:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -88,23 +136,37 @@ def _detect_language_simple(text):
 def _extract_structured(doc):
     """
     Вернуть список {'para': <Paragraph>, 'text': str} для всех
-    непустых элементов документа, обходя таблицы по позиции (ri, ci).
+    непустых элементов документа. Таблицы обходятся с дедупликацией
+    по identity XML-элемента ячейки (cell._tc), а не по позиции (ri, ci) —
+    это необходимо для merge-ячеек: python-docx возвращает один и тот же
+    объект _Cell на каждой позиции сетки, которую перекрывает merge.
+
+    ВАЖНО: все ячейки таблицы сначала материализуются в один список
+    (all_cells) ДО начала дедупликации. Если ходить по table.rows/row.cells
+    построчно и сразу дедуплицировать, то _Cell-обёртки предыдущей строки
+    становятся недостижимы и CPython может немедленно освободить их память —
+    а следующий _Cell, созданный для СОВСЕМ ДРУГОЙ ячейки, может получить
+    тот же id(), что и уже "виденный" объект. Тогда реальная, уникальная
+    ячейка ошибочно считается дубликатом и её текст молча теряется (баг
+    подтверждён эмпирически: на таблице без единого merge пропадали
+    случайные ячейки). Материализация держит все _Cell живыми одновременно,
+    поэтому id() не может быть переиспользован до конца обхода таблицы.
     """
     items = []
     for para in doc.paragraphs:
         if para.text.strip():
             items.append({"para": para, "text": para.text.strip()})
     for table in doc.tables:
+        all_cells = [cell for row in table.rows for cell in row.cells]
         seen = set()
-        for ri, row in enumerate(table.rows):
-            for ci, cell in enumerate(row.cells):
-                key = (id(table), ri, ci)
-                if key in seen:
-                    continue
-                seen.add(key)
-                for para in cell.paragraphs:
-                    if para.text.strip():
-                        items.append({"para": para, "text": para.text.strip()})
+        for cell in all_cells:
+            key = id(cell._tc)
+            if key in seen:
+                continue
+            seen.add(key)
+            for para in cell.paragraphs:
+                if para.text.strip():
+                    items.append({"para": para, "text": para.text.strip()})
     return items
 
 
@@ -640,18 +702,6 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
     else:
         orig_items = [{"text": l} for l in resume_text.split(NL) if l.strip()]
 
-    # [DEBUG-LEAK] диагностика начала пайплайна — какие данные реально пришли в эту сборку
-    try:
-        from flask import current_app
-        current_app.logger.info(
-            "[DEBUG-LEAK] _run_improve_pipeline: filename=%r resume_text_snippet=%r orig_items_count=%s",
-            filename,
-            resume_text[:80] if resume_text else None,
-            len(orig_items),
-        )
-    except Exception:
-        pass
-
     # -----------------------------------------------------------
     # Шаг 1: Protected Tokens — защита ДО AI
     # -----------------------------------------------------------
@@ -709,20 +759,21 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
         f"3. Return ALL {n} blocks in the SAME order with the SAME ###ITEM_NNN### identifiers\n"
         f"4. Tokens like @@@A1B2C3D4E5F6@@@ are protected values — copy them EXACTLY as-is\n"
         f"5. Improve ONLY: job descriptions and skill descriptions — use stronger, more precise action verbs for what is already described. Do not add new clauses, outcomes, or explanations.\n"
-        f"6. Keep unchanged: everything that is a token, section headers, dates, IDs\n"
-        f"7. Multiline items: keep same number of lines, single newline between them\n"
-        f"8. Do NOT merge blocks, do NOT split blocks, do NOT add extra ###ITEM### markers\n"
-        f"9. NEVER invent or add anything not in the original: no new jobs, certifications, courses, achievements, responsibilities, skills, education, outcomes, results, or causal explanations (phrases like \"resulting in\", \"which improved\", \"leading to\", \"by leveraging\", \"ensuring\", \"driving\"). If a sentence has nothing to strengthen, return it unchanged rather than adding filler."
+        f"6. NEVER downgrade a verb or phrase to something weaker, more generic, or less professional than the original (example of a FORBIDDEN downgrade: \"Collaborated with\" → \"Worked with\"). Only replace a word if the replacement is strictly stronger or more precise (example of a CORRECT upgrade: \"Managed\" → \"Directed\"). If you are not confident the replacement is stronger, leave the original word unchanged.\n"
+        f"7. Keep unchanged: everything that is a token, section headers, dates, IDs\n"
+        f"8. Multiline items: keep same number of lines, single newline between them\n"
+        f"9. Do NOT merge blocks, do NOT split blocks, do NOT add extra ###ITEM### markers\n"
+        f"10. NEVER invent or add anything not in the original: no new jobs, certifications, courses, achievements, responsibilities, skills, education, outcomes, results, or causal explanations (phrases like \"resulting in\", \"which improved\", \"leading to\", \"by leveraging\", \"ensuring\", \"driving\"). If a sentence has nothing to strengthen, return it unchanged rather than adding filler."
     )
 
     user_prompt = (
-        f"Improve this resume. Return all {n} blocks with their ###ITEM_NNN### identifiers.\n\n"
-        f"{ai_input}\n\n"
-        f"OUTPUT ({n} blocks):"
+        f"Rewrite these {n} resume blocks according to the rules above. "
+        f"Return with ###ITEM_NNN### identifiers.\n\n"
+        f"{ai_input}\n\nOUTPUT ({n} blocks):"
     )
 
     payload = {
-        "model": "llama-3.3-70b-versatile",
+        "model": "openai/gpt-oss-120b",
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": user_prompt},
@@ -738,7 +789,7 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
     )
 
     if resp.status_code == 429:
-        payload["model"] = "llama-3.1-8b-instant"
+        payload["model"] = "openai/gpt-oss-20b"
         resp = req_lib.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
@@ -871,6 +922,8 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
             f"genuinely nothing to improve. Try again, but only change wording that can be genuinely "
             f"strengthened:\n\n"
             f"- Use a stronger, more precise action verb ONLY if a better one exists for what is already described\n"
+            f"- NEVER replace a word with a weaker or more generic synonym (e.g. \"Collaborated with\" → "
+            f"\"Worked with\" is FORBIDDEN). If unsure the replacement is stronger, keep the original word.\n"
             f"- Do NOT add new clauses, outcomes, or explanations of impact\n"
             f"- Do NOT add causal or result phrases (\"resulting in\", \"which improved\", \"leading to\", "
             f"\"by leveraging\", \"ensuring\", \"driving\", \"informing\")\n"
@@ -889,7 +942,7 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
         )
 
         retry_payload = {
-            "model": "llama-3.3-70b-versatile",
+            "model": "openai/gpt-oss-120b",
             "messages": [
                 {"role": "system", "content": retry_system},
                 {"role": "user", "content": retry_user},
@@ -905,7 +958,7 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
         )
 
         if resp2.status_code == 429:
-            retry_payload["model"] = "llama-3.1-8b-instant"
+            retry_payload["model"] = "openai/gpt-oss-20b"
             resp2 = req_lib.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
@@ -1003,22 +1056,13 @@ def register_missing_routes(app, _extract_text_from_request, _get_current_user):
                 data = request.get_json() or {}
                 resume_text_fallback = data.get("resume_text", "").strip()
 
-            # [DEBUG-LEAK] диагностика перед вызовом пайплайна улучшения (admin)
-            app.logger.info(
-                "[DEBUG-LEAK] legacy_admin_improve: has_file=%s filename=%r resume_text_fallback_snippet=%r",
-                file is not None,
-                filename,
-                resume_text_fallback[:80] if resume_text_fallback else None,
-            )
-
             result = _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_key)
 
             if not result.get("success"):
                 return jsonify({"success": False, "error": result.get("error")}), result.get("status", 500)
 
-            if original_bytes:
-                import base64
-                session["original_docx_b64"] = base64.b64encode(original_bytes).decode("ascii")
+            if original_bytes and filename and filename.lower().endswith('.docx'):
+                session["original_docx_token"] = _save_temp_upload(original_bytes)
                 session["item_ids"] = result["item_ids"]
 
             return jsonify(result)
@@ -1035,7 +1079,6 @@ def register_missing_routes(app, _extract_text_from_request, _get_current_user):
         try:
             from docx import Document
             from docx.shared import Pt
-            import base64
 
             original_file = request.files.get("original_file")
             improved_text = request.form.get("improved_resume") or ""
@@ -1058,27 +1101,15 @@ def register_missing_routes(app, _extract_text_from_request, _get_current_user):
             else:
                 item_ids = session.get("item_ids", [])
 
-            # [DEBUG-LEAK] диагностика источника original_file / session-данных / item_ids (admin)
-            _dbg_b64 = session.get("original_docx_b64")
-            app.logger.info(
-                "[DEBUG-LEAK] legacy_admin_improve_docx: has_original_file=%s item_ids_source=%s item_ids=%r "
-                "session_b64_present=%s session_b64_fingerprint=%r session_b64_len=%s",
-                original_file is not None,
-                ("request.form" if item_ids_raw else "session"),
-                item_ids,
-                _dbg_b64 is not None,
-                (_dbg_b64[:30] if _dbg_b64 else None),
-                (len(_dbg_b64) if _dbg_b64 else None),
-            )
-
             if original_file:
                 buf = _apply_improved_text_to_docx(original_file.read(), improved_text, item_ids)
                 return send_file(buf, as_attachment=True, download_name="improved_resume.docx",
                     mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
-            b64 = session.get("original_docx_b64")
-            if b64:
-                buf = _apply_improved_text_to_docx(base64.b64decode(b64), improved_text, item_ids)
+            token = session.get("original_docx_token")
+            file_bytes = _load_temp_upload(token)
+            if file_bytes:
+                buf = _apply_improved_text_to_docx(file_bytes, improved_text, item_ids)
                 return send_file(buf, as_attachment=True, download_name="improved_resume.docx",
                     mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
@@ -1097,3 +1128,408 @@ def register_missing_routes(app, _extract_text_from_request, _get_current_user):
 
         except Exception as e:
             return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# ODT-экспорт (Cycle O1) — только функция генерации, без Flask-роута.
+# Роут добавляется отдельным циклом (O2) после сверки с текущей логикой
+# списания кредитов в app/__init__.py.
+# ---------------------------------------------------------------------------
+
+def _generate_odt(text):
+    """
+    Сгенерировать .odt из текста improved_resume (с маркерами ###ITEM_NNN###,
+    которые здесь просто удаляются — ODT не привязан к структуре оригинала,
+    в отличие от DOCX-пути, где восстановление идёт по item_ids). Строки на
+    иврите получают RTL-стиль абзаца (writing-mode: rl-tb).
+
+    Проверено round-trip тестом (запись -> odf.opendocument.load -> чтение):
+    см. tests/test_odt_export.py.
+
+    ВАЖНО (найдено при верификации, не было в исходном наброске):
+    класс называется OpenDocumentText, а не OpendocumentText — с опечаткой
+    импорт падает немедленно. automaticstyles.addElement() — правильный
+    метод для регистрации автоматического стиля абзаца, менять не пришлось.
+    """
+    import re
+    import io
+    from odf.opendocument import OpenDocumentText
+    from odf.text import P
+    from odf.style import Style, ParagraphProperties
+
+    doc = OpenDocumentText()
+
+    rtl_style = Style(name="RTLParagraph", family="paragraph")
+    rtl_style.addElement(ParagraphProperties(writingmode="rl-tb"))
+    doc.automaticstyles.addElement(rtl_style)
+
+    clean = re.sub(r"###ITEM_\d+###", "", text)
+    for line in clean.split("\n"):
+        line = line.strip().lstrip("#").replace("**", "").replace("*", "").strip()
+        has_hebrew = any("\u0590" <= c <= "\u05FF" for c in line)
+        p = P(stylename=rtl_style if has_hebrew else None, text=line if line else None)
+        doc.text.addElement(p)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf
+
+
+# ---------------------------------------------------------------------------
+# PDF-экспорт (Cycle P1) — только функция генерации, без Flask-роута.
+# Роут добавляется отдельным циклом (P2), фронтенд (замена текущего
+# фейкового .pdf-пути в downloadImproved()) — циклом (P3).
+# ---------------------------------------------------------------------------
+
+import os as _os_for_font_path
+
+# Alef (SIL OFL 1.1) — static Regular instance, google/fonts repo
+# (ofl/alef/Alef-Regular.ttf). Взят вместо Noto Sans Hebrew: в google/fonts
+# Noto Sans Hebrew существует ТОЛЬКО как variable font — там нет static/
+# подпапки для этого семейства. Регистрация variable-шрифта в reportlab
+# технически проходит (reportlab читает default master), но это скрытая
+# версийная зависимость того же класса риска, что уже ловили на поведении
+# конкретной версии python-docx с merge-ячейками (см.
+# tests/test_merged_cells_regression.py) — не хотим повторять паттерн.
+# Alef — настоящий static TTF, целиком под иврит, лицензия подтверждена
+# по факту скачанного файла: static/fonts/Alef-OFL.txt (SIL OFL 1.1,
+# явно разрешает "bundled, embedded, redistributed and/or sold with any
+# software").
+_PDF_FONT_NAME = "Alef"
+_PDF_FONT_PATH = _os_for_font_path.path.join(
+    _os_for_font_path.path.dirname(_os_for_font_path.path.dirname(_os_for_font_path.path.abspath(__file__))),
+    "static", "fonts", "Alef-Regular.ttf",
+)
+
+# Fira Sans (SIL OFL 1.1) — static Regular instance, тот же google/fonts репо
+# (ofl/firasans/FiraSans-Regular.ttf), тот же принцип выбора: настоящий
+# static TTF, не variable-инстанс.
+# Причина добавления: Alef покрывает иврит и, неожиданно, расширенную
+# латиницу (é/ñ/ł/č/ü и т.п. — проверено через fontTools.getBestCmap на
+# всех cmap-подтаблицах), но НЕ содержит ни одного кириллического глифа —
+# то есть PDF для уже заявленных на сайте русского/украинского резюме молча
+# рисовал пустые квадраты вместо букв. Fira Sans проверена так же (все
+# cmap-подтаблицы): полное покрytие кириллицы + той же расширенной
+# латиницы. Используется как LTR-шрифт по умолчанию для всех НЕ-ивритских
+# строк; Alef остаётся только для строк с ивритскими символами (та же
+# эвристика \\u0590-\\u05FF, что уже была).
+_PDF_FONT_NAME_LATIN = "FiraSans"
+_PDF_FONT_PATH_LATIN = _os_for_font_path.path.join(
+    _os_for_font_path.path.dirname(_os_for_font_path.path.dirname(_os_for_font_path.path.abspath(__file__))),
+    "static", "fonts", "FiraSans-Regular.ttf",
+)
+
+# Noto Sans Arabic (SIL OFL 1.1) — google/fonts repo (ofl/notosansarabic/
+# NotoSansArabic[wdth,wght].ttf). ОТКЛОНЕНИЕ от принципа "всегда static TTF"
+# (см. комментарий у Alef выше) — проверено эмпирически и задокументировано
+# намеренно, а не по недосмотру:
+#   - У Noto Sans Arabic/CJK НЕТ static-инстансов в формате, который вообще
+#     принимает reportlab. В noto-cjk репозитории (аналог для арабского не
+#     проверялся отдельно, но тот же паттерн подтверждён на китайском —
+#     см. отчёт по шагу 1 для CJK) static-сборки существуют только как
+#     OTF/CFF (PostScript outlines) — reportlab.pdfbase.ttfonts.TTFont их
+#     физически не грузит: TTFError "postscript outlines are not supported".
+#     Проверено напрямую попыткой регистрации, не предположение.
+#   - Единственный формат, который reportlab принимает (glyf/TrueType) —
+#     только variable font. Риск, из-за которого Alef/FiraSans выбирались
+#     static (непредсказуемый default instance — см. ниже пример с
+#     китайским, где default оказался Thin=100), здесь ПРОВЕРЕН и не
+#     воспроизвёлся: у NotoSansArabic[wdth,wght].ttf default инстанс оси
+#     wght = 400 (Regular), что подтверждено через fontTools (f['fvar'].axes)
+#     и визуальной проверкой отрендеренного PDF. Файл сохранён под именем
+#     NotoSansArabic-VF.ttf (суффикс VF — variable font) умышленно, чтобы
+#     не выдавать его за static-инстанс при будущих ревью кода.
+#   - Вес ~825 КБ — некритично (для сравнения FiraSans ~450 КБ).
+_PDF_FONT_NAME_ARABIC = "NotoArabic"
+_PDF_FONT_PATH_ARABIC = _os_for_font_path.path.join(
+    _os_for_font_path.path.dirname(_os_for_font_path.path.dirname(_os_for_font_path.path.abspath(__file__))),
+    "static", "fonts", "NotoSansArabic-VF.ttf",
+)
+
+# WenQuanYi Micro Hei (Apache License 2.0 / GPLv3-with-font-embedding-
+# exception, dual license — см. static/fonts/WenQuanYiMicroHei-Apache2-
+# LICENSE.txt и WenQuanYiMicroHei-GPLv3-LICENSE.txt, оба файла — реально
+# скачанные тексты лицензий из official source repo, не пересказ по памяти).
+# ОТКЛОНЕНИЕ от принципа "всегда static TTF", но в ДРУГУЮ сторону, чем у
+# NotoSansArabic-VF выше: здесь как раз НАЙДЕН настоящий static-инстанс —
+# проверено (Cycle CN — диагностика и research), что готовые CJK static
+# сборки Noto (OTF, оба найденных файла 8МБ/16МБ) физически не грузятся
+# reportlab.pdfbase.ttfonts.TTFont: TTFError "postscript outlines are not
+# supported" (CFF-контуры, не glyf). Единственный найденный glyf-вариант
+# от Noto — variable font с default wght=100 (Thin), то есть "ложный успех"
+# по аналогии с риском, уже пойманным у Alef/FiraSans (см. их комментарии
+# выше) — здесь default НЕ подошёл бы, в отличие от NotoSansArabic-VF, где
+# default оказался верным 400/Regular.
+# WenQuanYi Micro Hei снимает обе проблемы разом: это подлинный static TTF
+# (не .ttc — оригинальный файл распространяется как TrueType Collection
+# из двух начертаний, "Micro Hei" и "Micro Hei Mono"; здесь извлечён и
+# сохранён ТОЛЬКО первый subfont через fontTools — TTCollection.fonts[0].
+# save(...) — как отдельный самостоятельный .ttf), контуры glyf, вес Regular
+# подтверждён из name table (nameID=2 "Regular") и визуальной проверкой
+# (штрих сопоставимой толщины с латинской строкой на том же рендере — не
+# тонкий/hairline, как было бы у ложного default-инстанса variable font).
+# Покрытие: 20 932 CJK-глифа в диапазоне \\u4E00-\\u9FFF (полное для целей
+# резюме). Вес файла — 4.4 МБ, для сравнения: NotoSansArabic-VF ~825 КБ,
+# FiraSans ~450 КБ — WenQuanYi заметно тяжелее остальных трёх шрифтов
+# проекта вместе взятых, но это ожидаемо для полного CJK-шрифта (тысячи
+# уникальных глифов против десятков latin/cyrillic/arabic) и остаётся
+# приемлемым для бесплатного тарифа Render.
+_PDF_FONT_NAME_CJK = "WenQuanYiMicroHei"
+_PDF_FONT_PATH_CJK = _os_for_font_path.path.join(
+    _os_for_font_path.path.dirname(_os_for_font_path.path.dirname(_os_for_font_path.path.abspath(__file__))),
+    "static", "fonts", "WenQuanYiMicroHei-Regular.ttf",
+)
+
+_pdf_font_registered = False
+
+
+def _ensure_pdf_font_registered():
+    """Зарегистрировать все PDF-шрифты (Alef — иврит, FiraSans — всё
+    остальное включая кириллицу, NotoArabic — арабский, WenQuanYiMicroHei —
+    китайский) в reportlab один раз за процесс."""
+    global _pdf_font_registered
+    if _pdf_font_registered:
+        return
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    pdfmetrics.registerFont(TTFont(_PDF_FONT_NAME, _PDF_FONT_PATH))
+    pdfmetrics.registerFont(TTFont(_PDF_FONT_NAME_LATIN, _PDF_FONT_PATH_LATIN))
+    pdfmetrics.registerFont(TTFont(_PDF_FONT_NAME_ARABIC, _PDF_FONT_PATH_ARABIC))
+    pdfmetrics.registerFont(TTFont(_PDF_FONT_NAME_CJK, _PDF_FONT_PATH_CJK))
+    _pdf_font_registered = True
+
+
+def _generate_pdf(text):
+    """
+    Сгенерировать .pdf из текста improved_resume (с маркерами ###ITEM_NNN###,
+    которые здесь просто удаляются — как и в _generate_odt, PDF не привязан
+    к структуре оригинала, восстановление по item_ids здесь не нужно).
+
+    RTL: строки, содержащие иврит (диапазон \\u0590-\\u05FF, тот же что и
+    везде в проекте), прогоняются через bidi.algorithm.get_display()
+    (логический порядок символов -> визуальный порядок для LTR-рендеринга)
+    и рисуются выравниванием по правому краю (drawRightString), шрифтом
+    Alef. Строки с арабским (диапазон \\u0600-\\u06FF) — тем же
+    drawRightString, шрифтом NotoArabic, НО перед get_display() дополнительно
+    прогоняются через arabic_reshaper.reshape(). Это не опечатка и не лишний
+    шаг: иврит и арабский оба RTL, но только у арабского буквы физически
+    меняют начертание (contextual shaping: изолированная/начальная/
+    срединная/конечная форма + лигатуры типа lam-alef) в зависимости от
+    соседних букв. Без reshape() reportlab рисует каждую букву в
+    изолированной форме — технически не ошибка на уровне кода (PDF
+    валиден), но визуально неверный, нечитаемый для носителя языка текст.
+    Проверено визуально (рендер в PNG) на обоих вариантах — без reshape
+    буквы стоят раздельно, с reshape — слитно, как положено. У иврита
+    такой проблемы нет: ивритские буквы не меняют форму от соседей, только
+    порядок написания (bidi без shaping — стандартное и достаточное
+    решение для иврита, но недостаточное для арабского).
+    Китайский: строки, содержащие символы диапазона \\u4E00-\\u9FFF,
+    рисуются обычным drawString слева (LTR — не RTL, bidi/reshape не
+    применяются, в отличие от иврита/арабского выше), шрифтом
+    WenQuanYiMicroHei. См. комментарий у _PDF_FONT_NAME_CJK — единственный
+    из четырёх шрифтов проекта, для которого удалось найти подлинный
+    static TTF без необходимости идти на variable-font компромисс (как
+    пришлось для NotoSansArabic-VF).
+
+    Остальные строки (латиница, кириллица) — обычным drawString слева,
+    шрифтом FiraSans (см. комментарий у _PDF_FONT_NAME_LATIN — Alef
+    кириллицу не содержит).
+
+    Перенос строк: greedy word-wrap по словам, измерение через
+    pdfmetrics.stringWidth на логическом (не bidi-переставленном) тексте,
+    ширины символов берутся из шрифта КОНКРЕТНОЙ строки (Alef или
+    FiraSans — они разные, нельзя мерить одним шрифтом текст, который
+    будет нарисован другим) — перестановка применяется ПОСЛЕ переноса,
+    к каждой уже готовой под-строке отдельно, иначе разбиение по словам
+    съезжает относительно визуального порядка. Не идеальный перенос (не
+    бьёт слово посередине, если оно само шире доступной ширины) — этого
+    достаточно для резюме.
+
+    Пагинация: при достижении нижнего поля — showPage() + повторная
+    setFont() (шрифт не сохраняется между страницами в reportlab).
+
+    ВАЖНО (найдено при верификации, не было в исходном наброске):
+    PyPDF2.extract_text() не гарантирует читаемый логический порядок для
+    ивритского/bidi-текста даже из корректно сгенерированного PDF — это
+    ограничение формата/библиотеки, не специфичное для этой функции.
+    Подробности и что реально проверено — см. tests/test_pdf_export.py
+    и отчёт цикла P1.
+    """
+    import re
+    import io
+    from reportlab.pdfgen import canvas as pdf_canvas
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfbase import pdfmetrics
+    from bidi.algorithm import get_display
+    import arabic_reshaper
+
+    _ensure_pdf_font_registered()
+
+    font_hebrew = _PDF_FONT_NAME
+    font_latin = _PDF_FONT_NAME_LATIN
+    font_arabic = _PDF_FONT_NAME_ARABIC
+    font_cjk = _PDF_FONT_NAME_CJK
+    font_size = 11
+    line_height = 15
+    margin = 50
+
+    page_w, page_h = A4
+    max_width = page_w - 2 * margin
+
+    buf = io.BytesIO()
+    c = pdf_canvas.Canvas(buf, pagesize=A4)
+    c.setFont(font_latin, font_size)
+    y = page_h - margin
+
+    def _wrap(line, font_name):
+        words = [w for w in line.split(" ") if w != ""] or [""]
+        wrapped = []
+        current = words[0]
+        for w in words[1:]:
+            candidate = current + " " + w
+            if pdfmetrics.stringWidth(candidate, font_name, font_size) <= max_width:
+                current = candidate
+            else:
+                wrapped.append(current)
+                current = w
+        wrapped.append(current)
+        return wrapped
+
+    clean = re.sub(r"###ITEM_\d+###", "", text)
+    for raw_line in clean.split("\n"):
+        line = raw_line.strip().lstrip("#").replace("**", "").replace("*", "").strip()
+
+        if not line:
+            if y < margin + line_height:
+                c.showPage()
+                c.setFont(font_latin, font_size)
+                y = page_h - margin
+            y -= line_height
+            continue
+
+        has_hebrew = any("\u0590" <= ch <= "\u05FF" for ch in line)
+        has_arabic = any("\u0600" <= ch <= "\u06FF" for ch in line)
+        has_cjk = any("\u4E00" <= ch <= "\u9FFF" for ch in line)
+        if has_hebrew:
+            line_font = font_hebrew
+        elif has_arabic:
+            line_font = font_arabic
+        elif has_cjk:
+            line_font = font_cjk
+        else:
+            line_font = font_latin
+
+        for sub_line in _wrap(line, line_font):
+            if y < margin + line_height:
+                c.showPage()
+                y = page_h - margin
+            # Явно перед каждой отрисовкой — предыдущая строка могла
+            # использовать другой шрифт (Alef/FiraSans/NotoArabic чередуются
+            # по тексту), reportlab не хранит "текущий" шрифт между строками
+            # надёжно для наших целей, поэтому не полагаемся на состояние.
+            c.setFont(line_font, font_size)
+            if has_hebrew:
+                c.drawRightString(page_w - margin, y, get_display(sub_line))
+            elif has_arabic:
+                # Арабский требует shaping ДО bidi-переупорядочивания —
+                # см. подробное объяснение в docstring функции выше.
+                shaped = arabic_reshaper.reshape(sub_line)
+                c.drawRightString(page_w - margin, y, get_display(shaped))
+            else:
+                c.drawString(margin, y, sub_line)
+            y -= line_height
+
+    # Явно финализировать последнюю страницу перед save(). Без этого:
+    # с кастомным TTF-шрифтом (Alef) страница, на которой ни разу не был
+    # вызван drawString/drawRightString (например, полностью пустой/
+    # пробельный текст на входе — только пустые строки, только y -=
+    # line_height без единого реального рисования), молча пропадает —
+    # PdfReader(...).pages даёт 0 страниц вместо ожидаемой минимум одной.
+    # Со встроенным Helvetica та же ситуация давала 1 страницу нормально;
+    # баг воспроизведён изолированно и подтверждён с обоими вариантами до
+    # применения фикса — см. tests/test_pdf_export.py::test_09 и отчёт
+    # цикла P1. showPage() здесь безопасен и не создаёт лишнюю пустую
+    # страницу в конце: любой showPage() внутри цикла выше всегда сразу
+    # продолжается рисованием на новой странице (полноценной строкой или
+    # хотя бы сдвигом y для пустой строки), то есть никогда не остаётся
+    # "висящим" последним вызовом цикла.
+    c.showPage()
+    c.save()
+    buf.seek(0)
+    return buf
+
+
+# ---------------------------------------------------------------------------
+# RTF-экспорт (Cycle R1) — только функция генерации, без Flask-роута.
+# Роут — отдельным циклом (R2), фронтенд — циклом (R3).
+# ---------------------------------------------------------------------------
+
+def _generate_rtf(text):
+    """
+    Сгенерировать .rtf из текста improved_resume (с маркерами ###ITEM_NNN###,
+    которые здесь просто удаляются — как и в _generate_odt/_generate_pdf,
+    RTF не привязан к структуре оригинала).
+
+    В отличие от PDF, направление RTL/LTR в RTF задаётся управляющими
+    словами (\\rtlch/\\ltrch), а не физической перестановкой символов —
+    python-bidi здесь НЕ используется и не нужен: текст остаётся в
+    исходном логическом порядке символов, как он есть в строке.
+
+    Проверено round-trip тестом (запись -> striprtf.rtf_to_text() ->
+    сравнение с очищенным исходником): см. tests/test_rtf_export.py.
+
+    ВАЖНО (эмпирическая проверка при разработке цикла, для честности
+    отчёта): в отличие от PDF, где RTL-текст при обратном извлечении
+    предсказуемо страдал на смешанных RTL+LTR строках (см. отчёт цикла
+    P1), здесь round-trip оказался точным даже на смешанном
+    иврит+цифры+email контенте — потому что RTF не переставляет символы
+    физически (в отличие от bidi.get_display(), применяемого в
+    _generate_pdf), направление — это только метаданные отображения,
+    которые striprtf на чтении игнорирует и просто отдаёт исходную
+    последовательность символов. Проверено на латинице, чистом иврите,
+    смешанных строках, markdown-звёздочках, спецсимволах RTF
+    (backslash/фигурные скобки) и пустом/пробельном вводе — везде
+    точное совпадение. Набросок из промта сработал без правок.
+    """
+    import re
+
+    def _escape_rtf(s):
+        # Экранировать RTF-спецсимволы, затем не-ASCII через \uN? escape.
+        out = []
+        for ch in s:
+            if ch == '\\':
+                out.append('\\\\')
+            elif ch == '{':
+                out.append('\\{')
+            elif ch == '}':
+                out.append('\\}')
+            elif ord(ch) > 127:
+                code = ord(ch)
+                if code > 32767:
+                    code -= 65536
+                out.append(f'\\u{code}?')
+            else:
+                out.append(ch)
+        return ''.join(out)
+
+    clean = re.sub(r"###ITEM_\d+###", "", text)
+
+    body = []
+    for line in clean.split("\n"):
+        line = line.strip().lstrip('#').replace('**', '').replace('*', '').strip()
+        has_hebrew = any('\u0590' <= c <= '\u05FF' for c in line)
+        escaped = _escape_rtf(line)
+        if has_hebrew:
+            body.append(f"\\rtlch\\rtlpar\\qr {escaped}\\par")
+        else:
+            body.append(f"\\ltrch\\ltrpar\\ql {escaped}\\par")
+
+    rtf = (
+        r"{\rtf1\ansi\ansicpg1252\uc1\deff0"
+        r"{\fonttbl{\f0\fswiss\fcharset0 Arial;}}"
+        r"\f0\fs24 "
+        + "\n".join(body)
+        + "}"
+    )
+    return rtf.encode('utf-8')

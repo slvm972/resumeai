@@ -14,7 +14,12 @@ mail = Mail()
 
 def create_app(config_name=None):
     if config_name is None:
-        config_name = os.environ.get('FLASK_ENV', 'development')
+        # Безопасный дефолт: если FLASK_ENV физически не задана на сервере,
+        # считаем это production, а не development. Иначе все security-
+        # проверки ниже (RuntimeError для SECRET_KEY/JWT_SECRET_KEY,
+        # блокировка ADMIN_MODE в _admin_mode_enabled) молча не сработают,
+        # потому что обе сравнивают именно с FLASK_ENV == 'production'.
+        config_name = os.environ.get('FLASK_ENV', 'production')
 
     app = Flask(__name__,
                 static_folder=os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static'),
@@ -22,11 +27,39 @@ def create_app(config_name=None):
 
     app.config.from_object(config.get(config_name, config['default']))
 
+    # -----------------------------------------------------------------
+    # Проверка безопасности: в production SECRET_KEY и JWT_SECRET_KEY
+    # обязаны быть заданы через переменные окружения. Если остались
+    # небезопасные дефолтные значения из config.py — падаем сразу,
+    # а не продолжаем работать со скомпрометированной безопасностью
+    # сессий/токенов для всех пользователей.
+    # -----------------------------------------------------------------
+    if app.config.get('FLASK_ENV') == 'production':
+        insecure_defaults = {
+            'SECRET_KEY': 'change-this-in-production',
+            'JWT_SECRET_KEY': 'jwt-secret-change-this',
+        }
+        for key, default_value in insecure_defaults.items():
+            if app.config.get(key) == default_value:
+                raise RuntimeError(
+                    f"{key} must be set via environment variable in production"
+                )
+
     db.init_app(app)
     jwt.init_app(app)
     mail.init_app(app)
 
     CORS(app, origins=app.config.get('ALLOWED_ORIGINS', ['*']), supports_credentials=True)
+
+    # Схема БД на production/development теперь управляется только через
+    # Alembic (см. Procfile: 'alembic upgrade head && gunicorn ...').
+    # db.create_all() остаётся только для TESTING — там нет и не должно
+    # быть отдельного шага миграций (in-memory SQLite создаётся с нуля
+    # на каждый прогон тестов).
+    if app.config.get('TESTING'):
+        with app.app_context():
+            from app import models  # noqa: F401 — регистрирует все модели в metadata
+            db.create_all()
 
     _register_blueprints(app)
     _register_legacy_routes(app)
@@ -41,13 +74,29 @@ def create_app(config_name=None):
     def login_page():
         return send_from_directory(root_dir, 'login.html')
 
+    @app.route('/login.html')
+    def login_page_html():
+        return send_from_directory(root_dir, 'login.html')
+
     @app.route('/dashboard')
     def dashboard_page():
         return send_from_directory(root_dir, 'dashboard.html')
+        
+    @app.route('/dashboard.html')
+    def dashboard_page_html():
+        return send_from_directory(root_dir, 'dashboard.html')    
 
     @app.route('/admin')
     def admin_page():
         return send_from_directory(root_dir, 'admin.html')
+
+    @app.route('/history')
+    def history_page():
+        return send_from_directory(root_dir, 'history.html')
+
+    @app.route('/history.html')
+    def history_page_html():
+        return send_from_directory(root_dir, 'history.html')
 
     @app.route('/admin-login.html')
     def admin_login_page():
@@ -69,6 +118,8 @@ def create_app(config_name=None):
     @app.route('/health')
     def health():
         return {'status': 'ok', 'service': 'ResumeAI'}
+
+    
 
     return app
 
@@ -114,7 +165,55 @@ def _extract_text_from_request():
                 text = '\n'.join(parts)
                 return text.strip()
             except Exception as e:
-                raise ValueError(f"Cannot read DOCX: {str(e)}")
+                from flask import current_app
+                current_app.logger.error(f"[_extract_text_from_request] DOCX parse failed: {e}")
+                raise ValueError("Cannot read DOCX file. Please check the file is not corrupted.")
+
+        # ODT файл (OpenDocument Text)
+        elif filename.endswith('.odt'):
+            try:
+                from odf.opendocument import load
+                from odf.table import Table, TableRow, TableCell
+                from odf import teletype
+                import io
+                doc = load(io.BytesIO(file.read()))
+                parts = []
+                # Читать параграфы и заголовки верхнего уровня (не внутри
+                # таблиц) — doc.text.childNodes включает и текстовые узлы
+                # таблиц, поэтому фильтруем строго по qname 'p'/'h', чтобы
+                # не задублировать текст, который отдельно читается из
+                # таблиц ниже. 'h' (<text:h>) — это заголовки (Heading 1,
+                # Heading 2 и т.д.), они семантически такой же текстовый
+                # блок верхнего уровня, как обычный параграф, и часто несут
+                # имя резюме / названия секций — без них текст резюме
+                # молча теряет ключевые заголовки.
+                for child in doc.text.childNodes:
+                    qn = getattr(child, 'qname', None)
+                    if qn and qn[1] in ('p', 'h'):
+                        txt = teletype.extractText(child).strip()
+                        if txt:
+                            parts.append(txt)
+                # Читать таблицы (резюме часто хранятся в таблицах!)
+                for table in doc.getElementsByType(Table):
+                    for row in table.getElementsByType(TableRow):
+                        row_texts = []
+                        for cell in row.getElementsByType(TableCell):
+                            t = teletype.extractText(cell).strip()
+                            if t:
+                                row_texts.append(t)
+                        # убрать дубликаты ячеек
+                        seen = []
+                        for t in row_texts:
+                            if t not in seen:
+                                seen.append(t)
+                        if seen:
+                            parts.append(' | '.join(seen))
+                text = '\n'.join(parts)
+                return text.strip()
+            except Exception as e:
+                from flask import current_app
+                current_app.logger.error(f"[_extract_text_from_request] ODT parse failed: {e}")
+                raise ValueError("Cannot read ODT file. Please check the file is not corrupted.")
 
         # TXT файл
         elif filename.endswith('.txt'):
@@ -159,6 +258,19 @@ def _get_current_user():
         return None
 
 
+def _admin_mode_enabled(app):
+    """
+    ADMIN_MODE разрешает бесплатный доступ без логина (для тестирования).
+    Из соображений безопасности он ДОЛЖЕН игнорироваться в production,
+    даже если переменная окружения ADMIN_MODE=true выставлена по ошибке
+    или случайно осталась после тестов. Работает только при
+    FLASK_ENV != 'production' (т.е. локально или в development/testing).
+    """
+    if app.config.get('FLASK_ENV') == 'production':
+        return False
+    return app.config.get('ADMIN_MODE', False)
+
+
 def _register_legacy_routes(app):
     """Совместимые маршруты для старого index.html."""
 
@@ -200,21 +312,49 @@ def _register_legacy_routes(app):
     @app.route('/api/login', methods=['POST'])
     def legacy_login():
         """Поддерживает и admin login (username/password) и user login (email/password)."""
+        from flask import current_app
         data = request.get_json() or {}
 
-        # Проверить admin credentials (старый hardcoded admin)
-        username = data.get('username', '')
-        password = data.get('password', '')
-        if username == 'admin' and password == 'admin123':
-            session['admin'] = 'admin'
-            session['user_id'] = None
-            session['user_name'] = 'admin'
-            session.permanent = True
-            return jsonify({
-                'success': True,
-                'message': 'Logged in successfully',
-                'is_admin': True,
-            })
+        username = data.get('username', '').strip()
+        password = data.get('password', '').strip()
+
+        # Admin credentials: логин — из ADMIN_EMAIL (config.py), пароль —
+        # bcrypt-хеш из ADMIN_PASSWORD_HASH. Ни хеш, ни пароль нигде в коде
+        # не хранятся в открытом виде.
+        admin_login = current_app.config.get('ADMIN_EMAIL', '')
+        admin_password_hash = current_app.config.get('ADMIN_PASSWORD_HASH')
+
+        if username and admin_login and username == admin_login:
+            if not admin_password_hash:
+                # ADMIN_PASSWORD_HASH не задан в production — админ-роут
+                # недоступен, а не работает с дефолтным паролем.
+                return jsonify({
+                    'success': False,
+                    'error': 'Admin login is not configured on this server',
+                }), 403
+
+            import bcrypt
+            try:
+                is_valid = bcrypt.checkpw(
+                    password.encode('utf-8'),
+                    admin_password_hash.encode('utf-8'),
+                )
+            except (ValueError, TypeError):
+                # Битый/некорректный хеш в env — тоже считаем "не сконфигурировано"
+                is_valid = False
+
+            if is_valid:
+                session['admin'] = 'admin'
+                session['user_id'] = None
+                session['user_name'] = 'admin'
+                session.permanent = True
+                return jsonify({
+                    'success': True,
+                    'message': 'Logged in successfully',
+                    'is_admin': True,
+                })
+
+            return jsonify({'success': False, 'error': 'Invalid admin credentials'}), 401
 
         # Обычный user login
         return _do_login()
@@ -229,15 +369,6 @@ def _register_legacy_routes(app):
             from app.services.openrouter_service import OpenRouterService
 
             resume_text = _extract_text_from_request()
-
-            # [DEBUG-LEAK] диагностика: какой файл реально пришёл и какой текст извлечён
-            _dbg_file = request.files.get('file') or request.files.get('resume')
-            app.logger.info(
-                "[DEBUG-LEAK] legacy_admin_analyze: filename=%r resume_text_snippet=%r",
-                _dbg_file.filename if _dbg_file else None,
-                resume_text[:80] if resume_text else None,
-            )
-
             if not resume_text or len(resume_text) < 20:
                 return jsonify({'success': False, 'error': 'Resume text is too short'}), 400
 
@@ -260,10 +391,12 @@ def _register_legacy_routes(app):
                 'strengths': result.get('strengths', []),
                 'improvements': result.get('improvements', []),
                 'key_skills': result.get('key_skills', []),
+                'is_admin': True,  # эндпоинт уже гейтится 'admin' in session выше — всегда True
             })
 
         except Exception as e:
-            return jsonify({'success': False, 'error': str(e)}), 500
+            app.logger.error(f"[legacy_admin_analyze] failed: {e}")
+            return jsonify({'success': False, 'error': 'Internal server error. Please try again.'}), 500
 
     @app.route('/api/admin/stats', methods=['GET'])
     def legacy_admin_stats():
@@ -292,6 +425,49 @@ def _register_legacy_routes(app):
             'success': True,
             'users': [u.to_dict() for u in users],
         })
+
+    # ВРЕМЕННЫЙ диагностический роут — раскрывает PII (email) через query param.
+    # Убрать после того как баг 403 / зачисление improvement_credits разобраны.
+    @app.route('/api/admin/debug/user-state', methods=['GET'])
+    def legacy_admin_debug_user_state():
+        if 'admin' not in session:
+            return jsonify({'error': 'Unauthorized'}), 401
+
+        email = request.args.get('email', '').strip().lower()
+        if not email:
+            return jsonify({'error': 'email query param required'}), 400
+
+        from app.models.user import User
+        from app.models.subscription import Subscription
+        from app.models.payment import Payment
+
+        users = User.query.filter(User.email.ilike(f'%{email}%')).all()
+        users_data = []
+        for u in users:
+            subs = Subscription.query.filter_by(user_id=u.id).all()
+            users_data.append({
+                'id': u.id, 'email': u.email, 'is_active': u.is_active,
+                'created_at': u.created_at.isoformat(),
+                'subscriptions': [{
+                    'sub_id': s.id, 'plan_name': s.plan_name, 'status': s.status,
+                    # Легаси-поля (Improve-only счётчик, оставлены для обратной совместимости)
+                    'analysis_used': s.analysis_used, 'improvement_used': s.improvement_used,
+                    'improvement_credits': s.improvement_credits,
+                    # Новый единый пул кредитов (analyze + improve вместе)
+                    'credits_granted': s.credits_granted, 'credits_used': s.credits_used,
+                    'credits_remaining': s.credits_remaining(),
+                    'created_at': s.created_at.isoformat(), 'updated_at': s.updated_at.isoformat(),
+                } for s in subs],
+            })
+
+        payments = Payment.query.filter(Payment.payer_email.ilike(f'%{email}%')).all()
+        payments_data = [{
+            'id': p.id, 'user_id': p.user_id, 'external_id': p.external_id,
+            'amount': p.amount, 'status': p.status, 'provider': p.provider,
+            'created_at': p.created_at.isoformat(),
+        } for p in payments]
+
+        return jsonify({'users': users_data, 'payments': payments_data})
 
     def _do_register():
         from app.services.auth_service import AuthService
@@ -351,7 +527,7 @@ def _register_legacy_routes(app):
     @app.route('/api/analyze', methods=['POST'])
     def legacy_analyze():
         from flask import current_app
-        admin_mode = current_app.config.get('ADMIN_MODE', False)
+        admin_mode = _admin_mode_enabled(current_app)
         is_admin = 'admin' in session
 
         user = _get_current_user()
@@ -367,26 +543,17 @@ def _register_legacy_routes(app):
             # Извлечь текст из запроса (JSON или файл)
             resume_text = _extract_text_from_request()
 
-            # [DEBUG-LEAK] диагностика: какой файл реально пришёл и какой текст извлечён
-            _dbg_file = request.files.get('file') or request.files.get('resume')
-            app.logger.info(
-                "[DEBUG-LEAK] legacy_analyze: filename=%r resume_text_snippet=%r",
-                _dbg_file.filename if _dbg_file else None,
-                resume_text[:80] if resume_text else None,
-            )
-
             if not resume_text or len(resume_text) < 20:
                 return jsonify({'success': False, 'error': 'Resume text is too short or empty'}), 400
 
             # Проверить квоту (только для обычных пользователей, не admin)
             if user and not is_admin:
                 subscription = user.get_active_subscription()
-                if subscription and subscription.plan_name == 'free':
-                    if subscription.analysis_used >= 2:
-                        return jsonify({
-                            'success': False,
-                            'error': 'Monthly limit reached. Upgrade to Pro.'
-                        }), 403
+                if subscription and subscription.credits_remaining() <= 0:
+                    return jsonify({
+                        'success': False,
+                        'error': 'No credits remaining. Buy a credit pack to continue.'
+                    }), 403
 
             # Использовать FakeUser если нет реального пользователя
             class FakeUser:
@@ -400,7 +567,8 @@ def _register_legacy_routes(app):
             if user and not is_admin:
                 subscription = user.get_active_subscription()
                 if subscription:
-                    subscription.analysis_used += 1
+                    subscription.analysis_used += 1      # legacy-статистика, читается /users/usage
+                    subscription.credits_used += 1        # новый единый пул — реальный источник доступа
                     db.session.commit()
                 UsageLog.log(user_id=user.id, action='analysis',
                             tokens=result.get('tokens_used', 0), status='success')
@@ -434,22 +602,30 @@ def _register_legacy_routes(app):
                 'key_skills': result.get('key_skills', []),
                 'keywords': result.get('key_skills', []),           # saveToHistory ждёт keywords
                 'detected_language': result.get('detected_language', 'en'),
+                'is_admin': is_admin,
+                'credits_remaining': subscription.credits_remaining() if (user and not is_admin and subscription) else None,
             })
 
         except ValueError as e:
             return jsonify({'success': False, 'error': str(e)}), 400
         except Exception as e:
-            return jsonify({'success': False, 'error': str(e)}), 500
+            app.logger.error(f"[legacy_analyze] failed: {e}")
+            return jsonify({'success': False, 'error': 'Internal server error. Please try again.'}), 500
 
     @app.route('/api/improve', methods=['POST'])
     def legacy_improve():
         from flask import current_app
-        admin_mode = current_app.config.get('ADMIN_MODE', False)
+        admin_mode = _admin_mode_enabled(current_app)
         is_admin = 'admin' in session
 
         user = _get_current_user()
         if not user and not (admin_mode or is_admin):
             return jsonify({'success': False, 'error': 'Please log in first'}), 401
+
+        if user and not is_admin:
+            subscription = user.get_active_subscription()
+            if not subscription or subscription.credits_remaining() <= 0:
+                return jsonify({'success': False, 'error': 'No credits remaining. Buy a credit pack to continue.'}), 403
 
         try:
             from app.missing_routes4 import _run_improve_pipeline
@@ -479,23 +655,21 @@ def _register_legacy_routes(app):
                 return jsonify({'success': False, 'error': 'resume_text is required'}), 400
 
             api_key = current_app.config.get('GROQ_API_KEY')
-
-            # [DEBUG-LEAK] диагностика перед вызовом пайплайна улучшения
-            app.logger.info(
-                "[DEBUG-LEAK] legacy_improve: has_file=%s filename=%r resume_text_fallback_snippet=%r",
-                file is not None,
-                filename,
-                resume_text_fallback[:80] if resume_text_fallback else None,
-            )
-
             result = _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_key)
 
             if not result.get('success'):
                 return jsonify({'success': False, 'error': result.get('error')}), result.get('status', 500)
 
+            # Списать один Improve-кредит — раньше этого шага не было вообще,
+            # то есть кредиты/квота на improve никогда фактически не расходовались.
+            if user and not is_admin and subscription:
+                subscription.improvement_used += 1
+                subscription.credits_used += 1
+                db.session.commit()
+
             if original_bytes:
-                import base64
-                session['original_docx_b64'] = base64.b64encode(original_bytes).decode('ascii')
+                from app.missing_routes4 import _save_temp_upload
+                session['original_docx_token'] = _save_temp_upload(original_bytes)
                 session['item_ids'] = result['item_ids']
 
             return jsonify({
@@ -511,23 +685,28 @@ def _register_legacy_routes(app):
         except Exception as e:
             import traceback
             app.logger.error("legacy_improve failed: %s\n%s", e, traceback.format_exc())
-            return jsonify({'success': False, 'error': str(e)}), 500
+            return jsonify({'success': False, 'error': 'Internal server error. Please try again.'}), 500
 
     @app.route('/api/improve/docx', methods=['POST'])
     def legacy_improve_docx():
         from flask import current_app, send_file
-        admin_mode = current_app.config.get('ADMIN_MODE', False)
+        admin_mode = _admin_mode_enabled(current_app)
         is_admin = 'admin' in session
 
         user = _get_current_user()
         if not user and not (admin_mode or is_admin):
             return jsonify({'success': False, 'error': 'Please log in first'}), 401
 
+        if user and not is_admin:
+            subscription = user.get_active_subscription()
+            if subscription and subscription.credits_remaining() <= 0:
+                return jsonify({'success': False, 'error': 'No credits remaining. Buy a credit pack to continue.'}), 403
+
         try:
-            from app.missing_routes4 import _apply_improved_text_to_docx
+            from app.missing_routes4 import _apply_improved_text_to_docx, _load_temp_upload
             from docx import Document
             from docx.shared import Pt
-            import io, base64, json as json_lib
+            import io, json as json_lib
 
             original_file = request.files.get('original_file')
             improved_text = request.form.get('improved_resume') or ''
@@ -548,27 +727,15 @@ def _register_legacy_routes(app):
             else:
                 item_ids = session.get('item_ids', [])
 
-            # [DEBUG-LEAK] диагностика источника original_file / session-данных / item_ids
-            _dbg_b64 = session.get('original_docx_b64')
-            app.logger.info(
-                "[DEBUG-LEAK] legacy_improve_docx: has_original_file=%s item_ids_source=%s item_ids=%r "
-                "session_b64_present=%s session_b64_fingerprint=%r session_b64_len=%s",
-                original_file is not None,
-                ('request.form' if item_ids_raw else 'session'),
-                item_ids,
-                _dbg_b64 is not None,
-                (_dbg_b64[:30] if _dbg_b64 else None),
-                (len(_dbg_b64) if _dbg_b64 else None),
-            )
-
             if original_file:
                 buf = _apply_improved_text_to_docx(original_file.read(), improved_text, item_ids)
                 return send_file(buf, as_attachment=True, download_name='improved_resume.docx',
                     mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
 
-            b64 = session.get('original_docx_b64')
-            if b64:
-                buf = _apply_improved_text_to_docx(base64.b64decode(b64), improved_text, item_ids)
+            token = session.get('original_docx_token')
+            file_bytes = _load_temp_upload(token)
+            if file_bytes:
+                buf = _apply_improved_text_to_docx(file_bytes, improved_text, item_ids)
                 return send_file(buf, as_attachment=True, download_name='improved_resume.docx',
                     mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
 
@@ -587,7 +754,111 @@ def _register_legacy_routes(app):
                 mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
 
         except Exception as e:
-            return jsonify({'success': False, 'error': str(e)}), 500
+            app.logger.error(f"[legacy_improve_docx] failed: {e}")
+            return jsonify({'success': False, 'error': 'Internal server error. Please try again.'}), 500
+
+    @app.route('/api/improve/odt', methods=['POST'])
+    def legacy_improve_odt():
+        from flask import current_app, send_file
+        admin_mode = _admin_mode_enabled(current_app)
+        is_admin = 'admin' in session
+
+        user = _get_current_user()
+        if not user and not (admin_mode or is_admin):
+            return jsonify({'success': False, 'error': 'Please log in first'}), 401
+
+        if user and not is_admin:
+            subscription = user.get_active_subscription()
+            if subscription and subscription.credits_remaining() <= 0:
+                return jsonify({'success': False, 'error': 'No credits remaining. Buy a credit pack to continue.'}), 403
+
+        try:
+            improved_text = request.form.get('improved_resume') or ''
+            if not improved_text:
+                data = request.get_json() or {}
+                improved_text = data.get('improved_resume', '')
+
+            if not improved_text:
+                return jsonify({'success': False, 'error': 'No text provided'}), 400
+
+            from app.missing_routes4 import _generate_odt
+            buf = _generate_odt(improved_text)
+            return send_file(
+                buf, as_attachment=True, download_name='improved_resume.odt',
+                mimetype='application/vnd.oasis.opendocument.text',
+            )
+        except Exception as e:
+            app.logger.error(f"[legacy_improve_odt] failed: {e}")
+            return jsonify({'success': False, 'error': 'Internal server error. Please try again.'}), 500
+
+    @app.route('/api/improve/pdf', methods=['POST'])
+    def legacy_improve_pdf():
+        from flask import current_app, send_file
+        admin_mode = _admin_mode_enabled(current_app)
+        is_admin = 'admin' in session
+
+        user = _get_current_user()
+        if not user and not (admin_mode or is_admin):
+            return jsonify({'success': False, 'error': 'Please log in first'}), 401
+
+        if user and not is_admin:
+            subscription = user.get_active_subscription()
+            if subscription and subscription.credits_remaining() <= 0:
+                return jsonify({'success': False, 'error': 'No credits remaining. Buy a credit pack to continue.'}), 403
+
+        try:
+            improved_text = request.form.get('improved_resume') or ''
+            if not improved_text:
+                data = request.get_json() or {}
+                improved_text = data.get('improved_resume', '')
+
+            if not improved_text:
+                return jsonify({'success': False, 'error': 'No text provided'}), 400
+
+            from app.missing_routes4 import _generate_pdf
+            buf = _generate_pdf(improved_text)
+            return send_file(
+                buf, as_attachment=True, download_name='improved_resume.pdf',
+                mimetype='application/pdf',
+            )
+        except Exception as e:
+            app.logger.error(f"[legacy_improve_pdf] failed: {e}")
+            return jsonify({'success': False, 'error': 'Internal server error. Please try again.'}), 500
+
+    @app.route('/api/improve/rtf', methods=['POST'])
+    def legacy_improve_rtf():
+        import io
+        from flask import current_app, send_file
+        admin_mode = _admin_mode_enabled(current_app)
+        is_admin = 'admin' in session
+
+        user = _get_current_user()
+        if not user and not (admin_mode or is_admin):
+            return jsonify({'success': False, 'error': 'Please log in first'}), 401
+
+        if user and not is_admin:
+            subscription = user.get_active_subscription()
+            if subscription and subscription.credits_remaining() <= 0:
+                return jsonify({'success': False, 'error': 'No credits remaining. Buy a credit pack to continue.'}), 403
+
+        try:
+            improved_text = request.form.get('improved_resume') or ''
+            if not improved_text:
+                data = request.get_json() or {}
+                improved_text = data.get('improved_resume', '')
+
+            if not improved_text:
+                return jsonify({'success': False, 'error': 'No text provided'}), 400
+
+            from app.missing_routes4 import _generate_rtf
+            buf = _generate_rtf(improved_text)
+            return send_file(
+                io.BytesIO(buf), as_attachment=True, download_name='improved_resume.rtf',
+                mimetype='application/rtf',
+            )
+        except Exception as e:
+            app.logger.error(f"[legacy_improve_rtf] failed: {e}")
+            return jsonify({'success': False, 'error': 'Internal server error. Please try again.'}), 500
 
     # Регистрируем дополнительные маршруты из missing_routes4 (включая /api/admin/improve)
     from app.missing_routes4 import register_missing_routes
@@ -609,3 +880,6 @@ def _register_blueprints(app):
 
     from app.routes.analysis import analysis_bp
     app.register_blueprint(analysis_bp, url_prefix='/analysis')
+    
+    from app.routes.webhooks import webhooks_bp
+    app.register_blueprint(webhooks_bp, url_prefix='/webhooks')
