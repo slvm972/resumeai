@@ -44,3 +44,4 @@ uploads/*
 config.env
 
 .tmp.driveupload/
+outputs/
