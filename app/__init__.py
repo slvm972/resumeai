@@ -5,6 +5,7 @@ from flask_jwt_extended import JWTManager, verify_jwt_in_request, get_jwt_identi
 from flask_cors import CORS
 from flask_mail import Mail
 from config import config
+import logging
 import os
 
 db = SQLAlchemy()
@@ -48,6 +49,24 @@ def create_app(config_name=None):
     db.init_app(app)
     jwt.init_app(app)
     mail.init_app(app)
+
+    # -----------------------------------------------------------------
+    # Logging: под gunicorn (prod на Render) app.logger по умолчанию
+    # может не иметь handler'а с нужным уровнем, из-за чего
+    # app.logger.info(...) молча не долетает до Render Logs. Подключаем
+    # его к тем же handler'ам, что уже пишет gunicorn.error (видно в
+    # Render Logs как "[INFO] Booting worker..." и т.п.), и явно
+    # выставляем уровень INFO. Локально (без gunicorn) просто
+    # используем стандартный StreamHandler на INFO.
+    # -----------------------------------------------------------------
+    gunicorn_logger = logging.getLogger('gunicorn.error')
+    if gunicorn_logger.handlers:
+        app.logger.handlers = gunicorn_logger.handlers
+        app.logger.setLevel(gunicorn_logger.level or logging.INFO)
+    else:
+        app.logger.setLevel(logging.INFO)
+        if not app.logger.handlers:
+            app.logger.addHandler(logging.StreamHandler())
 
     CORS(app, origins=app.config.get('ALLOWED_ORIGINS', ['*']), supports_credentials=True)
 
