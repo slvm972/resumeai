@@ -787,12 +787,20 @@ def _register_legacy_routes(app):
                 _dbg_token_found,
             )
 
+            # Defensive: одноразовое использование session-токена. Очищаем
+            # сразу после чтения — даже если этот конкретный запрос его не
+            # использует (original_file пришёл напрямую), унаследованные от
+            # предыдущего запроса token/item_ids не должны пережить этот
+            # вызов и попасть в следующий, не связанный с ним запрос.
+            session.pop('original_docx_token', None)
+            session.pop('item_ids', None)
+
             if original_file:
                 buf = _apply_improved_text_to_docx(original_file.read(), improved_text, item_ids)
                 return send_file(buf, as_attachment=True, download_name='improved_resume.docx',
                     mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
 
-            token = session.get('original_docx_token')
+            token = _dbg_token
             file_bytes = _load_temp_upload(token)
             if file_bytes:
                 buf = _apply_improved_text_to_docx(file_bytes, improved_text, item_ids)
