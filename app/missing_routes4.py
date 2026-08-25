@@ -354,6 +354,16 @@ def _apply_improved_text_to_docx(original_bytes, improved_text, item_ids):
     while i + 1 < len(parts):
         item_id = parts[i].zfill(3)
         text = parts[i + 1].strip()
+        _pre_collapse_repr = text if '•' in text else None
+        if _pre_collapse_repr is not None:
+            try:
+                from flask import current_app
+                current_app.logger.info(
+                    "[DEBUG-LEAK-BULLETS] item=%s BEFORE_collapse_repr=%r newline_count=%s",
+                    item_id, _pre_collapse_repr, _pre_collapse_repr.count(chr(10)),
+                )
+            except Exception:
+                pass
         # Защитная нормализация: схлопнуть 2+ подряд идущих переноса строки
         # в один. Внутри одного <w:p> (например, буллет-список) не должно
         # быть "пустых" строк между элементами — двойной \n превращается
@@ -366,6 +376,20 @@ def _apply_improved_text_to_docx(original_bytes, improved_text, item_ids):
         text = re.sub(r"\n{2,}", "\n", text)
         id_to_text[item_id] = text
         i += 2
+
+    # [DEBUG-LEAK-BULLETS] Временная диагностика: показать точное содержимое
+    # (включая непечатаемые символы через repr) для блоков с буллетами,
+    # чтобы понять, что реально приходит на этом этапе — до и после collapse.
+    try:
+        from flask import current_app
+        for _iid, _txt in id_to_text.items():
+            if '•' in _txt:
+                current_app.logger.info(
+                    "[DEBUG-LEAK-BULLETS] item=%s after_collapse_repr=%r newline_count=%s",
+                    _iid, _txt, _txt.count(chr(10)),
+                )
+    except Exception:
+        pass
 
     # Применяем — ищем каждый элемент по его ID
     for idx, item in enumerate(orig_items):
@@ -1011,6 +1035,19 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
         iid = item_ids[i]
         val = id_to_text_1.get(iid)
         restored_list.append(val if val is not None else item["text"])
+
+    # [DEBUG-LEAK-BULLETS] Диагностика: что лежит в restored_list для
+    # буллет-блоков сразу после restore/validate, до сборки improved_text_for_docx.
+    try:
+        from flask import current_app
+        for _i, _val in enumerate(restored_list):
+            if '•' in _val:
+                current_app.logger.info(
+                    "[DEBUG-LEAK-BULLETS] restored_list[%s] item_id=%s repr=%r newline_count=%s",
+                    _i, item_ids[_i], _val, _val.count(chr(10)),
+                )
+    except Exception:
+        pass
 
     improved_text_for_docx = (
         "###ITEM_" +
