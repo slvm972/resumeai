@@ -1250,6 +1250,11 @@ def _generate_odt(text):
     """
     import re
     import io
+    try:
+        from flask import current_app
+        current_app.logger.info("[DEBUG-EXPORT-SPACING] %s received text repr: %r", "_generate_odt", text[:300])
+    except Exception:
+        pass
     from odf.opendocument import OpenDocumentText
     from odf.text import P
     from odf.style import Style, ParagraphProperties
@@ -1260,6 +1265,13 @@ def _generate_odt(text):
     rtl_style.addElement(ParagraphProperties(writingmode="rl-tb"))
     doc.automaticstyles.addElement(rtl_style)
 
+    # CRLF-нормализация ДО схлопывания маркера: клиент пересылает improved_resume
+    # через multipart/form-data (FormData), которое браузер по спецификации HTML5
+    # нормализует \n -> \r\n. Без этой нормализации маркерный regex ниже (матчащий
+    # только литеральные \n) не видит \r и оставляет мусорные \r\n-разделители между
+    # блоками нетронутыми — тот же баг и то же решение, что уже применены в
+    # _apply_improved_text_to_docx для DOCX-пути (см. коммит 7336c10).
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
     clean = re.sub(r"\n*###ITEM_\d+###\n*", "\n", text).strip("\n")
     for line in clean.split("\n"):
         line = line.strip().lstrip("#").replace("**", "").replace("*", "").strip()
@@ -1455,6 +1467,11 @@ def _generate_pdf(text):
     """
     import re
     import io
+    try:
+        from flask import current_app
+        current_app.logger.info("[DEBUG-EXPORT-SPACING] %s received text repr: %r", "_generate_pdf", text[:300])
+    except Exception:
+        pass
     from reportlab.pdfgen import canvas as pdf_canvas
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfbase import pdfmetrics
@@ -1493,6 +1510,13 @@ def _generate_pdf(text):
         wrapped.append(current)
         return wrapped
 
+    # CRLF-нормализация ДО схлопывания маркера: клиент пересылает improved_resume
+    # через multipart/form-data (FormData), которое браузер по спецификации HTML5
+    # нормализует \n -> \r\n. Без этой нормализации маркерный regex ниже (матчащий
+    # только литеральные \n) не видит \r и оставляет мусорные \r\n-разделители между
+    # блоками нетронутыми — тот же баг и то же решение, что уже применены в
+    # _apply_improved_text_to_docx для DOCX-пути (см. коммит 7336c10).
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
     clean = re.sub(r"\n*###ITEM_\d+###\n*", "\n", text).strip("\n")
     for raw_line in clean.split("\n"):
         line = raw_line.strip().lstrip("#").replace("**", "").replace("*", "").strip()
@@ -1590,6 +1614,11 @@ def _generate_rtf(text):
     точное совпадение. Набросок из промта сработал без правок.
     """
     import re
+    try:
+        from flask import current_app
+        current_app.logger.info("[DEBUG-EXPORT-SPACING] %s received text repr: %r", "_generate_rtf", text[:300])
+    except Exception:
+        pass
 
     def _escape_rtf(s):
         # Экранировать RTF-спецсимволы, затем не-ASCII через \uN? escape.
@@ -1610,6 +1639,13 @@ def _generate_rtf(text):
                 out.append(ch)
         return ''.join(out)
 
+    # CRLF-нормализация ДО схлопывания маркера: клиент пересылает improved_resume
+    # через multipart/form-data (FormData), которое браузер по спецификации HTML5
+    # нормализует \n -> \r\n. Без этой нормализации маркерный regex ниже (матчащий
+    # только литеральные \n) не видит \r и оставляет мусорные \r\n-разделители между
+    # блоками нетронутыми — тот же баг и то же решение, что уже применены в
+    # _apply_improved_text_to_docx для DOCX-пути (см. коммит 7336c10).
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
     clean = re.sub(r"\n*###ITEM_\d+###\n*", "\n", text).strip("\n")
 
     body = []
