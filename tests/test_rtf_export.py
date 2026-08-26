@@ -38,8 +38,16 @@ from app import create_app
 
 def _expected_clean(text):
     """Тот же алгоритм очистки, что и внутри _generate_rtf — используется
-    только для построения ожидаемого текста в тестах."""
-    clean = re.sub(r"###ITEM_\d+###", "", text)
+    только для построения ожидаемого текста в тестах.
+
+    Синхронизировано с фиксом Cycle R-bugfix (устранение двойных пустых
+    строк на границах ###ITEM_NNN### блоков — маркер и окружающие его
+    переносы строк схлопываются в один-единственный разделитель, а не
+    оставляют after-removal артефакты вида "\\n\\n\\n"). См. отчёт цикла
+    и tests/test_odt_export.py / tests/test_pdf_export.py для того же
+    исправления в соседних экспортёрах.
+    """
+    clean = re.sub(r"\n*###ITEM_\d+###\n*", "\n", text).strip("\n")
     lines = [
         l.strip().lstrip('#').replace('**', '').replace('*', '').strip()
         for l in clean.split("\n")

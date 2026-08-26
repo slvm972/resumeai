@@ -1260,7 +1260,7 @@ def _generate_odt(text):
     rtl_style.addElement(ParagraphProperties(writingmode="rl-tb"))
     doc.automaticstyles.addElement(rtl_style)
 
-    clean = re.sub(r"###ITEM_\d+###", "", text)
+    clean = re.sub(r"\n*###ITEM_\d+###\n*", "\n", text).strip("\n")
     for line in clean.split("\n"):
         line = line.strip().lstrip("#").replace("**", "").replace("*", "").strip()
         has_hebrew = any("\u0590" <= c <= "\u05FF" for c in line)
@@ -1493,7 +1493,7 @@ def _generate_pdf(text):
         wrapped.append(current)
         return wrapped
 
-    clean = re.sub(r"###ITEM_\d+###", "", text)
+    clean = re.sub(r"\n*###ITEM_\d+###\n*", "\n", text).strip("\n")
     for raw_line in clean.split("\n"):
         line = raw_line.strip().lstrip("#").replace("**", "").replace("*", "").strip()
 
@@ -1610,7 +1610,7 @@ def _generate_rtf(text):
                 out.append(ch)
         return ''.join(out)
 
-    clean = re.sub(r"###ITEM_\d+###", "", text)
+    clean = re.sub(r"\n*###ITEM_\d+###\n*", "\n", text).strip("\n")
 
     body = []
     for line in clean.split("\n"):
