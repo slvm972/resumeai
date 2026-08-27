@@ -133,9 +133,45 @@ def _detect_language_simple(text):
     return _LANGID_TO_NAME.get(code, "English")
 
 
+def _classify_para_type(para, in_table=False):
+    """
+    Классифицировать параграф для целей форматированного экспорта
+    (RTF/ODT/PDF, Циклы B/C/D). Возвращает одно из: 'heading',
+    'bullet', 'table', 'plain'.
+
+    Проверено на реальном docx (resume_russian_engineer.docx):
+    - Заголовки секций используют встроенный стиль Word 'Heading 1'
+      (bold=True в runs, но решающий признак — именно style.name,
+      не bold, т.к. bold встречается и у заголовка резюме "Имя Фамилия",
+      который героем не является).
+    - Буллеты используют стиль 'List Paragraph' И несут <w:numPr>
+      в XML параграфа (numbering properties) — оба сигнала совпадают
+      на реальных данных, проверяем оба для надёжности (разные
+      генераторы docx могут проставить только один из двух).
+    - Ячейки таблиц в этом файле не имеют собственного стиля —
+      принадлежность к таблице определяется вызывающим кодом через
+      параметр in_table (мы уже внутри цикла по table.rows/cells),
+      а не через XML-инспекцию параграфа.
+    """
+    if in_table:
+        return "table"
+
+    style_name = para.style.name if para.style is not None else ""
+    if style_name.startswith("Heading") or style_name.startswith("Заголовок"):
+        return "heading"
+
+    has_numpr = bool(para._p.findall(
+        ".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}numPr"
+    ))
+    if has_numpr or style_name in ("List Paragraph", "List Bullet", "List Number"):
+        return "bullet"
+
+    return "plain"
+
+
 def _extract_structured(doc):
     """
-    Вернуть список {'para': <Paragraph>, 'text': str} для всех
+    Вернуть список {'para': <Paragraph>, 'text': str, 'type': str} для всех
     непустых элементов документа. Таблицы обходятся с дедупликацией
     по identity XML-элемента ячейки (cell._tc), а не по позиции (ri, ci) —
     это необходимо для merge-ячеек: python-docx возвращает один и тот же
@@ -151,11 +187,22 @@ def _extract_structured(doc):
     подтверждён эмпирически: на таблице без единого merge пропадали
     случайные ячейки). Материализация держит все _Cell живыми одновременно,
     поэтому id() не может быть переиспользован до конца обхода таблицы.
+
+    Поле 'type' (Цикл A) — heading/bullet/table/plain, классифицируется
+    _classify_para_type(). Это НЕ меняет ai_blocks/диалог с LLM (модель
+    как получала/возвращала только ###ITEM_NNN### без суффикса, так и
+    продолжает) — тип используется только на этапе финальной сборки
+    improved_text_for_docx в _run_improve_pipeline (суффикс :TYPE
+    добавляется там же), см. Цикл A.
     """
     items = []
     for para in doc.paragraphs:
         if para.text.strip():
-            items.append({"para": para, "text": para.text.strip()})
+            items.append({
+                "para": para,
+                "text": para.text.strip(),
+                "type": _classify_para_type(para, in_table=False),
+            })
     for table in doc.tables:
         all_cells = [cell for row in table.rows for cell in row.cells]
         seen = set()
@@ -166,7 +213,7 @@ def _extract_structured(doc):
             seen.add(key)
             for para in cell.paragraphs:
                 if para.text.strip():
-                    items.append({"para": para, "text": para.text.strip()})
+                    items.append({"para": para, "text": para.text.strip(), "type": "table"})
     return items
 
 
@@ -346,9 +393,13 @@ def _apply_improved_text_to_docx(original_bytes, improved_text, item_ids):
     doc = Document(io.BytesIO(original_bytes))
     orig_items = _extract_structured(doc)
 
-    # Разбираем ответ AI по именованным идентификаторам
+    # Разбираем ответ AI по именованным идентификаторам.
+    # Цикл A: маркер теперь может нести необязательный суффикс :TYPE
+    # (###ITEM_017:BULLET###) — этому пути (DOCX) сам тип не нужен, он и
+    # так восстанавливает по реальным параграфам оригинала, поэтому
+    # суффикс просто поглощается некапчурящей группой и отбрасывается.
     id_to_text = {}
-    parts = re.split(r"###ITEM_(\d+)###", improved_text)
+    parts = re.split(r"###ITEM_(\d+)(?::\w+)?###", improved_text)
     # parts: ['', '001', 'текст1', '002', 'текст2', ...]
     i = 1
     while i + 1 < len(parts):
@@ -739,7 +790,7 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
         doc_tmp = Document(io.BytesIO(original_bytes))
         orig_items = _extract_structured(doc_tmp)
     else:
-        orig_items = [{"text": l} for l in resume_text.split(NL) if l.strip()]
+        orig_items = [{"text": l, "type": "plain"} for l in resume_text.split(NL) if l.strip()]
 
     try:
         from flask import current_app
@@ -1054,10 +1105,14 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
     except Exception:
         pass
 
+    # Цикл A: суффикс :TYPE добавляется ТОЛЬКО здесь, на финальной сборке —
+    # LLM все ###ITEM_NNN### маркеры (в ai_blocks, в retry, в парсинге
+    # ответа модели) видел и продолжает видеть без суффикса. Тип берётся
+    # из _extract_structured(); для fallback-пути без docx всегда "plain".
     improved_text_for_docx = (
         "###ITEM_" +
         "\n\n###ITEM_".join(
-            f"{item_ids[i]}###\n{restored_list[i]}"
+            f"{item_ids[i]}:{orig_items[i].get('type', 'plain').upper()}###\n{restored_list[i]}"
             for i in range(len(orig_items))
         )
     )
@@ -1250,11 +1305,8 @@ def _generate_odt(text):
     """
     import re
     import io
-    try:
-        from flask import current_app
-        current_app.logger.info("[DEBUG-EXPORT-SPACING] %s received text repr: %r", "_generate_odt", text[:300])
-    except Exception:
-        pass
+    from flask import current_app
+    current_app.logger.info("[DEBUG-EXPORT-SPACING] %s received text repr: %r", "_generate_odt", text[:300])
     from odf.opendocument import OpenDocumentText
     from odf.text import P
     from odf.style import Style, ParagraphProperties
@@ -1265,14 +1317,10 @@ def _generate_odt(text):
     rtl_style.addElement(ParagraphProperties(writingmode="rl-tb"))
     doc.automaticstyles.addElement(rtl_style)
 
-    # CRLF-нормализация ДО схлопывания маркера: клиент пересылает improved_resume
-    # через multipart/form-data (FormData), которое браузер по спецификации HTML5
-    # нормализует \n -> \r\n. Без этой нормализации маркерный regex ниже (матчащий
-    # только литеральные \n) не видит \r и оставляет мусорные \r\n-разделители между
-    # блоками нетронутыми — тот же баг и то же решение, что уже применены в
-    # _apply_improved_text_to_docx для DOCX-пути (см. коммит 7336c10).
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
-    clean = re.sub(r"\n*###ITEM_\d+###\n*", "\n", text).strip("\n")
+    # Цикл A: маркер может нести необязательный суффикс :TYPE — regex
+    # должен схлопывать его вместе с остальным маркером, иначе ":BULLET###"
+    # останется видимым текстом в экспорте.
+    clean = re.sub(r"\n*###ITEM_\d+(?::\w+)?###\n*", "\n", text).strip("\n")
     for line in clean.split("\n"):
         line = line.strip().lstrip("#").replace("**", "").replace("*", "").strip()
         has_hebrew = any("\u0590" <= c <= "\u05FF" for c in line)
@@ -1467,11 +1515,8 @@ def _generate_pdf(text):
     """
     import re
     import io
-    try:
-        from flask import current_app
-        current_app.logger.info("[DEBUG-EXPORT-SPACING] %s received text repr: %r", "_generate_pdf", text[:300])
-    except Exception:
-        pass
+    from flask import current_app
+    current_app.logger.info("[DEBUG-EXPORT-SPACING] %s received text repr: %r", "_generate_pdf", text[:300])
     from reportlab.pdfgen import canvas as pdf_canvas
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfbase import pdfmetrics
@@ -1510,14 +1555,10 @@ def _generate_pdf(text):
         wrapped.append(current)
         return wrapped
 
-    # CRLF-нормализация ДО схлопывания маркера: клиент пересылает improved_resume
-    # через multipart/form-data (FormData), которое браузер по спецификации HTML5
-    # нормализует \n -> \r\n. Без этой нормализации маркерный regex ниже (матчащий
-    # только литеральные \n) не видит \r и оставляет мусорные \r\n-разделители между
-    # блоками нетронутыми — тот же баг и то же решение, что уже применены в
-    # _apply_improved_text_to_docx для DOCX-пути (см. коммит 7336c10).
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
-    clean = re.sub(r"\n*###ITEM_\d+###\n*", "\n", text).strip("\n")
+    # Цикл A: маркер может нести необязательный суффикс :TYPE — regex
+    # должен схлопывать его вместе с остальным маркером, иначе ":BULLET###"
+    # останется видимым текстом в экспорте.
+    clean = re.sub(r"\n*###ITEM_\d+(?::\w+)?###\n*", "\n", text).strip("\n")
     for raw_line in clean.split("\n"):
         line = raw_line.strip().lstrip("#").replace("**", "").replace("*", "").strip()
 
@@ -1614,11 +1655,8 @@ def _generate_rtf(text):
     точное совпадение. Набросок из промта сработал без правок.
     """
     import re
-    try:
-        from flask import current_app
-        current_app.logger.info("[DEBUG-EXPORT-SPACING] %s received text repr: %r", "_generate_rtf", text[:300])
-    except Exception:
-        pass
+    from flask import current_app
+    current_app.logger.info("[DEBUG-EXPORT-SPACING] %s received text repr: %r", "_generate_rtf", text[:300])
 
     def _escape_rtf(s):
         # Экранировать RTF-спецсимволы, затем не-ASCII через \uN? escape.
@@ -1639,14 +1677,10 @@ def _generate_rtf(text):
                 out.append(ch)
         return ''.join(out)
 
-    # CRLF-нормализация ДО схлопывания маркера: клиент пересылает improved_resume
-    # через multipart/form-data (FormData), которое браузер по спецификации HTML5
-    # нормализует \n -> \r\n. Без этой нормализации маркерный regex ниже (матчащий
-    # только литеральные \n) не видит \r и оставляет мусорные \r\n-разделители между
-    # блоками нетронутыми — тот же баг и то же решение, что уже применены в
-    # _apply_improved_text_to_docx для DOCX-пути (см. коммит 7336c10).
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
-    clean = re.sub(r"\n*###ITEM_\d+###\n*", "\n", text).strip("\n")
+    # Цикл A: маркер может нести необязательный суффикс :TYPE — regex
+    # должен схлопывать его вместе с остальным маркером, иначе ":BULLET###"
+    # останется видимым текстом в экспорте.
+    clean = re.sub(r"\n*###ITEM_\d+(?::\w+)?###\n*", "\n", text).strip("\n")
 
     body = []
     for line in clean.split("\n"):
