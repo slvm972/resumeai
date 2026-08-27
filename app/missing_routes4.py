@@ -172,10 +172,26 @@ def _classify_para_type(para, in_table=False):
 def _extract_structured(doc):
     """
     Вернуть список {'para': <Paragraph>, 'text': str, 'type': str} для всех
-    непустых элементов документа. Таблицы обходятся с дедупликацией
-    по identity XML-элемента ячейки (cell._tc), а не по позиции (ri, ci) —
-    это необходимо для merge-ячеек: python-docx возвращает один и тот же
-    объект _Cell на каждой позиции сетки, которую перекрывает merge.
+    непустых элементов документа, в РЕАЛЬНОМ документном порядке
+    (Цикл B, Шаг 1).
+
+    ДО этого исправления обход шёл в два раздельных прохода —
+    сначала все doc.paragraphs, потом все doc.tables — что теряло
+    порядок чередования параграфов и таблиц в реальном документе
+    (заголовок -> таблица "должность+даты" -> буллеты -> следующая
+    таблица превращалось в "все параграфы, потом все таблицы одним
+    блоком"). Теперь используется doc.iter_inner_content() —
+    метод Document (унаследован от BlockItemContainer, доступен
+    в python-docx>=1.1.0, подтверждено в установленной версии 1.2.0),
+    который отдаёт Paragraph и Table верхнего уровня в порядке их
+    реального появления в документе. Проверено на синтетическом
+    документе с чередованием параграф/таблица/параграф/таблица —
+    порядок сохраняется, см. отчёт Цикла B.
+
+    Таблицы обходятся с дедупликацией по identity XML-элемента ячейки
+    (cell._tc), а не по позиции (ri, ci) — это необходимо для
+    merge-ячеек: python-docx возвращает один и тот же объект _Cell
+    на каждой позиции сетки, которую перекрывает merge.
 
     ВАЖНО: все ячейки таблицы сначала материализуются в один список
     (all_cells) ДО начала дедупликации. Если ходить по table.rows/row.cells
@@ -195,25 +211,29 @@ def _extract_structured(doc):
     improved_text_for_docx в _run_improve_pipeline (суффикс :TYPE
     добавляется там же), см. Цикл A.
     """
+    from docx.text.paragraph import Paragraph
+    from docx.table import Table
+
     items = []
-    for para in doc.paragraphs:
-        if para.text.strip():
-            items.append({
-                "para": para,
-                "text": para.text.strip(),
-                "type": _classify_para_type(para, in_table=False),
-            })
-    for table in doc.tables:
-        all_cells = [cell for row in table.rows for cell in row.cells]
-        seen = set()
-        for cell in all_cells:
-            key = id(cell._tc)
-            if key in seen:
-                continue
-            seen.add(key)
-            for para in cell.paragraphs:
-                if para.text.strip():
-                    items.append({"para": para, "text": para.text.strip(), "type": "table"})
+    for block in doc.iter_inner_content():
+        if isinstance(block, Paragraph):
+            if block.text.strip():
+                items.append({
+                    "para": block,
+                    "text": block.text.strip(),
+                    "type": _classify_para_type(block, in_table=False),
+                })
+        elif isinstance(block, Table):
+            all_cells = [cell for row in block.rows for cell in row.cells]
+            seen = set()
+            for cell in all_cells:
+                key = id(cell._tc)
+                if key in seen:
+                    continue
+                seen.add(key)
+                for para in cell.paragraphs:
+                    if para.text.strip():
+                        items.append({"para": para, "text": para.text.strip(), "type": "table"})
     return items
 
 
@@ -1649,9 +1669,21 @@ def _generate_pdf(text):
 
 def _generate_rtf(text):
     """
-    Сгенерировать .rtf из текста improved_resume (с маркерами ###ITEM_NNN###,
-    которые здесь просто удаляются — как и в _generate_odt/_generate_pdf,
-    RTF не привязан к структуре оригинала).
+    Сгенерировать .rtf из текста improved_resume (с маркерами
+    ###ITEM_NNN### или ###ITEM_NNN:TYPE###).
+
+    Цикл B, Шаг 2: раньше суффикс :TYPE отбрасывался вместе с самим
+    маркером (regex просто схлопывал весь ###ITEM_NNN(:TYPE)?### в
+    ничего) — тип терялся, и HEADING/BULLET/TABLE/PLAIN рендерились
+    визуально одинаково. Теперь тип каждого блока сохраняется и
+    определяет RTF-форматирование:
+      - HEADING — жирный (\\b...\\b0), отступ сверху (\\sb/\\sa)
+      - TABLE   — жирный (мини-заголовок), БЕЗ доп. отступа — после
+        исправления порядка элементов (Цикл B, Шаг 1) пары
+        "должность+даты" идут подряд и должны визуально смотреться
+        как единый связанный блок
+      - BULLET  — символ буллета (\\bullet) + небольшой левый отступ
+      - PLAIN   — без изменений, как было раньше
 
     В отличие от PDF, направление RTL/LTR в RTF задаётся управляющими
     словами (\\rtlch/\\ltrch), а не физической перестановкой символов —
@@ -1661,18 +1693,28 @@ def _generate_rtf(text):
     Проверено round-trip тестом (запись -> striprtf.rtf_to_text() ->
     сравнение с очищенным исходником): см. tests/test_rtf_export.py.
 
-    ВАЖНО (эмпирическая проверка при разработке цикла, для честности
-    отчёта): в отличие от PDF, где RTL-текст при обратном извлечении
-    предсказуемо страдал на смешанных RTL+LTR строках (см. отчёт цикла
-    P1), здесь round-trip оказался точным даже на смешанном
-    иврит+цифры+email контенте — потому что RTF не переставляет символы
-    физически (в отличие от bidi.get_display(), применяемого в
-    _generate_pdf), направление — это только метаданные отображения,
-    которые striprtf на чтении игнорирует и просто отдаёт исходную
-    последовательность символов. Проверено на латинице, чистом иврите,
-    смешанных строках, markdown-звёздочках, спецсимволах RTF
-    (backslash/фигурные скобки) и пустом/пробельном вводе — везде
-    точное совпадение. Набросок из промта сработал без правок.
+    ВАЖНО (эмпирическая проверка при разработке Шага 2, для честности
+    отчёта): символьное форматирование (\\b/\\b0) и paragraph-properties
+    (\\sb/\\sa/\\li) НЕ появляются в тексте, извлекаемом striprtf —
+    подтверждено отдельным скриптом до применения фикса к файлу. Символ
+    буллета (\\bullet) — единственное добавление в этом шаге, которое
+    ДЕЙСТВИТЕЛЬНО меняет извлечённый текст: добавляет видимый префикс
+    "• " перед строкой BULLET-блока, которого не было в тексте раньше
+    (буллеты в оригинальном .docx рендерятся Word'ом через numPr/
+    нумерацию списка, а не как символ в самом тексте параграфа — см.
+    _classify_para_type). Это ОСОЗНАННОЕ и ОЖИДАЕМОЕ изменение
+    извлекаемого содержимого — это и есть цель Шага 2 ("реальный
+    символ буллета"), не побочный эффект. tests/test_rtf_export.py
+    обновлён под это явно, см. отчёт цикла.
+
+    ВАЖНО (унаследовано из Цикла R1): в отличие от PDF, где RTL-текст
+    при обратном извлечении предсказуемо страдал на смешанных RTL+LTR
+    строках (см. отчёт цикла P1), здесь round-trip остаётся точным даже
+    на смешанном иврит+цифры+email контенте — потому что RTF не
+    переставляет символы физически (в отличие от bidi.get_display(),
+    применяемого в _generate_pdf), направление — это только метаданные
+    отображения, которые striprtf на чтении игнорирует и просто отдаёт
+    исходную последовательность символов.
     """
     import re
     try:
@@ -1700,27 +1742,85 @@ def _generate_rtf(text):
                 out.append(ch)
         return ''.join(out)
 
-    # Цикл A: маркер может нести необязательный суффикс :TYPE — regex
-    # должен схлопывать его вместе с остальным маркером, иначе ":BULLET###"
-    # останется видимым текстом в экспорте.
-    # CRLF-нормализация ДО схлопывания маркера: клиент пересылает improved_resume
+    def _rtf_type_wrap(escaped_text, block_type):
+        """
+        Обернуть уже экранированный текст строки в character-level RTF
+        control words по типу блока. \\b/\\b0 (жирный) не влияет на
+        извлекаемый striprtf текст — проверено эмпирически. \\bullet —
+        единственный элемент здесь, который добавляет видимый символ в
+        извлечённый текст (см. докстринг функции).
+        """
+        if block_type in ("HEADING", "TABLE"):
+            return f"\\b {escaped_text}\\b0 "
+        if block_type == "BULLET":
+            # Один пробел сразу после \bullet — control-word delimiter,
+            # поглощается парсером RTF и не становится видимым символом.
+            # Второй пробел — уже буквальный, он и даёт "• text" при
+            # извлечении (проверено эмпирически striprtf).
+            return f"\\bullet  {escaped_text}"
+        return escaped_text
+
+    def _rtf_para_props(block_type):
+        """
+        Paragraph-level control words (отступ/интервал) по типу блока.
+        Не влияют на извлекаемый текст (чистые control words без
+        видимого содержимого) — проверено эмпирически.
+        """
+        if block_type == "HEADING":
+            # Пространство сверху и немного снизу — визуально отделяет
+            # заголовок секции от предыдущего блока.
+            return "\\sb240\\sa60 "
+        if block_type == "BULLET":
+            # Небольшой левый отступ под буллет-маркер.
+            return "\\li360 "
+        # TABLE — намеренно БЕЗ отступа (см. докстринг функции: пары
+        # "должность+даты" после Шага 1 идут подряд и должны выглядеть
+        # как один связанный блок). PLAIN — без изменений, как раньше.
+        return ""
+
+    # CRLF-нормализация ДО разбора маркеров: клиент пересылает improved_resume
     # через multipart/form-data (FormData), которое браузер по спецификации HTML5
     # нормализует \n -> \r\n. Без этой нормализации маркерный regex ниже (матчащий
     # только литеральные \n) не видит \r и оставляет мусорные \r\n-разделители между
     # блоками нетронутыми — тот же баг и то же решение, что уже применены в
     # _apply_improved_text_to_docx для DOCX-пути (см. коммит 7336c10).
     text = text.replace("\r\n", "\n").replace("\r", "\n")
-    clean = re.sub(r"\n*###ITEM_\d+(?::\w+)?###\n*", "\n", text).strip("\n")
+
+    # Разбор маркеров с сохранением типа блока (Цикл B, Шаг 2). Одна
+    # захватывающая группа — сам :TYPE (id блока здесь не нужен, как и
+    # в старой версии, где он тоже отбрасывался). re.split с одной
+    # группой даёт [текст_до_первого_маркера, type1, content1, type2,
+    # content2, ...]; если маркеров нет вовсе (markerless-вызов,
+    # например напрямую из теста) — parts состоит из одного элемента,
+    # и весь текст обрабатывается как единственный PLAIN-блок, что
+    # в точности воспроизводит поведение ДО Шага 2 для такого входа.
+    parts = re.split(r"###ITEM_\d+(?::(\w+))?###", text)
+    if len(parts) == 1:
+        blocks = [("PLAIN", parts[0])]
+    else:
+        blocks = []
+        for i in range(1, len(parts), 2):
+            block_type = (parts[i] or "PLAIN").upper()
+            content = parts[i + 1] if i + 1 < len(parts) else ""
+            blocks.append((block_type, content))
 
     body = []
-    for line in clean.split("\n"):
-        line = line.strip().lstrip('#').replace('**', '').replace('*', '').strip()
-        has_hebrew = any('\u0590' <= c <= '\u05FF' for c in line)
-        escaped = _escape_rtf(line)
-        if has_hebrew:
-            body.append(f"\\rtlch\\rtlpar\\qr {escaped}\\par")
-        else:
-            body.append(f"\\ltrch\\ltrpar\\ql {escaped}\\par")
+    for block_type, content in blocks:
+        content = content.strip("\n")
+        para_props = _rtf_para_props(block_type)
+        for line in content.split("\n"):
+            line = line.strip().lstrip('#').replace('**', '').replace('*', '').strip()
+            has_hebrew = any('\u0590' <= c <= '\u05FF' for c in line)
+            escaped = _escape_rtf(line)
+            # Пустую строку (межблочный/внутриблочный разделитель) не
+            # оборачиваем в форматирование типа — визуально это ничего
+            # не меняет, но так чище и не плодит бессмысленные \b\b0
+            # вокруг пустоты.
+            wrapped = _rtf_type_wrap(escaped, block_type) if line else escaped
+            if has_hebrew:
+                body.append(f"\\rtlch\\rtlpar\\qr {para_props}{wrapped}\\par")
+            else:
+                body.append(f"\\ltrch\\ltrpar\\ql {para_props}{wrapped}\\par")
 
     rtf = (
         r"{\rtf1\ansi\ansicpg1252\uc1\deff0"
