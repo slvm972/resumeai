@@ -1589,9 +1589,53 @@ def _ensure_pdf_font_registered():
 
 def _generate_pdf(text):
     """
-    Сгенерировать .pdf из текста improved_resume (с маркерами ###ITEM_NNN###,
-    которые здесь просто удаляются — как и в _generate_odt, PDF не привязан
-    к структуре оригинала, восстановление по item_ids здесь не нужно).
+    Сгенерировать .pdf из текста improved_resume (с маркерами ###ITEM_NNN###
+    или ###ITEM_NNN:TYPE###) — PDF не привязан к структуре оригинала,
+    восстановление по item_ids здесь не нужно, как и в _generate_odt.
+
+    Цикл D2: раньше (Cycle P1) суффикс :TYPE отбрасывался вместе с самим
+    маркером одним re.sub (r"\\n*###ITEM_\\d+(?::\\w+)?###\\n*" -> "\\n") —
+    тип терялся, все блоки рисовались одинаковым обычным текстом. Теперь
+    маркер разбирается через re.split с сохранением типа (тот же паттерн,
+    что уже применён в _generate_rtf/_generate_odt, Циклы B/C — переиспользован
+    без изменений) и определяет форматирование:
+      - HEADING — увеличенный font_size (+2pt, тот же шаг что и в ODT —
+        13pt вместо базовых 11pt) + дополнительный отступ сверху перед
+        первой строкой блока (аналог \\sb в RTF / margintop в ODT)
+      - TABLE   — увеличенный font_size (+2pt), БЕЗ доп. отступа (пары
+        "должность+даты" после Цикла B, Шаг 1 идут подряд и должны
+        визуально смотреться как единый связанный блок — тот же принцип,
+        что уже применён в RTF/ODT)
+      - BULLET  — литеральный символ буллета "• " перед строкой, обычный
+        font_size, без изменения шрифта
+      - PLAIN   — без изменений, как было раньше
+
+    РЕШЕНИЕ по bold (принято перед началом цикла, не блокер для этого
+    цикла): в проекте зарегистрированы только Regular-варианты всех
+    четырёх PDF-шрифтов (Alef/FiraSans/NotoArabic/WenQuanYiMicroHei) —
+    ни одного Bold TTF-файла нет. В ReportLab с кастомным TTF через
+    pdfmetrics.registerFont(TTFont(...)) жирность — это не атрибут рана,
+    а отдельный шрифтовой файл; без него bold=True работает только для
+    встроенных core-шрифтов (Helvetica-Bold и т.п.), не для наших TTF.
+    Вместо добавления Bold-файлов в этом цикле выбран более дешёвый путь —
+    увеличенный размер шрифта без реального bold. Из-за этого HEADING/TABLE
+    в PDF визуально слабее отделены от PLAIN, чем в RTF/ODT (там настоящий
+    bold) — это осознанное отклонение от полного визуального паритета
+    между тремя экспортами, не оставшийся баг. Полный паритет (поиск/
+    добавление настоящих Bold-шрифтов по той же дисциплине проверки
+    static-vs-variable, что уже применена для Regular-вариантов) можно
+    рассмотреть отдельным циклом позже, если понадобится.
+
+    Перенос строк (_wrap) измеряет ширину через pdfmetrics.stringWidth с
+    font_size, ПЕРЕДАННЫМ как параметр конкретного блока (11pt PLAIN/
+    BULLET, 13pt HEADING/TABLE) — не захардкоженной переменной из
+    замыкания, иначе HEADING/TABLE переносились бы по ширине, рассчитанной
+    для меньшего шрифта, и текст визуально вылезал бы за правое поле
+    страницы на PLAIN-подобной ширине переноса. Подтверждено эмпирически
+    (изолированный скрипт со встроенным Helvetica, т.к. кастомные TTF
+    недоступны вне рабочего окружения): при одинаковой max_width перенос
+    для 13pt даёт другое разбиение по словам, чем для 11pt — параметр
+    реально учитывается, не игнорируется.
 
     RTL: строки, содержащие иврит (диапазон \\u0590-\\u05FF, тот же что и
     везде в проекте), прогоняются через bidi.algorithm.get_display()
@@ -1663,7 +1707,18 @@ def _generate_pdf(text):
     font_arabic = _PDF_FONT_NAME_ARABIC
     font_cjk = _PDF_FONT_NAME_CJK
     font_size = 11
+    # HEADING/TABLE — увеличенный размер вместо недоступного настоящего
+    # bold (см. докстринг функции, раздел "РЕШЕНИЕ по bold"). Тот же шаг
+    # (+2pt), что уже применён для этих же типов блоков в _generate_odt.
+    heading_table_font_size = font_size + 2
     line_height = 15
+    # Доп. отступ перед первой строкой HEADING-блока — аналог \sb в RTF /
+    # margintop в ODT. В этой построчной модели без вложенности "блок ->
+    # строки" отступ реализован как довесок к обычному шагу y на первой
+    # физической строке блока (Вариант А из диагностики Цикла D1), а не
+    # отдельный "пустой шаг" — тот же принцип, что и в RTF (\sb240 — это
+    # тоже довесок к уже существующему шагу параграфа, не отдельный проход).
+    heading_margin_top = 10
     margin = 50
 
     page_w, page_h = A4
@@ -1674,13 +1729,19 @@ def _generate_pdf(text):
     c.setFont(font_latin, font_size)
     y = page_h - margin
 
-    def _wrap(line, font_name):
+    def _wrap(line, font_name, size):
+        # size передаётся параметром конкретного блока (11pt PLAIN/BULLET,
+        # 13pt HEADING/TABLE) — НЕ читается из переменной font_size
+        # замыкания, иначе HEADING/TABLE (реально нарисованные большим
+        # шрифтом) переносились бы по ширине, посчитанной для меньшего
+        # шрифта, и текст вылезал бы за правое поле страницы. Подтверждено
+        # эмпирически отдельным скриптом — см. отчёт цикла.
         words = [w for w in line.split(" ") if w != ""] or [""]
         wrapped = []
         current = words[0]
         for w in words[1:]:
             candidate = current + " " + w
-            if pdfmetrics.stringWidth(candidate, font_name, font_size) <= max_width:
+            if pdfmetrics.stringWidth(candidate, font_name, size) <= max_width:
                 current = candidate
             else:
                 wrapped.append(current)
@@ -1688,59 +1749,104 @@ def _generate_pdf(text):
         wrapped.append(current)
         return wrapped
 
-    # Цикл A: маркер может нести необязательный суффикс :TYPE — regex
-    # должен схлопывать его вместе с остальным маркером, иначе ":BULLET###"
-    # останется видимым текстом в экспорте.
-    # CRLF-нормализация ДО схлопывания маркера: клиент пересылает improved_resume
-    # через multipart/form-data (FormData), которое браузер по спецификации HTML5
-    # нормализует \n -> \r\n. Без этой нормализации маркерный regex ниже (матчащий
-    # только литеральные \n) не видит \r и оставляет мусорные \r\n-разделители между
-    # блоками нетронутыми — тот же баг и то же решение, что уже применены в
-    # _apply_improved_text_to_docx для DOCX-пути (см. коммит 7336c10).
+    # Цикл D2: разбор маркера с сохранением типа блока — тот же паттерн,
+    # что уже применён в _generate_rtf/_generate_odt (Циклы B/C, code
+    # переиспользован без изменений). ДО этого исправления (Cycle P1)
+    # один re.sub схлопывал ###ITEM_NNN(:TYPE)?### целиком, включая
+    # суффикс :TYPE — тип терялся и HEADING/TABLE/BULLET рисовались
+    # визуально одинаково с PLAIN. re.split с одной захватывающей группой
+    # даёт [текст_до_первого_маркера, type1, content1, type2, content2, ...];
+    # markerless-вход (без ###ITEM### вообще, например прямой вызов из
+    # теста) даёт parts из одного элемента — весь текст обрабатывается
+    # как единственный PLAIN-блок, в точности воспроизводя поведение ДО
+    # этого цикла для такого входа.
+    # CRLF-нормализация ДО разбора маркера — не трогать (см. докстринг
+    # выше и коммит 7336c10 для DOCX-пути, тот же баг/то же решение).
     text = text.replace("\r\n", "\n").replace("\r", "\n")
-    clean = re.sub(r"\n*###ITEM_\d+(?::\w+)?###\n*", "\n", text).strip("\n")
-    for raw_line in clean.split("\n"):
-        line = raw_line.strip().lstrip("#").replace("**", "").replace("*", "").strip()
+    parts = re.split(r"###ITEM_\d+(?::(\w+))?###", text)
+    if len(parts) == 1:
+        blocks = [("PLAIN", parts[0])]
+    else:
+        blocks = []
+        for i in range(1, len(parts), 2):
+            block_type = (parts[i] or "PLAIN").upper()
+            content = parts[i + 1] if i + 1 < len(parts) else ""
+            blocks.append((block_type, content))
 
-        if not line:
-            if y < margin + line_height:
-                c.showPage()
-                c.setFont(font_latin, font_size)
-                y = page_h - margin
-            y -= line_height
-            continue
+    for block_type, content in blocks:
+        if block_type not in ("HEADING", "TABLE", "BULLET"):
+            block_type = "PLAIN"
+        content = content.strip("\n")
+        block_font_size = (
+            heading_table_font_size if block_type in ("HEADING", "TABLE") else font_size
+        )
+        # Флаг "первая физическая строка блока" — только на ней (и только
+        # для HEADING) применяется доп. отступ сверху. content.strip("\n")
+        # выше уже убрал ведущие/замыкающие пустые строки блока, поэтому
+        # первым элементом content.split("\n") практически всегда будет
+        # непустая строка — это и есть "первая строка блока" в терминах
+        # диагностики Цикла D1.
+        is_first_line_of_block = True
 
-        has_hebrew = any("\u0590" <= ch <= "\u05FF" for ch in line)
-        has_arabic = any("\u0600" <= ch <= "\u06FF" for ch in line)
-        has_cjk = any("\u4E00" <= ch <= "\u9FFF" for ch in line)
-        if has_hebrew:
-            line_font = font_hebrew
-        elif has_arabic:
-            line_font = font_arabic
-        elif has_cjk:
-            line_font = font_cjk
-        else:
-            line_font = font_latin
+        for raw_line in content.split("\n"):
+            line = raw_line.strip().lstrip("#").replace("**", "").replace("*", "").strip()
 
-        for sub_line in _wrap(line, line_font):
-            if y < margin + line_height:
-                c.showPage()
-                y = page_h - margin
-            # Явно перед каждой отрисовкой — предыдущая строка могла
-            # использовать другой шрифт (Alef/FiraSans/NotoArabic чередуются
-            # по тексту), reportlab не хранит "текущий" шрифт между строками
-            # надёжно для наших целей, поэтому не полагаемся на состояние.
-            c.setFont(line_font, font_size)
+            if not line:
+                if y < margin + line_height:
+                    c.showPage()
+                    c.setFont(font_latin, font_size)
+                    y = page_h - margin
+                y -= line_height
+                is_first_line_of_block = False
+                continue
+
+            # BULLET — литеральный символ буллета перед строкой, тот же
+            # видимый эффект, что "\bullet " в RTF и "\u2022 " в ODT.
+            display_line = f"\u2022 {line}" if block_type == "BULLET" else line
+
+            has_hebrew = any("\u0590" <= ch <= "\u05FF" for ch in display_line)
+            has_arabic = any("\u0600" <= ch <= "\u06FF" for ch in display_line)
+            has_cjk = any("\u4E00" <= ch <= "\u9FFF" for ch in display_line)
             if has_hebrew:
-                c.drawRightString(page_w - margin, y, get_display(sub_line))
+                line_font = font_hebrew
             elif has_arabic:
-                # Арабский требует shaping ДО bidi-переупорядочивания —
-                # см. подробное объяснение в docstring функции выше.
-                shaped = arabic_reshaper.reshape(sub_line)
-                c.drawRightString(page_w - margin, y, get_display(shaped))
+                line_font = font_arabic
+            elif has_cjk:
+                line_font = font_cjk
             else:
-                c.drawString(margin, y, sub_line)
-            y -= line_height
+                line_font = font_latin
+
+            extra_top = heading_margin_top if (block_type == "HEADING" and is_first_line_of_block) else 0
+
+            for sub_idx, sub_line in enumerate(_wrap(display_line, line_font, block_font_size)):
+                # Доп. отступ применяется только к первому шагу y самой
+                # первой строки блока — если word-wrap развернул эту
+                # строку на несколько под-строк, довесок не повторяется
+                # на каждой под-строке, иначе отступ раздувался бы
+                # пропорционально длине заголовка.
+                step = line_height + (extra_top if sub_idx == 0 else 0)
+                if y < margin + step:
+                    c.showPage()
+                    y = page_h - margin
+                # Явно перед каждой отрисовкой — предыдущая строка могла
+                # использовать другой шрифт (Alef/FiraSans/NotoArabic чередуются
+                # по тексту) и/или другой размер (PLAIN/BULLET 11pt против
+                # HEADING/TABLE 13pt), reportlab не хранит "текущий" шрифт
+                # между строками надёжно для наших целей, поэтому не
+                # полагаемся на состояние.
+                c.setFont(line_font, block_font_size)
+                if has_hebrew:
+                    c.drawRightString(page_w - margin, y, get_display(sub_line))
+                elif has_arabic:
+                    # Арабский требует shaping ДО bidi-переупорядочивания —
+                    # см. подробное объяснение в docstring функции выше.
+                    shaped = arabic_reshaper.reshape(sub_line)
+                    c.drawRightString(page_w - margin, y, get_display(shaped))
+                else:
+                    c.drawString(margin, y, sub_line)
+                y -= step
+
+            is_first_line_of_block = False
 
     # Явно финализировать последнюю страницу перед save(). Без этого:
     # с кастомным TTF-шрифтом (Alef) страница, на которой ни разу не был
