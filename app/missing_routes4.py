@@ -1817,14 +1817,26 @@ def _generate_pdf(text):
                 line_font = font_latin
 
             extra_top = heading_margin_top if (block_type == "HEADING" and is_first_line_of_block) else 0
+            if extra_top:
+                # Отступ должен визуально отделять заголовок ОТ ПРЕДЫДУЩЕГО
+                # текста (воздух НАД заголовком), а не раздувать промежуток
+                # ПОСЛЕ него. Раз y уменьшается на "step" ПОСЛЕ отрисовки
+                # текущей строки (и, значит, влияет на позицию следующей),
+                # довесок нужно применить здесь — ДО отрисовки первой
+                # строки блока, — а не примешивать его в step вместе с
+                # обычным line_height (иначе он сдвигает не ту строку).
+                if y < margin + extra_top:
+                    c.showPage()
+                    c.setFont(font_latin, font_size)
+                    y = page_h - margin
+                y -= extra_top
 
             for sub_idx, sub_line in enumerate(_wrap(display_line, line_font, block_font_size)):
-                # Доп. отступ применяется только к первому шагу y самой
-                # первой строки блока — если word-wrap развернул эту
-                # строку на несколько под-строк, довесок не повторяется
-                # на каждой под-строке, иначе отступ раздувался бы
-                # пропорционально длине заголовка.
-                step = line_height + (extra_top if sub_idx == 0 else 0)
+                # Шаг всегда line_height — без extra_top: тот довесок уже
+                # учтён выше, до входа в этот цикл, и относится к отступу
+                # НАД заголовком, а не к шагу между его собственными
+                # под-строками или к следующей за ним строке.
+                step = line_height
                 if y < margin + step:
                     c.showPage()
                     y = page_h - margin
