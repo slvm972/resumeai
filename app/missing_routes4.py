@@ -1310,10 +1310,41 @@ def register_missing_routes(app, _extract_text_from_request, _get_current_user):
 
 def _generate_odt(text):
     """
-    Сгенерировать .odt из текста improved_resume (с маркерами ###ITEM_NNN###,
-    которые здесь просто удаляются — ODT не привязан к структуре оригинала,
-    в отличие от DOCX-пути, где восстановление идёт по item_ids). Строки на
-    иврите получают RTL-стиль абзаца (writing-mode: rl-tb).
+    Сгенерировать .odt из текста improved_resume (с маркерами
+    ###ITEM_NNN### или ###ITEM_NNN:TYPE###). ODT не привязан к структуре
+    оригинала (в отличие от DOCX-пути, где восстановление идёт по
+    item_ids) — маркеры используются здесь только чтобы определить тип
+    блока для форматирования, сам ID не нужен.
+
+    Цикл C: раньше (Cycle O1) суффикс :TYPE отбрасывался вместе с самим
+    маркером (re.sub схлопывал весь ###ITEM_NNN(:TYPE)?### в перевод
+    строки) — тип терялся, все блоки рендерились одинаковым обычным
+    абзацем. Теперь тип каждого блока сохраняется (тот же re.split с
+    захватывающей группой, что уже применён в _generate_rtf, Цикл B,
+    Шаг 2 — переиспользован без изменений) и определяет форматирование
+    через нативные именованные стили odfpy:
+      - HEADING — жирный текст, чуть увеличенный размер шрифта,
+        отступ сверху (аналог \\sb в RTF)
+      - TABLE   — жирный текст, БЕЗ дополнительного отступа (пары
+        "должность+даты" должны визуально смотреться как единый блок)
+      - BULLET  — символ буллета (•) перед текстом + левый отступ
+        параграфа
+      - PLAIN   — без изменений, как раньше (Standard-стиль)
+
+    В odfpy стили форматирования объявляются заранее как именованные
+    объекты style.Style в office:automatic-styles и применяются через
+    text:style-name у параграфа целиком — не как inline-атрибуты на
+    каждый отдельный ран текста. Здесь текст всегда идёт прямым
+    содержимым параграфа (без <text:span>), поэтому style:text-properties
+    именованного паражрафного стиля действует как форматирование по
+    умолчанию для этого текста — того же эффекта, что и явный span,
+    без необходимости в нём.
+
+    RTL (иврит, writing-mode: rl-tb) — как и раньше, определяется по
+    диапазону символов \\u0590-\\u05FF и комбинируется с типом блока:
+    для каждого типа заведена отдельная RTL-версия стиля (и заголовка,
+    и таблицы, и буллета), поскольку у параграфа может быть только один
+    именованный стиль одновременно.
 
     Проверено round-trip тестом (запись -> odf.opendocument.load -> чтение):
     см. tests/test_odt_export.py.
@@ -1332,30 +1363,99 @@ def _generate_odt(text):
         pass
     from odf.opendocument import OpenDocumentText
     from odf.text import P
-    from odf.style import Style, ParagraphProperties
+    from odf.style import Style, ParagraphProperties, TextProperties
 
     doc = OpenDocumentText()
 
-    rtl_style = Style(name="RTLParagraph", family="paragraph")
-    rtl_style.addElement(ParagraphProperties(writingmode="rl-tb"))
-    doc.automaticstyles.addElement(rtl_style)
+    # ------------------------------------------------------------------
+    # Именованные стили по типу блока x RTL/LTR (Цикл C). Заведены
+    # заранее (не лениво по ходу обхода строк), чтобы каждое имя стиля
+    # регистрировалось в automaticstyles ровно один раз — повторная
+    # регистрация стиля с тем же именем на каждой строке дала бы
+    # дублирующиеся <style:style> с одинаковым style:name, что как
+    # минимум избыточно раздувает файл, а с некоторыми ODF-читалками
+    # может дать неопределённое поведение (какой из дублей применяется).
+    # ------------------------------------------------------------------
+    def _make_odt_style(name, is_rtl, bold=False, font_size=None,
+                          margin_top=None, margin_left=None):
+        para_kwargs = {}
+        if is_rtl:
+            para_kwargs["writingmode"] = "rl-tb"
+        if margin_top is not None:
+            para_kwargs["margintop"] = margin_top
+        if margin_left is not None:
+            para_kwargs["marginleft"] = margin_left
 
-    # Цикл A: маркер может нести необязательный суффикс :TYPE — regex
-    # должен схлопывать его вместе с остальным маркером, иначе ":BULLET###"
-    # останется видимым текстом в экспорте.
-    # CRLF-нормализация ДО схлопывания маркера: клиент пересылает improved_resume
-    # через multipart/form-data (FormData), которое браузер по спецификации HTML5
-    # нормализует \n -> \r\n. Без этой нормализации маркерный regex ниже (матчащий
-    # только литеральные \n) не видит \r и оставляет мусорные \r\n-разделители между
-    # блоками нетронутыми — тот же баг и то же решение, что уже применены в
-    # _apply_improved_text_to_docx для DOCX-пути (см. коммит 7336c10).
+        style = Style(name=name, family="paragraph")
+        if para_kwargs:
+            style.addElement(ParagraphProperties(**para_kwargs))
+
+        text_kwargs = {}
+        if bold:
+            text_kwargs["fontweight"] = "bold"
+        if font_size:
+            text_kwargs["fontsize"] = font_size
+        if text_kwargs:
+            style.addElement(TextProperties(**text_kwargs))
+
+        doc.automaticstyles.addElement(style)
+        return style
+
+    # (block_type, is_rtl) -> Style | None. PLAIN+LTR остаётся None —
+    # это Standard-стиль читалки по умолчанию, как и было до Цикла C.
+    _odt_styles = {("PLAIN", False): None}
+    for is_rtl, suffix in ((False, ""), (True, "RTL")):
+        if is_rtl:
+            _odt_styles[("PLAIN", True)] = _make_odt_style(
+                f"Plain{suffix}", True
+            )
+        _odt_styles[("HEADING", is_rtl)] = _make_odt_style(
+            f"Heading{suffix}", is_rtl, bold=True, font_size="13pt",
+            margin_top="0.35cm",
+        )
+        _odt_styles[("TABLE", is_rtl)] = _make_odt_style(
+            f"Table{suffix}", is_rtl, bold=True,
+        )
+        _odt_styles[("BULLET", is_rtl)] = _make_odt_style(
+            f"Bullet{suffix}", is_rtl, margin_left="0.5cm",
+        )
+
+    # CRLF-нормализация ДО разбора маркеров — не трогать (см. докстринг
+    # выше и коммит 7336c10 для DOCX-пути, тот же баг/то же решение).
     text = text.replace("\r\n", "\n").replace("\r", "\n")
-    clean = re.sub(r"\n*###ITEM_\d+(?::\w+)?###\n*", "\n", text).strip("\n")
-    for line in clean.split("\n"):
-        line = line.strip().lstrip("#").replace("**", "").replace("*", "").strip()
-        has_hebrew = any("\u0590" <= c <= "\u05FF" for c in line)
-        p = P(stylename=rtl_style if has_hebrew else None, text=line if line else None)
-        doc.text.addElement(p)
+
+    # Разбор маркеров с сохранением типа блока — идентичная логика
+    # _generate_rtf (Цикл B, Шаг 2), переиспользована без изменений.
+    # Markerless-вход (без ###ITEM### вообще) даёт parts из одного
+    # элемента — весь текст обрабатывается как единственный PLAIN-блок.
+    parts = re.split(r"###ITEM_\d+(?::(\w+))?###", text)
+    if len(parts) == 1:
+        blocks = [("PLAIN", parts[0])]
+    else:
+        blocks = []
+        for i in range(1, len(parts), 2):
+            block_type = (parts[i] or "PLAIN").upper()
+            content = parts[i + 1] if i + 1 < len(parts) else ""
+            blocks.append((block_type, content))
+
+    for block_type, content in blocks:
+        if block_type not in ("HEADING", "TABLE", "BULLET"):
+            block_type = "PLAIN"
+        content = content.strip("\n")
+        for line in content.split("\n"):
+            line = line.strip().lstrip("#").replace("**", "").replace("*", "").strip()
+
+            if not line:
+                # Пустая строка (межблочный/внутриблочный разделитель) —
+                # обычный пустой абзац без стиля, как и в старой версии
+                # (Cycle O1: stylename=None для пустых строк).
+                doc.text.addElement(P(text=None))
+                continue
+
+            has_hebrew = any("\u0590" <= c <= "\u05FF" for c in line)
+            display_text = f"\u2022 {line}" if block_type == "BULLET" else line
+            style = _odt_styles[(block_type, has_hebrew)]
+            doc.text.addElement(P(stylename=style, text=display_text))
 
     buf = io.BytesIO()
     doc.save(buf)
