@@ -527,6 +527,31 @@ def _register_legacy_routes(app):
     def legacy_user_me():
         user = _get_current_user()
         if not user:
+            # Чистая admin-сессия (session['admin'] выставлена в legacy_login,
+            # session['user_id'] явно None) — не настоящий User из БД, но
+            # index.html нужен хоть какой-то объект, иначе currentUser
+            # остаётся null и клик по "Analyze" уходит в showGuestDemo(),
+            # даже когда серверная admin-сессия уже активна и лимит будет
+            # обойдён в legacy_analyze через is_admin='admin' in session.
+            # Намеренно НЕ меняем _get_current_user() — эта функция дергается
+            # из множества других роутов (analyze/improve/docx и т.д.), где
+            # предполагается либо настоящий User, либо None; расширять её
+            # контракт синтетическим объектом рискованно для этих мест.
+            # Здесь же, в /api/user/me, синтетический ответ используется
+            # только фронтендом для отображения (имя в шапке, признак логина)
+            # и ни к БД, ни к подписке не обращается.
+            if session.get('admin') and not session.get('user_id'):
+                return jsonify({
+                    'success': True,
+                    'user': {
+                        'id': None,
+                        'email': 'admin',
+                        'name': 'Admin',
+                        'premium': True,
+                        'plan': 'admin',
+                    },
+                    'subscription': None,
+                })
             return jsonify({'success': False, 'error': 'Unauthorized'}), 401
         subscription = user.get_active_subscription()
         return jsonify({

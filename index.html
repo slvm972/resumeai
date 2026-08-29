@@ -1111,8 +1111,16 @@
         });
         const data = await res.json();
         if (!res.ok || !data.success) { showModalError(data.error || 'Wrong admin credentials'); return; }
-        showModalSuccess('Welcome, Admin! Redirecting...');
-        setTimeout(() => { window.location.href = '/admin'; }, 800);
+        showModalSuccess('Welcome, Admin!');
+        // Остаёмся на index.html (не редиректим на /admin) — нужно для
+        // демо-сценария: admin-сессия без лимита прямо на главной странице.
+        // /api/login не возвращает объект user (это не /api/user/login),
+        // поэтому подтягиваем синтетического admin-пользователя тем же
+        // путём, что и при восстановлении сессии на перезагрузке страницы —
+        // через checkSession() -> /api/user/me, чтобы не дублировать логику
+        // формирования currentUser в двух местах.
+        await checkSession();
+        setTimeout(() => { closeModal(); }, 800);
         return;
       }
       // Обычный user login по email
