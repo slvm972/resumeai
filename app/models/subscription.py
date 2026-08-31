@@ -21,11 +21,11 @@ class Subscription(db.Model):
     # а не сбрасывают счётчик. Остаток = improvement_credits - improvement_used.
     improvement_credits = db.Column(db.Integer, nullable=False, default=0)
     # Единый пул кредитов — тратится и на analyze, и на improve.
-    # credits_granted: сколько всего выдано (2 при регистрации + 10 за каждую покупку, стакается).
+    # credits_granted: сколько всего выдано (1 при регистрации + 10 за каждую покупку, стакается).
     # credits_used: сколько всего потрачено (растёт при каждом analyze и improve).
     # Старые поля (analysis_used, improvement_used, improvement_credits) оставлены
     # нетронутыми на этом шаге — переключение логики на новый пул будет отдельным шагом.
-    credits_granted = db.Column(db.Integer, nullable=False, default=2)
+    credits_granted = db.Column(db.Integer, nullable=False, default=1)
     credits_used = db.Column(db.Integer, nullable=False, default=0)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
