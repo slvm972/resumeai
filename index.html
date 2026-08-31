@@ -472,6 +472,12 @@
       <!-- Error -->
       <div class="error-box" id="errorBox"></div>
 
+      <!-- Credits exhausted — paywall banner (shown on 403 from /api/analyze) -->
+      <div id="creditsExhaustedBanner" style="display:none;margin-top:1rem;background:linear-gradient(135deg,rgba(59,130,246,.15),rgba(6,182,212,.15));border:1px solid rgba(59,130,246,.3);border-radius:10px;padding:.85rem 1rem;font-size:.85rem;color:#93c5fd;line-height:1.5">
+        🔒 <strong>Free limit reached</strong> — You've used your free credit. Buy a credit pack to keep analyzing.
+        <a href="#" onclick="scrollToPricing();return false;" style="color:#60a5fa;text-decoration:underline;margin-left:.3rem">Buy Credits →</a>
+      </div>
+
       <!-- Result -->
       <div id="resultPanel">
         <div class="result-header">
@@ -900,6 +906,7 @@
     setLoading(true);
     resultPanel.style.display = 'none';
     errorBox.classList.remove('active');
+    document.getElementById('creditsExhaustedBanner').style.display = 'none';
 
     const formData = new FormData();
     formData.append('file', selectedFile);
@@ -908,6 +915,12 @@
 
     try {
       const res = await fetch(BACKEND_URL, { method: 'POST', body: formData });
+
+      if (res.status === 403) {
+        document.getElementById('creditsExhaustedBanner').style.display = 'block';
+        return;
+      }
+
       if (!res.ok) throw new Error(`Server error ${res.status}: ${await res.text()}`);
       const data = await res.json();
       lastResumeText = data.resume_text || null;
@@ -1107,20 +1120,12 @@
         const res = await fetch('/api/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: emailOrUser, password: pass })
+          body: JSON.stringify({ username: 'admin', password: pass })
         });
         const data = await res.json();
         if (!res.ok || !data.success) { showModalError(data.error || 'Wrong admin credentials'); return; }
-        showModalSuccess('Welcome, Admin!');
-        // Остаёмся на index.html (не редиректим на /admin) — нужно для
-        // демо-сценария: admin-сессия без лимита прямо на главной странице.
-        // /api/login не возвращает объект user (это не /api/user/login),
-        // поэтому подтягиваем синтетического admin-пользователя тем же
-        // путём, что и при восстановлении сессии на перезагрузке страницы —
-        // через checkSession() -> /api/user/me, чтобы не дублировать логику
-        // формирования currentUser в двух местах.
-        await checkSession();
-        setTimeout(() => { closeModal(); }, 800);
+        showModalSuccess('Welcome, Admin! Redirecting...');
+        setTimeout(() => { window.location.href = '/admin'; }, 800);
         return;
       }
       // Обычный user login по email
