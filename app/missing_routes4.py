@@ -133,7 +133,7 @@ def _detect_language_simple(text):
     return _LANGID_TO_NAME.get(code, "English")
 
 
-def _classify_para_type(para, in_table=False):
+def _classify_para_type(para, in_table=False, is_first_para=False):
     """
     Классифицировать параграф для целей форматированного экспорта
     (RTF/ODT/PDF, Циклы B/C/D). Возвращает одно из: 'heading',
@@ -152,6 +152,30 @@ def _classify_para_type(para, in_table=False):
       принадлежность к таблице определяется вызывающим кодом через
       параметр in_table (мы уже внутри цикла по table.rows/cells),
       а не через XML-инспекцию параграфа.
+
+    Fallback-эвристика (Цикл A2): проверено на sample_resume_russian.docx,
+    где весь документ размечен ЧЕРЕЗ ПРЯМОЕ ФОРМАТИРОВАНИЕ, а не именованные
+    Word-стили — para.style is None для каждого параграфа без исключения.
+    На таких файлах приведённые выше проверки НИКОГДА не срабатывают, и без
+    fallback весь документ уходит в "plain" (подтверждено логом
+    [DEBUG-TYPE-SUFFIX] на реальном прод-тесте — item_001/item_003 оба
+    "plain", хотя по смыслу "Дмитрий Соколов" — имя, "О себе" — заголовок
+    секции). Эта разметка (bold вместо стилей, литеральный "•" вместо
+    настоящего списка) — распространённый способ делать резюме в Word,
+    особенно вручную или после конвертации из другого формата.
+
+    - BULLET fallback: текст параграфа начинается с литерального "•" —
+      функционально буллет независимо от наличия <w:numPr>.
+    - HEADING fallback: параграф состоит РОВНО из одного run, у которого
+      bold is True, текст не длиннее 60 символов, И это НЕ первый непустой
+      параграф документа. Требование "не первый параграф" критично — первый
+      bold-параграф в резюме почти всегда имя человека в шапке (bold, коротко,
+      но не заголовок секции), различить его от настоящего заголовка секции
+      по одному только форматированию невозможно, только по позиции.
+      Подтверждено эмпирически на реальном файле: "Дмитрий Соколов" (idx 0,
+      single-run bold) и "О себе"/"Опыт работы" (idx 2/4, тоже single-run
+      bold) имеют идентичную run-структуру — единственный различающий
+      сигнал есть is_first_para.
     """
     if in_table:
         return "table"
@@ -165,6 +189,16 @@ def _classify_para_type(para, in_table=False):
     ))
     if has_numpr or style_name in ("List Paragraph", "List Bullet", "List Number"):
         return "bullet"
+
+    text = para.text.strip()
+
+    if text.startswith("\u2022"):
+        return "bullet"
+
+    if not is_first_para and len(text) <= 60:
+        runs = para.runs
+        if len(runs) == 1 and runs[0].bold is True:
+            return "heading"
 
     return "plain"
 
@@ -215,14 +249,25 @@ def _extract_structured(doc):
     from docx.table import Table
 
     items = []
+    # Цикл A2: отслеживаем, встретился ли уже хоть один непустой top-level
+    # параграф — нужно для fallback-эвристики HEADING в _classify_para_type
+    # (первый bold-параграф документа почти всегда имя в шапке резюме, не
+    # заголовок секции). Считаем только свободные параграфы верхнего уровня,
+    # не ячейки таблиц — таблица никогда не бывает первым элементом реального
+    # резюме, но даже если бы была, её ячейки классифицируются как "table"
+    # безусловно (in_table=True), is_first_para для них не используется.
+    seen_first_para = False
     for block in doc.iter_inner_content():
         if isinstance(block, Paragraph):
             if block.text.strip():
                 items.append({
                     "para": block,
                     "text": block.text.strip(),
-                    "type": _classify_para_type(block, in_table=False),
+                    "type": _classify_para_type(
+                        block, in_table=False, is_first_para=not seen_first_para
+                    ),
                 })
+                seen_first_para = True
         elif isinstance(block, Table):
             all_cells = [cell for row in block.rows for cell in row.cells]
             seen = set()
