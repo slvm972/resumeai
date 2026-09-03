@@ -1015,15 +1015,30 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
             k += 2
         return result
 
-    def _restore_and_validate(parsed, attempt_label):
+    def _restore_and_validate(parsed, attempt_label, restrict_ids=None):
         """
         Восстановить токены, применить Fact Validation,
         применить Quality Gate. Вернуть (id_to_text, block_reports).
+
+        restrict_ids (Цикл F2): если задан (set идентификаторов), функция
+        физически не итерируется по блокам вне этого множества — не
+        генерирует для них НИКАКОЙ отчёт. Это устраняет двойной счёт при
+        retry-вызове (attempt_2): без этого параметра цикл проходил по
+        ВСЕМ orig_items, и для каждого НЕ-ретраенного id (iid not in
+        parsed_2) генерировалась спурьезная запись decision=
+        "kept_original" — даже если этот блок уже был "accepted" в
+        attempt_1. Итоговые summary-счётчики превышали total_blocks, а
+        верный "accepted" мог быть перезаписан наивным dedup на
+        "kept_original". Финальный текст резюме багом не затрагивался
+        (merge использует отдельный `for iid in retry_ids` цикл) — баг
+        был только в отчётности quality_report.
         """
         id_to_text = {}
         block_reports = []
         for i, item in enumerate(orig_items):
             iid = item_ids[i]
+            if restrict_ids is not None and iid not in restrict_ids:
+                continue  # не в scope этого вызова — пропускаем полностью
             orig_text = item["text"]
             # Наследуем реально применённое решение первой попытки —
             # не пересчитываем через _classify_item заново, иначе
@@ -1155,7 +1170,9 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
             # Один вызов — используем один и тот же результат и для отчёта,
             # и для merge, чтобы то, что проверялось, гарантированно совпадало
             # с тем, что попадает в итоговый текст.
-            id_to_text_retry, reports_2 = _restore_and_validate(parsed_2, "attempt_2")
+            id_to_text_retry, reports_2 = _restore_and_validate(
+                parsed_2, "attempt_2", restrict_ids=set(retry_ids)
+            )
 
             for iid in retry_ids:
                 if id_to_text_retry.get(iid) is not None:
@@ -1210,18 +1227,31 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
         pass
 
     # --- Отчёт по блокам ---
+    # Дедупликация ТОЛЬКО для summary-статистики (Цикл F2, доп.): для
+    # каждого id берём ПОСЛЕДНЮЮ по порядку запись в all_reports. Для
+    # НЕ-ретраенных id запись только одна (после restrict_ids-фикса) —
+    # она и останется. Для РЕАЛЬНО ретраенных id запись attempt_2 идёт в
+    # all_reports позже attempt_1 (порядок добавления: all_reports =
+    # reports_1; all_reports += reports_2), поэтому "последняя побеждает"
+    # даёт именно финальное решение по блоку. "blocks" (полная история)
+    # НЕ меняется — трогаем только вычисление summary/avg_similarity.
+    final_by_id = {}
+    for r in all_reports:
+        final_by_id[r["id"]] = r
+    final_decisions = list(final_by_id.values())
+
     quality_report = {
         "total_blocks": len(orig_items),
         "retry_triggered": len(retry_ids),
         "retry_ids": retry_ids,
         "blocks": all_reports,
         "summary": {
-            "accepted":        sum(1 for r in all_reports if r["decision"] == "accepted"),
-            "kept_original":   sum(1 for r in all_reports if r["decision"] == "kept_original"),
-            "rejected_facts":  sum(1 for r in all_reports if r["decision"] == "rejected_facts"),
-            "needs_retry":     sum(1 for r in all_reports if r["decision"] == "needs_retry"),
+            "accepted":        sum(1 for r in final_decisions if r["decision"] == "accepted"),
+            "kept_original":   sum(1 for r in final_decisions if r["decision"] == "kept_original"),
+            "rejected_facts":  sum(1 for r in final_decisions if r["decision"] == "rejected_facts"),
+            "needs_retry":     sum(1 for r in final_decisions if r["decision"] == "needs_retry"),
             "avg_similarity":  round(
-                sum(r["similarity"] for r in all_reports) / max(len(all_reports), 1), 3
+                sum(r["similarity"] for r in final_decisions) / max(len(final_decisions), 1), 3
             ),
         },
     }
