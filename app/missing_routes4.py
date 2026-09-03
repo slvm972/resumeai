@@ -1524,7 +1524,13 @@ def _generate_odt(text):
                 continue
 
             has_hebrew = any("\u0590" <= c <= "\u05FF" for c in line)
-            display_text = f"\u2022 {line}" if block_type == "BULLET" else line
+            # Цикл E3: если line уже начинается с "•" (A2-fallback в
+            # _classify_para_type — буллет набран как литеральный символ
+            # в самом тексте, не через numPr), не добавлять второй маркер.
+            if block_type == "BULLET" and not line.lstrip().startswith("\u2022"):
+                display_text = f"\u2022 {line}"
+            else:
+                display_text = line
             style = _odt_styles[(block_type, has_hebrew)]
             doc.text.addElement(P(stylename=style, text=display_text))
 
@@ -1873,7 +1879,13 @@ def _generate_pdf(text):
 
             # BULLET — литеральный символ буллета перед строкой, тот же
             # видимый эффект, что "\bullet " в RTF и "\u2022 " в ODT.
-            display_line = f"\u2022 {line}" if block_type == "BULLET" else line
+            # Цикл E3: если line уже начинается с "•" (A2-fallback в
+            # _classify_para_type — буллет набран как литеральный символ
+            # в самом тексте, не через numPr), не добавлять второй маркер.
+            if block_type == "BULLET" and not line.lstrip().startswith("\u2022"):
+                display_line = f"\u2022 {line}"
+            else:
+                display_line = line
 
             has_hebrew = any("\u0590" <= ch <= "\u05FF" for ch in display_line)
             has_arabic = any("\u0600" <= ch <= "\u06FF" for ch in display_line)
@@ -2101,11 +2113,25 @@ def _generate_rtf(text):
             line = line.strip().lstrip('#').replace('**', '').replace('*', '').strip()
             has_hebrew = any('\u0590' <= c <= '\u05FF' for c in line)
             escaped = _escape_rtf(line)
+            # Цикл E3 (RTF): если line уже содержит буллет-маркер "•"
+            # (A2-fallback в _classify_para_type — буллет набран как
+            # литеральный символ в тексте, не через numPr), не оборачивать
+            # через BULLET-ветку _rtf_type_wrap повторно — иначе получим
+            # "\bullet" поверх уже существующего "•". Проверка делается
+            # здесь, ДО _escape_rtf, пока line ещё содержит настоящий
+            # юникод-символ "•" (после экранирования его там уже нет —
+            # _escape_rtf конвертирует любой не-ASCII символ, включая "•",
+            # в \uN? escape-последовательность, и проверка внутри самой
+            # _rtf_type_wrap технически невозможна). para_props (левый
+            # отступ \li360) остаётся от ОРИГИНАЛЬНОГО block_type —
+            # это оформление абзаца, не маркер, дублирования не касается.
+            already_has_bullet = block_type == "BULLET" and line.lstrip().startswith("\u2022")
+            wrap_type = "PLAIN" if already_has_bullet else block_type
             # Пустую строку (межблочный/внутриблочный разделитель) не
             # оборачиваем в форматирование типа — визуально это ничего
             # не меняет, но так чище и не плодит бессмысленные \b\b0
             # вокруг пустоты.
-            wrapped = _rtf_type_wrap(escaped, block_type) if line else escaped
+            wrapped = _rtf_type_wrap(escaped, wrap_type) if line else escaped
             if has_hebrew:
                 body.append(f"\\rtlch\\rtlpar\\qr {para_props}{wrapped}\\par")
             else:
