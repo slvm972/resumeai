@@ -90,6 +90,11 @@ _LANGID_TO_NAME = {
     'he': 'Hebrew',
     'ar': 'Arabic',
     'zh': 'Chinese',
+    'fr': 'French',
+    'hu': 'Hungarian',
+    'pl': 'Polish',
+    'sk': 'Slovak',
+    'es': 'Spanish',
 }
 
 
@@ -105,8 +110,9 @@ def _detect_language_simple(text):
        однозначно определяются по диапазону символов, без
        обращения к langid (быстрее и надёжнее на коротких строках).
     2. Для всех остальных языков (включая Russian/Ukrainian/English/
-       Chinese) — langid.classify(), код результата переводится
-       в полное название через словарь _LANGID_TO_NAME.
+       Chinese/French/Hungarian/Polish/Slovak/Spanish) — langid.classify(),
+       код результата переводится в полное название через словарь
+       _LANGID_TO_NAME.
     3. Fallback — 'English', если текст пустой, langid упал с
        исключением, или вернул код, которого нет в словаре.
     """
@@ -827,6 +833,140 @@ def _extract_retry_after_seconds(error_message, default=2.0, cap=12.0):
         return default
 
 
+# ---------------------------------------------------------------------------
+# Per-block-type temperature (Phase 2, Шаг 2.1)
+# ---------------------------------------------------------------------------
+
+# Базовые значения по анализу 408 блоков из diagnose_batch_final (Фаза 1):
+#   BULLET (53% acceptance) — можно поднимать смелее
+#   PLAIN  (30% acceptance) — можно поднимать умеренно
+#   HEADING (0% acceptance) — оставить консервативным
+#   TABLE  (1.6% acceptance) — оставить консервативным, риск
+TEMP_BY_BLOCK_TYPE = {
+    "bullet": 0.40,
+    "plain": 0.30,
+    "heading": 0.15,
+    "table": 0.15,
+}
+TEMP_DEFAULT = 0.15          # fallback, если тип не найден
+TEMP_RETRY_BUMP = 0.15       # прибавка для attempt_2
+TEMP_RETRY_CAP = 0.55        # потолок для attempt_2
+
+
+def _select_batch_temperature(block_type, attempt_label):
+    """
+    Выбрать temperature по (block_type, attempt_label). Значения — по
+    анализу 408 блоков из diagnose_batch_final (Фаза 1):
+      bullet  (53% acceptance)  -> 0.40
+      plain   (30% acceptance)  -> 0.30
+      heading (0% acceptance)   -> 0.15 (консервативно)
+      table   (1.6% acceptance) -> 0.15 (консервативно, риск)
+      неизвестный тип -> TEMP_DEFAULT (0.15)
+    Для attempt_2 (retry) добавляется TEMP_RETRY_BUMP (+0.15), но не выше
+    TEMP_RETRY_CAP (0.55).
+
+    ВАЖНО (не спрятано, чтобы не потерять при следующей правке): Groq
+    вызывается один раз на ВЕСЬ батч блоков (attempt_1 — все item_ids
+    сразу, attempt_2 — все retry_ids сразу), а не по одному вызову на
+    блок. У одного HTTP-запроса один параметр temperature на весь
+    промпт — нельзя задать разную temperature для разных блоков ВНУТРИ
+    одного запроса. Поэтому block_type, передаваемый сюда, — это ОДИН
+    представительный тип на весь батч (см. _dominant_improve_block_type
+    в месте вызова), а не тип конкретного отдельного блока.
+    """
+    base = TEMP_BY_BLOCK_TYPE.get(block_type, TEMP_DEFAULT)
+    if attempt_label == "attempt_2":
+        return min(base + TEMP_RETRY_BUMP, TEMP_RETRY_CAP)
+    return base
+
+
+def _dominant_improve_block_type(batch_item_ids, strategy_map, type_map):
+    """
+    Определить ОДИН представительный block_type для батча, который
+    реально уйдёт в _select_batch_temperature(). Смотрим только на
+    strategy == "improve" блоки этого батча (freeze/protect — контент
+    заменён на непрозрачный токен, LLM его не видит и не переписывает;
+    для strategy == "freeze" decision в _restore_and_validate() всегда
+    "kept_original" независимо от temperature — см. отчёт Фазы 1: 0%
+    acceptance у HEADING в основном объясняется этим, а не temperature).
+
+    Приоритет: если среди improve-блоков батча есть хотя бы один bullet —
+    "bullet"; иначе если есть хотя бы один plain — "plain"; иначе (только
+    heading/table среди improve, либо improve-блоков в батче нет вовсе) —
+    "heading" (даст консервативную temperature через TEMP_BY_BLOCK_TYPE).
+    """
+    present_types = set()
+    for iid in batch_item_ids:
+        if strategy_map.get(iid) != "improve":
+            continue
+        present_types.add(type_map.get(iid, "plain"))
+
+    if "bullet" in present_types:
+        return "bullet"
+    if "plain" in present_types:
+        return "plain"
+    return "heading"  # только heading/table среди improve, либо improve-блоков нет
+
+
+def _build_plain_relaxed_system_prompt(n, detected_lang):
+    """
+    Phase 2, Шаг 2.2: смягчённый system_prompt — используется вместо
+    стандартного, когда _dominant_improve_block_type() для батча attempt_1
+    вернул "plain" (то есть среди improve-блоков этого батча нет ни
+    одного bullet — только plain, и, возможно, heading/table вперемешку).
+
+    Правила 1-4 и 7-9 дословно совпадают со стандартным промптом — это
+    механический контракт формата (###ITEM_NNN### идентификаторы,
+    защищённые @@@...@@@ токены, многострочность, запрет слияния/
+    разбиения блоков). Он не про творческую свободу и должен остаться
+    неизменным, иначе сломается парсинг ответа (_parse_ai_response) и
+    восстановление токенов (_restore_text). Меняются только правила
+    5 и 10 (6 — без изменений, запрет на даунгрейд остаётся, это не
+    про творческую свободу, а про направление изменения):
+
+    - 5: вместо "только замена глагола на более сильный синоним" —
+      разрешён reorder внутри предложения, добавление связующих слов/
+      предлогов, предпочтение active voice.
+    - 10: причинно-следственные вставки ("resulting in", "ensuring" и
+      т.п.) по-прежнему явно запрещены — reorder и связующие слова не
+      должны превращаться в придуманный вывод/результат, которого не
+      было в оригинале. Это тот же список фраз, что ловит
+      _FABRICATED_CLAIM_RE в _validate_block() (см. HIGH#2 в истории
+      проекта — фабрикованные causal claims уже ловились и
+      отклонялись до этого шага). Смягчение промпта для PLAIN эту
+      проверку не отменяет и не ослабляет.
+    """
+    return (
+        f"You are a professional resume editor.\n\n"
+        f"RULES:\n"
+        f"1. Write ONLY in {detected_lang}\n"
+        f"2. Input has {n} blocks, each starting with ###ITEM_NNN###\n"
+        f"3. Return ALL {n} blocks in the SAME order with the SAME ###ITEM_NNN### identifiers\n"
+        f"4. Tokens like @@@A1B2C3D4E5F6@@@ are protected values — copy them EXACTLY as-is\n"
+        f"5. These blocks allow more creative freedom than usual: PREFER replacing weak verbs "
+        f"with strong, active-voice alternatives (e.g. \"was responsible for\" -> \"led\", "
+        f"\"managed\" -> \"directed\"). You CAN reorder clauses or phrases within a sentence if "
+        f"the meaning is fully preserved. You CAN add connecting words or prepositions for "
+        f"clarity and flow. PREFER active voice over passive voice.\n"
+        f"6. NEVER downgrade a verb or phrase to something weaker, more generic, or less "
+        f"professional than the original (example of a FORBIDDEN downgrade: \"Collaborated "
+        f"with\" → \"Worked with\"). Only replace a word if the replacement is strictly "
+        f"stronger or more precise (example of a CORRECT upgrade: \"Managed\" → \"Directed\"). "
+        f"If you are not confident the replacement is stronger, leave the original word "
+        f"unchanged.\n"
+        f"7. Keep unchanged: everything that is a token, section headers, dates, IDs\n"
+        f"8. Multiline items: keep same number of lines, single newline between them\n"
+        f"9. Do NOT merge blocks, do NOT split blocks, do NOT add extra ###ITEM### markers\n"
+        f"10. NEVER invent or add anything not in the original: no new jobs, certifications, "
+        f"courses, achievements, responsibilities, skills, education, outcomes, results, "
+        f"company names, or numbers that are not already present. NEVER change dates or the "
+        f"timeline. NEVER drop or lose any piece of information from the original. Reordering "
+        f"and connecting words must never turn into a causal explanation you invented yourself "
+        f"(phrases like \"resulting in\", \"which improved\", \"leading to\", \"by leveraging\", "
+        f"\"ensuring\", \"driving\" are still forbidden)."
+    )
+
+
 def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_key):
     """
     Общий защищённый pipeline улучшения резюме:
@@ -892,12 +1032,14 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
     item_ids = []    # ID каждого элемента (001, 002, ...)
     ai_blocks = []   # блоки для AI с именованными идентификаторами
     strategy_map = {}  # item_id -> реально применённая strategy (freeze/improve/protect)
+    type_map = {}       # item_id -> block_type (heading/bullet/table/plain), для Phase 2 Шаг 2.1
 
     n_items = len(orig_items)
     for i, item in enumerate(orig_items):
         item_id = str(i + 1).zfill(3)
         item_ids.append(item_id)
         text = item["text"]
+        type_map[item_id] = item.get("type", "plain")
 
         # Первые 2 элемента — имя и телефон/email — всегда заморозка
         if i <= 1:
@@ -934,20 +1076,28 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
     # -----------------------------------------------------------
     # Шаг 2: Запрос к AI
     # -----------------------------------------------------------
-    system_prompt = (
-        f"You are a professional resume editor.\n\n"
-        f"RULES:\n"
-        f"1. Write ONLY in {detected_lang}\n"
-        f"2. Input has {n} blocks, each starting with ###ITEM_NNN###\n"
-        f"3. Return ALL {n} blocks in the SAME order with the SAME ###ITEM_NNN### identifiers\n"
-        f"4. Tokens like @@@A1B2C3D4E5F6@@@ are protected values — copy them EXACTLY as-is\n"
-        f"5. Improve ONLY: job descriptions and skill descriptions — use stronger, more precise action verbs for what is already described. Do not add new clauses, outcomes, or explanations.\n"
-        f"6. NEVER downgrade a verb or phrase to something weaker, more generic, or less professional than the original (example of a FORBIDDEN downgrade: \"Collaborated with\" → \"Worked with\"). Only replace a word if the replacement is strictly stronger or more precise (example of a CORRECT upgrade: \"Managed\" → \"Directed\"). If you are not confident the replacement is stronger, leave the original word unchanged.\n"
-        f"7. Keep unchanged: everything that is a token, section headers, dates, IDs\n"
-        f"8. Multiline items: keep same number of lines, single newline between them\n"
-        f"9. Do NOT merge blocks, do NOT split blocks, do NOT add extra ###ITEM### markers\n"
-        f"10. NEVER invent or add anything not in the original: no new jobs, certifications, courses, achievements, responsibilities, skills, education, outcomes, results, or causal explanations (phrases like \"resulting in\", \"which improved\", \"leading to\", \"by leveraging\", \"ensuring\", \"driving\"). If a sentence has nothing to strengthen, return it unchanged rather than adding filler."
-    )
+    # Phase 2, Шаг 2.1/2.2: block_type батча — используется и для
+    # temperature, и для выбора между стандартным и смягчённым (для
+    # plain) system_prompt.
+    attempt_1_block_type = _dominant_improve_block_type(item_ids, strategy_map, type_map)
+
+    if attempt_1_block_type == "plain":
+        system_prompt = _build_plain_relaxed_system_prompt(n, detected_lang)
+    else:
+        system_prompt = (
+            f"You are a professional resume editor.\n\n"
+            f"RULES:\n"
+            f"1. Write ONLY in {detected_lang}\n"
+            f"2. Input has {n} blocks, each starting with ###ITEM_NNN###\n"
+            f"3. Return ALL {n} blocks in the SAME order with the SAME ###ITEM_NNN### identifiers\n"
+            f"4. Tokens like @@@A1B2C3D4E5F6@@@ are protected values — copy them EXACTLY as-is\n"
+            f"5. Improve ONLY: job descriptions and skill descriptions — use stronger, more precise action verbs for what is already described. Do not add new clauses, outcomes, or explanations.\n"
+            f"6. NEVER downgrade a verb or phrase to something weaker, more generic, or less professional than the original (example of a FORBIDDEN downgrade: \"Collaborated with\" → \"Worked with\"). Only replace a word if the replacement is strictly stronger or more precise (example of a CORRECT upgrade: \"Managed\" → \"Directed\"). If you are not confident the replacement is stronger, leave the original word unchanged.\n"
+            f"7. Keep unchanged: everything that is a token, section headers, dates, IDs\n"
+            f"8. Multiline items: keep same number of lines, single newline between them\n"
+            f"9. Do NOT merge blocks, do NOT split blocks, do NOT add extra ###ITEM### markers\n"
+            f"10. NEVER invent or add anything not in the original: no new jobs, certifications, courses, achievements, responsibilities, skills, education, outcomes, results, or causal explanations (phrases like \"resulting in\", \"which improved\", \"leading to\", \"by leveraging\", \"ensuring\", \"driving\"). If a sentence has nothing to strengthen, return it unchanged rather than adding filler."
+        )
 
     user_prompt = (
         f"Rewrite these {n} resume blocks according to the rules above. "
@@ -955,13 +1105,16 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
         f"{ai_input}\n\nOUTPUT ({n} blocks):"
     )
 
+    # Phase 2, Шаг 2.1: temperature по block_type вместо хардкода 0.15
+    attempt_1_temperature = _select_batch_temperature(attempt_1_block_type, "attempt_1")
+
     payload = {
         "model": "openai/gpt-oss-120b",
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": user_prompt},
         ],
-        "temperature": 0.15,
+        "temperature": attempt_1_temperature,
         "max_tokens": 4000,
     }
 
@@ -1139,13 +1292,17 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
             f"{retry_input}\n\nOUTPUT ({n_retry} blocks):"
         )
 
+        # Phase 2, Шаг 2.1: temperature по block_type вместо хардкода 0.6
+        attempt_2_block_type = _dominant_improve_block_type(retry_ids, strategy_map, type_map)
+        attempt_2_temperature = _select_batch_temperature(attempt_2_block_type, "attempt_2")
+
         retry_payload = {
             "model": "openai/gpt-oss-120b",
             "messages": [
                 {"role": "system", "content": retry_system},
                 {"role": "user", "content": retry_user},
             ],
-            "temperature": 0.6,  # выше температура для более творческого ответа
+            "temperature": attempt_2_temperature,
             "max_tokens": 4000,
         }
 
