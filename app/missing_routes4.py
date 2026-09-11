@@ -908,6 +908,34 @@ def _dominant_improve_block_type(batch_item_ids, strategy_map, type_map):
     return "heading"  # только heading/table среди improve, либо improve-блоков нет
 
 
+def _build_standard_system_prompt(n, detected_lang):
+    """
+    Phase 2, План B: стандартный (не relaxed) system_prompt, вынесен в
+    отдельную функцию — чтобы можно было собрать его с ГРУППОВЫМ n
+    (число блоков в конкретной bullet- или heading/table-группе), а не
+    только с общим n на всё резюме, как было при едином вызове на весь
+    батч. Текст правил 1-10 дословно тот же, что раньше был инлайн
+    f-string в _run_improve_pipeline при attempt_1_block_type != "plain" —
+    поведение не меняется, меняется только то, что теперь это вызывается
+    один раз НА ГРУППУ (bullet отдельно, heading/table вместе), а не
+    один раз на всё резюме целиком.
+    """
+    return (
+        f"You are a professional resume editor.\n\n"
+        f"RULES:\n"
+        f"1. Write ONLY in {detected_lang}\n"
+        f"2. Input has {n} blocks, each starting with ###ITEM_NNN###\n"
+        f"3. Return ALL {n} blocks in the SAME order with the SAME ###ITEM_NNN### identifiers\n"
+        f"4. Tokens like @@@A1B2C3D4E5F6@@@ are protected values — copy them EXACTLY as-is\n"
+        f"5. Improve ONLY: job descriptions and skill descriptions — use stronger, more precise action verbs for what is already described. Do not add new clauses, outcomes, or explanations.\n"
+        f"6. NEVER downgrade a verb or phrase to something weaker, more generic, or less professional than the original (example of a FORBIDDEN downgrade: \"Collaborated with\" → \"Worked with\"). Only replace a word if the replacement is strictly stronger or more precise (example of a CORRECT upgrade: \"Managed\" → \"Directed\"). If you are not confident the replacement is stronger, leave the original word unchanged.\n"
+        f"7. Keep unchanged: everything that is a token, section headers, dates, IDs\n"
+        f"8. Multiline items: keep same number of lines, single newline between them\n"
+        f"9. Do NOT merge blocks, do NOT split blocks, do NOT add extra ###ITEM### markers\n"
+        f"10. NEVER invent or add anything not in the original: no new jobs, certifications, courses, achievements, responsibilities, skills, education, outcomes, results, or causal explanations (phrases like \"resulting in\", \"which improved\", \"leading to\", \"by leveraging\", \"ensuring\", \"driving\"). If a sentence has nothing to strengthen, return it unchanged rather than adding filler."
+    )
+
+
 def _build_plain_relaxed_system_prompt(n, detected_lang):
     """
     Phase 2, Шаг 2.2: смягчённый system_prompt — используется вместо
@@ -1070,93 +1098,15 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
             store[tok] = text
             ai_blocks.append(f"###ITEM_{item_id}###\n{tok}")
 
-    n = len(ai_blocks)
-    ai_input = "\n\n".join(ai_blocks)
-
-    # -----------------------------------------------------------
-    # Шаг 2: Запрос к AI
-    # -----------------------------------------------------------
-    # Phase 2, Шаг 2.1/2.2: block_type батча — используется и для
-    # temperature, и для выбора между стандартным и смягчённым (для
-    # plain) system_prompt.
-    attempt_1_block_type = _dominant_improve_block_type(item_ids, strategy_map, type_map)
-
-    if attempt_1_block_type == "plain":
-        system_prompt = _build_plain_relaxed_system_prompt(n, detected_lang)
-    else:
-        system_prompt = (
-            f"You are a professional resume editor.\n\n"
-            f"RULES:\n"
-            f"1. Write ONLY in {detected_lang}\n"
-            f"2. Input has {n} blocks, each starting with ###ITEM_NNN###\n"
-            f"3. Return ALL {n} blocks in the SAME order with the SAME ###ITEM_NNN### identifiers\n"
-            f"4. Tokens like @@@A1B2C3D4E5F6@@@ are protected values — copy them EXACTLY as-is\n"
-            f"5. Improve ONLY: job descriptions and skill descriptions — use stronger, more precise action verbs for what is already described. Do not add new clauses, outcomes, or explanations.\n"
-            f"6. NEVER downgrade a verb or phrase to something weaker, more generic, or less professional than the original (example of a FORBIDDEN downgrade: \"Collaborated with\" → \"Worked with\"). Only replace a word if the replacement is strictly stronger or more precise (example of a CORRECT upgrade: \"Managed\" → \"Directed\"). If you are not confident the replacement is stronger, leave the original word unchanged.\n"
-            f"7. Keep unchanged: everything that is a token, section headers, dates, IDs\n"
-            f"8. Multiline items: keep same number of lines, single newline between them\n"
-            f"9. Do NOT merge blocks, do NOT split blocks, do NOT add extra ###ITEM### markers\n"
-            f"10. NEVER invent or add anything not in the original: no new jobs, certifications, courses, achievements, responsibilities, skills, education, outcomes, results, or causal explanations (phrases like \"resulting in\", \"which improved\", \"leading to\", \"by leveraging\", \"ensuring\", \"driving\"). If a sentence has nothing to strengthen, return it unchanged rather than adding filler."
-        )
-
-    user_prompt = (
-        f"Rewrite these {n} resume blocks according to the rules above. "
-        f"Return with ###ITEM_NNN### identifiers.\n\n"
-        f"{ai_input}\n\nOUTPUT ({n} blocks):"
-    )
-
-    # Phase 2, Шаг 2.1: temperature по block_type вместо хардкода 0.15
-    attempt_1_temperature = _select_batch_temperature(attempt_1_block_type, "attempt_1")
-
-    payload = {
-        "model": "openai/gpt-oss-120b",
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user",   "content": user_prompt},
-        ],
-        "temperature": attempt_1_temperature,
-        "max_tokens": 4000,
-    }
-
-    resp = req_lib.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json=payload, timeout=90,
-    )
-
-    if resp.status_code == 429:
-        payload["model"] = "openai/gpt-oss-20b"
-        resp = req_lib.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json=payload, timeout=90,
-        )
-
-    if resp.status_code == 429:
-        # Оба варианта модели упёрлись в rate limit — ждём столько,
-        # сколько сама Groq API просит подождать (bounded, максимум 12с),
-        # и делаем один финальный повтор, прежде чем сдаться.
-        err_msg = resp.json().get("error", {}).get("message", "")
-        wait_s = _extract_retry_after_seconds(err_msg)
-        time.sleep(wait_s)
-        resp = req_lib.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json=payload, timeout=90,
-        )
-
-    if resp.status_code != 200:
-        err = resp.json().get("error", {}).get("message", "Groq API error")
-        return {"success": False, "error": err, "status": 500}
-
-    raw_response = resp.json()["choices"][0]["message"]["content"]
-    tokens = resp.json().get("usage", {}).get("total_tokens", 0)
-
-    # -----------------------------------------------------------
-    # Шаг 3: Восстановление + Quality Gate + Retry + Отчёт
-    # -----------------------------------------------------------
     def _parse_ai_response(raw):
-        """Разобрать ответ AI по идентификаторам блоков."""
+        """Разобрать ответ AI по идентификаторам блоков.
+
+        Перенесена сюда (была в начале Шага 3) без изменения логики:
+        в Плане B (Phase 2) она вызывается уже в Шаге 2, один раз на
+        каждую непустую группу attempt_1, поэтому должна быть определена
+        до первого вызова — иначе NameError при выполнении цикла по
+        группам ниже.
+        """
         result = {}
         parts = re.split(r"###ITEM_(\d+)###", raw)
         k = 1
@@ -1168,6 +1118,127 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
             k += 2
         return result
 
+    # -----------------------------------------------------------
+    # Шаг 2: Запрос к AI (Phase 2, План B)
+    # -----------------------------------------------------------
+    # Раньше: один batched-вызов на ВСЕ item_ids (freeze+improve вперемешку,
+    # все block_type вперемешку), один temperature/prompt на весь батч.
+    # Теперь: freeze-блоки вообще не идут в Groq — их ответ LLM игнорируется
+    # в _restore_and_validate() всегда (условие "strategy == 'freeze'" там
+    # не смотрит на содержимое ответа), отправка их токенов была чистым
+    # расходом без пользы. Только strategy == "improve" блоки разбиваются
+    # на 3 группы по block_type; каждая группа — отдельный HTTP-вызов со
+    # своим temperature/prompt (один HTTP-запрос — один параметр temperature
+    # на весь промпт, нельзя разное на разные блоки внутри одного запроса —
+    # см. докстринг _select_batch_temperature). Пустая группа — вызов
+    # пропускается полностью, HTTP-запрос не делается.
+    group_bullet_ids = [
+        iid for iid in item_ids
+        if strategy_map.get(iid) == "improve" and type_map.get(iid) == "bullet"
+    ]
+    group_plain_ids = [
+        iid for iid in item_ids
+        if strategy_map.get(iid) == "improve" and type_map.get(iid) == "plain"
+    ]
+    group_other_ids = [
+        iid for iid in item_ids
+        if strategy_map.get(iid) == "improve" and type_map.get(iid) not in ("bullet", "plain")
+    ]  # heading/table (и любой другой тип, если появится)
+
+    # (block_type для _select_batch_temperature/выбора промпта, item_ids группы)
+    attempt_1_groups = [
+        ("bullet", group_bullet_ids),
+        ("plain", group_plain_ids),
+        ("heading", group_other_ids),  # heading/table вместе — тот же default, что был у _dominant_improve_block_type
+    ]
+
+    # item_id -> уже собранный "###ITEM_{id}###\n<protected_text>" блок
+    # (построен выше, в цикле Шага 1) — переиспользуем как есть, не
+    # пересобираем protected-текст заново для группы.
+    ai_block_by_id = dict(zip(item_ids, ai_blocks))
+
+    def _call_groq_group(group_item_ids, block_type_for_group):
+        """
+        Один HTTP-вызов Groq на одну группу block_type этого батча.
+        Формат payload и обработка 429 (fallback-модель, затем ожидание
+        Retry-After + один финальный повтор) — те же, что раньше были у
+        единственного attempt_1-вызова, применены к под-батчу группы.
+        Возвращает (raw_response_text, tokens_used, error) — error is None
+        при успехе, иначе raw_response_text is None.
+        """
+        group_n = len(group_item_ids)
+        group_ai_input = "\n\n".join(ai_block_by_id[iid] for iid in group_item_ids)
+        group_user_prompt = (
+            f"Rewrite these {group_n} resume blocks according to the rules above. "
+            f"Return with ###ITEM_NNN### identifiers.\n\n"
+            f"{group_ai_input}\n\nOUTPUT ({group_n} blocks):"
+        )
+        group_system_prompt = (
+            _build_plain_relaxed_system_prompt(group_n, detected_lang)
+            if block_type_for_group == "plain"
+            else _build_standard_system_prompt(group_n, detected_lang)
+        )
+        group_temperature = _select_batch_temperature(block_type_for_group, "attempt_1")
+
+        group_payload = {
+            "model": "openai/gpt-oss-120b",
+            "messages": [
+                {"role": "system", "content": group_system_prompt},
+                {"role": "user",   "content": group_user_prompt},
+            ],
+            "temperature": group_temperature,
+            "max_tokens": 4000,
+        }
+
+        group_resp = req_lib.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json=group_payload, timeout=90,
+        )
+
+        if group_resp.status_code == 429:
+            group_payload["model"] = "openai/gpt-oss-20b"
+            group_resp = req_lib.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json=group_payload, timeout=90,
+            )
+
+        if group_resp.status_code == 429:
+            # Оба варианта модели упёрлись в rate limit — ждём столько,
+            # сколько сама Groq API просит подождать (bounded, максимум 12с),
+            # и делаем один финальный повтор, прежде чем сдаться.
+            err_msg = group_resp.json().get("error", {}).get("message", "")
+            wait_s = _extract_retry_after_seconds(err_msg)
+            time.sleep(wait_s)
+            group_resp = req_lib.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json=group_payload, timeout=90,
+            )
+
+        if group_resp.status_code != 200:
+            err = group_resp.json().get("error", {}).get("message", "Groq API error")
+            return None, 0, err
+
+        group_raw = group_resp.json()["choices"][0]["message"]["content"]
+        group_tokens = group_resp.json().get("usage", {}).get("total_tokens", 0)
+        return group_raw, group_tokens, None
+
+    parsed_1 = {}
+    tokens_total = 0
+    for block_type_for_group, group_item_ids in attempt_1_groups:
+        if not group_item_ids:
+            continue  # пустая группа — HTTP-вызов не делаем вовсе
+        group_raw, group_tokens, group_err = _call_groq_group(group_item_ids, block_type_for_group)
+        if group_raw is None:
+            return {"success": False, "error": group_err, "status": 500}
+        parsed_1.update(_parse_ai_response(group_raw))
+        tokens_total += group_tokens
+
+    # -----------------------------------------------------------
+    # Шаг 3: Восстановление + Quality Gate + Retry + Отчёт
+    # -----------------------------------------------------------
     def _restore_and_validate(parsed, attempt_label, restrict_ids=None):
         """
         Восстановить токены, применить Fact Validation,
@@ -1238,14 +1309,14 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
         return id_to_text, block_reports
 
     # --- Первая попытка ---
-    parsed_1 = _parse_ai_response(raw_response)
+    # parsed_1 и tokens_total уже построены выше, в Шаге 2 (Phase 2, План B:
+    # merge результатов всех непустых group-вызовов) — здесь их больше не
+    # пересчитываем.
     id_to_text_1, reports_1 = _restore_and_validate(parsed_1, "attempt_1")
 
     # Блоки которые нужно переделать (strategy=improve, quality gate не прошли)
     retry_ids = [r["id"] for r in reports_1 if r["decision"] == "needs_retry"]
     all_reports = reports_1
-
-    tokens_total = tokens
 
     if retry_ids:
         # --- Усиленный промпт для повторной попытки ---
