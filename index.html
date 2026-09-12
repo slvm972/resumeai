@@ -1289,6 +1289,17 @@
       <button id="downloadRtfBtn" class="btn-primary" onclick="downloadRtf()" style="flex:1;background:linear-gradient(135deg,#f59e0b,#ea580c)">📝 RTF (Word-compatible)</button>
       <button id="downloadPdfBtn" class="btn-primary" onclick="downloadPdf()" style="flex:1;background:linear-gradient(135deg,#3b82f6,#06b6d4)">📕 PDF</button>
     </div>
+    <div id="changesReport" style="display:none;margin-top:1rem">
+      <h4 style="font-size:.85rem;color:var(--muted);margin-bottom:.5rem">
+        Изменения (<span id="changesCount">0</span>)
+      </h4>
+      <div id="changesList" style="max-height:300px;overflow-y:auto;
+           display:flex;flex-direction:column;gap:.5rem"></div>
+      <button class="btn-secondary" onclick="downloadChangeReport()"
+              style="width:100%;margin-top:.75rem">
+        📋 Скачать отчёт об изменениях (.txt)
+      </button>
+    </div>
     <p id="improveModalMsg" style="font-size:.8rem;text-align:center;margin-top:.5rem;display:none"></p>
   </div>
 </div>
@@ -1301,6 +1312,7 @@
   let lastImprovedFormat = 'txt';   // формат для скачивания (обновляется после improve)
   let lastItemIds = null;
   let lastImprovedRaw = null;   // сырой текст с ###ITEM_NNN### маркерами — нужен только для /api/improve/docx
+  let lastChanges = [];         // quality_report.changes — для отчёта "было → стало"
 
   function closeImproveModal() {
     document.getElementById('improveModal').classList.remove('open');
@@ -1312,6 +1324,7 @@
     document.getElementById('improvingSpinner').style.display = 'block';
     document.getElementById('improvedText').style.display = 'none';
     document.getElementById('improveActions').style.display = 'none';
+    document.getElementById('changesReport').style.display = 'none';
     document.getElementById('improveModalMsg').style.display = 'none';
 
     try {
@@ -1350,7 +1363,31 @@
         document.getElementById('improvedText').textContent = data.display_text || data.improved_resume;
         document.getElementById('improvedText').style.display = 'block';
         document.getElementById('improveActions').style.display = 'flex';
-        
+
+        // ── Отчёт об изменениях "было → стало" (только accepted-блоки) ────────
+        lastChanges = (data.quality_report && data.quality_report.changes) || [];
+        if (lastChanges.length > 0) {
+          document.getElementById('changesCount').textContent = lastChanges.length;
+          const changesList = document.getElementById('changesList');
+          changesList.innerHTML = '';
+          lastChanges.forEach(c => {
+            const item = document.createElement('div');
+            item.style.cssText = 'background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:.75rem;font-size:.85rem';
+            const oldLine = document.createElement('div');
+            oldLine.style.cssText = 'color:#f87171;text-decoration:line-through;margin-bottom:.3rem';
+            oldLine.textContent = c.original_text;   // textContent — безопасно от HTML-инъекций
+            const newLine = document.createElement('div');
+            newLine.style.cssText = 'color:#34d399';
+            newLine.textContent = c.improved_text;   // textContent — безопасно от HTML-инъекций
+            item.appendChild(oldLine);
+            item.appendChild(newLine);
+            changesList.appendChild(item);
+          });
+          document.getElementById('changesReport').style.display = 'block';
+        }
+        // если lastChanges.length === 0 — changesReport остаётся скрытым
+        // (уже сброшен в display:none в начале функции)
+
         // ── СОХРАНИТЬ ФОРМАТ РЕЗЮМЕ ──────────────────────────────────────────
         lastImprovedFormat = data.original_format || lastOriginalFormat || 'txt';
         
@@ -1490,6 +1527,24 @@
     a.click();
     URL.revokeObjectURL(a.href);
     showDownloadSuccess(filename);
+  }
+
+  // ── Скачать текстовый отчёт "было → стало" по принятым изменениям ────────────
+  function downloadChangeReport() {
+    if (!lastChanges || !lastChanges.length) return;
+    const lines = [
+      'ResumeAI — Отчёт об изменениях',
+      `Изменено блоков: ${lastChanges.length}`,
+      '',
+    ];
+    lastChanges.forEach((c, i) => {
+      lines.push(`${i + 1}. БЫЛО: ${c.original_text}`);
+      lines.push(`   СТАЛО: ${c.improved_text}`);
+      lines.push('');
+    });
+    lines.push('Числа, даты, названия компаний, контакты и сертификаты');
+    lines.push('защищены отдельным механизмом и никогда не изменяются AI.');
+    downloadAsText(lines.join('\n'), 'change_report.txt');
   }
   
   // ── Показать сообщение об успехе ────────────────────────────────────────────

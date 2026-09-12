@@ -97,6 +97,35 @@ _LANGID_TO_NAME = {
     'es': 'Spanish',
 }
 
+# Полный словарь кодов ISO 639-1, которые реально возвращает
+# langid.classify() (97 языков) -> человекочитаемое английское название.
+# Содержимое скопировано как есть из iso_lang_dict.txt, ничего не
+# досочинялось и не менялось. _LANGID_TO_NAME выше оставлен без изменений
+# (additive edit) — он больше нигде не используется, кроме
+# _detect_language_simple(), но на всякий случай не удаляется.
+_ISO639_1_TO_NAME = {
+    'af': 'Afrikaans', 'am': 'Amharic', 'an': 'Aragonese', 'ar': 'Arabic', 'as': 'Assamese',
+    'az': 'Azerbaijani', 'be': 'Belarusian', 'bg': 'Bulgarian', 'bn': 'Bengali', 'br': 'Breton',
+    'bs': 'Bosnian', 'ca': 'Catalan', 'cs': 'Czech', 'cy': 'Welsh', 'da': 'Danish',
+    'de': 'German', 'dz': 'Dzongkha', 'el': 'Greek', 'en': 'English', 'eo': 'Esperanto',
+    'es': 'Spanish', 'et': 'Estonian', 'eu': 'Basque', 'fa': 'Persian', 'fi': 'Finnish',
+    'fo': 'Faroese', 'fr': 'French', 'ga': 'Irish', 'gl': 'Galician', 'gu': 'Gujarati',
+    'he': 'Hebrew', 'hi': 'Hindi', 'hr': 'Croatian', 'ht': 'Haitian Creole', 'hu': 'Hungarian',
+    'hy': 'Armenian', 'id': 'Indonesian', 'is': 'Icelandic', 'it': 'Italian', 'ja': 'Japanese',
+    'jv': 'Javanese', 'ka': 'Georgian', 'kk': 'Kazakh', 'km': 'Khmer', 'kn': 'Kannada',
+    'ko': 'Korean', 'ku': 'Kurdish', 'ky': 'Kyrgyz', 'la': 'Latin', 'lb': 'Luxembourgish',
+    'lo': 'Lao', 'lt': 'Lithuanian', 'lv': 'Latvian', 'mg': 'Malagasy', 'mk': 'Macedonian',
+    'ml': 'Malayalam', 'mn': 'Mongolian', 'mr': 'Marathi', 'ms': 'Malay', 'mt': 'Maltese',
+    'nb': 'Norwegian Bokmal', 'ne': 'Nepali', 'nl': 'Dutch', 'nn': 'Norwegian Nynorsk', 'no': 'Norwegian',
+    'oc': 'Occitan', 'or': 'Odia', 'pa': 'Punjabi', 'pl': 'Polish', 'ps': 'Pashto',
+    'pt': 'Portuguese', 'qu': 'Quechua', 'ro': 'Romanian', 'ru': 'Russian', 'rw': 'Kinyarwanda',
+    'se': 'Northern Sami', 'si': 'Sinhala', 'sk': 'Slovak', 'sl': 'Slovenian', 'sq': 'Albanian',
+    'sr': 'Serbian', 'sv': 'Swedish', 'sw': 'Swahili', 'ta': 'Tamil', 'te': 'Telugu',
+    'th': 'Thai', 'tl': 'Tagalog', 'tr': 'Turkish', 'ug': 'Uyghur', 'uk': 'Ukrainian',
+    'ur': 'Urdu', 'vi': 'Vietnamese', 'vo': 'Volapuk', 'wa': 'Walloon', 'xh': 'Xhosa',
+    'zh': 'Chinese', 'zu': 'Zulu',
+}
+
 
 def _detect_language_simple(text):
     """
@@ -109,12 +138,15 @@ def _detect_language_simple(text):
     1. Unicode fast-path для Hebrew/Arabic — эти алфавиты
        однозначно определяются по диапазону символов, без
        обращения к langid (быстрее и надёжнее на коротких строках).
-    2. Для всех остальных языков (включая Russian/Ukrainian/English/
-       Chinese/French/Hungarian/Polish/Slovak/Spanish) — langid.classify(),
-       код результата переводится в полное название через словарь
-       _LANGID_TO_NAME.
+    2. Для всех остальных языков — langid.classify(), код результата
+       переводится в полное название через словарь _ISO639_1_TO_NAME
+       (все 97 языков, которые реально возвращает langid.classify(),
+       не только Russian/Ukrainian/English/Chinese/French/Hungarian/
+       Polish/Slovak/Spanish, как было раньше через _LANGID_TO_NAME).
     3. Fallback — 'English', если текст пустой, langid упал с
-       исключением, или вернул код, которого нет в словаре.
+       исключением, или вернул код, которого нет в словаре
+       (для полного словаря ISO 639-1 такое практически не должно
+       происходить, кроме экзотических/редких кодов вне набора langid).
     """
     sample = text[:500]
 
@@ -127,7 +159,7 @@ def _detect_language_simple(text):
     if counts[best_unicode] > 5:
         return best_unicode
 
-    # Шаг 2: langid — для Russian/Ukrainian/English/Chinese/прочих
+    # Шаг 2: langid — для всех остальных языков (97 кодов ISO 639-1)
     if not sample.strip():
         return "English"
 
@@ -136,7 +168,7 @@ def _detect_language_simple(text):
     except Exception:
         return "English"
 
-    return _LANGID_TO_NAME.get(code, "English")
+    return _ISO639_1_TO_NAME.get(code, "English")
 
 
 def _classify_para_type(para, in_table=False, is_first_para=False):
@@ -919,6 +951,12 @@ def _build_standard_system_prompt(n, detected_lang):
     поведение не меняется, меняется только то, что теперь это вызывается
     один раз НА ГРУППУ (bullet отдельно, heading/table вместе), а не
     один раз на всё резюме целиком.
+
+    Правило 11 (добавлено отдельным аддитивным изменением) — явная
+    инструкция исправлять орфографию/грамматику/неуклюжие формулировки
+    даже в блоках, где больше ничего не меняется. Не противоречит
+    правилу 10: исправление ФОРМЫ ("как сказано") явно разграничено с
+    запретом придумывать ФАКТЫ ("что сказано").
     """
     return (
         f"You are a professional resume editor.\n\n"
@@ -932,7 +970,14 @@ def _build_standard_system_prompt(n, detected_lang):
         f"7. Keep unchanged: everything that is a token, section headers, dates, IDs\n"
         f"8. Multiline items: keep same number of lines, single newline between them\n"
         f"9. Do NOT merge blocks, do NOT split blocks, do NOT add extra ###ITEM### markers\n"
-        f"10. NEVER invent or add anything not in the original: no new jobs, certifications, courses, achievements, responsibilities, skills, education, outcomes, results, or causal explanations (phrases like \"resulting in\", \"which improved\", \"leading to\", \"by leveraging\", \"ensuring\", \"driving\"). If a sentence has nothing to strengthen, return it unchanged rather than adding filler."
+        f"10. NEVER invent or add anything not in the original: no new jobs, certifications, courses, achievements, responsibilities, skills, education, outcomes, results, or causal explanations (phrases like \"resulting in\", \"which improved\", \"leading to\", \"by leveraging\", \"ensuring\", \"driving\"). If a sentence has nothing to strengthen, return it unchanged rather than adding filler.\n"
+        f"11. Fix spelling mistakes, grammatical errors, and awkward or "
+        f"unnatural phrasing wherever you find them in the original text — "
+        f"this applies even to blocks where no other improvement is being "
+        f"made. Correcting an error is not the same as inventing a fact: "
+        f"you may fix HOW something is said without changing WHAT is said. "
+        f"Do not flag or comment on corrections — just fix them silently, "
+        f"as part of the normal output."
     )
 
 
@@ -963,6 +1008,12 @@ def _build_plain_relaxed_system_prompt(n, detected_lang):
       проекта — фабрикованные causal claims уже ловились и
       отклонялись до этого шага). Смягчение промпта для PLAIN эту
       проверку не отменяет и не ослабляет.
+
+    Правило 11 (добавлено отдельным аддитивным изменением, применено
+    одинаково в стандартном и relaxed промптах) — явная инструкция
+    исправлять орфографию/грамматику/неуклюжие формулировки. Это не
+    про творческую свободу, а базовая гигиена текста — работает
+    одинаково независимо от temperature/режима.
     """
     return (
         f"You are a professional resume editor.\n\n"
@@ -991,7 +1042,14 @@ def _build_plain_relaxed_system_prompt(n, detected_lang):
         f"timeline. NEVER drop or lose any piece of information from the original. Reordering "
         f"and connecting words must never turn into a causal explanation you invented yourself "
         f"(phrases like \"resulting in\", \"which improved\", \"leading to\", \"by leveraging\", "
-        f"\"ensuring\", \"driving\" are still forbidden)."
+        f"\"ensuring\", \"driving\" are still forbidden).\n"
+        f"11. Fix spelling mistakes, grammatical errors, and awkward or "
+        f"unnatural phrasing wherever you find them in the original text — "
+        f"this applies even to blocks where no other improvement is being "
+        f"made. Correcting an error is not the same as inventing a fact: "
+        f"you may fix HOW something is said without changing WHAT is said. "
+        f"Do not flag or comment on corrections — just fix them silently, "
+        f"as part of the normal output."
     )
 
 
@@ -1277,6 +1335,8 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
                     "decision": "kept_original",
                     "reason": "frozen_or_missing",
                     "similarity": 1.0,
+                    "original_text": orig_text,
+                    "improved_text": None,  # improved здесь не вычисляется вовсе
                 })
                 continue
 
@@ -1292,6 +1352,8 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
                     "decision": "rejected_facts",
                     "reason": fact_reason,
                     "similarity": _text_similarity(orig_text, improved),
+                    "original_text": orig_text,
+                    "improved_text": improved,
                 })
                 continue
 
@@ -1304,6 +1366,8 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
                 "decision": "accepted" if qg_ok else "needs_retry",
                 "reason": qg_reason,
                 "similarity": sim,
+                "original_text": orig_text,
+                "improved_text": improved,
             })
 
         return id_to_text, block_reports
@@ -1473,6 +1537,14 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
         "retry_triggered": len(retry_ids),
         "retry_ids": retry_ids,
         "blocks": all_reports,
+        "changes": [
+            {
+                "id": r["id"],
+                "original_text": r.get("original_text", ""),
+                "improved_text": r.get("improved_text", ""),
+            }
+            for r in final_decisions if r["decision"] == "accepted"
+        ],
         "summary": {
             "accepted":        sum(1 for r in final_decisions if r["decision"] == "accepted"),
             "kept_original":   sum(1 for r in final_decisions if r["decision"] == "kept_original"),
