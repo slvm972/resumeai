@@ -882,3 +882,239 @@ def test_DOUBLENL1_real_captured_bullet_block_survives_apply_without_doubling():
         f"AI-текста в docx: {result_text!r}"
     )
     assert result_text == real_improved_item005
+
+# ===========================================================================
+# Вспомогательный класс для мока ответа Groq (requests.post).
+# Используется тестами PLANB/CHANGES ниже — это первые тесты в файле,
+# которые вызывают _run_improve_pipeline() целиком, а не отдельные
+# чистые функции, поэтому мок появляется впервые именно здесь.
+# ===========================================================================
+
+class _FakeGroqResp:
+    status_code = 200
+    def __init__(self, content):
+        self._content = content
+    def json(self):
+        return {
+            "choices": [{"message": {"content": self._content}}],
+            "usage": {"total_tokens": 50},
+        }
+
+
+# ===========================================================================
+# БЛОК: Phase 2 / План B — раздельные Groq-вызовы по block_type (PLANB1-3)
+# ===========================================================================
+# Контекст: до Плана B был ОДИН вызов Groq на весь батч блоков резюме, что
+# приводило к тому, что доминирующий block_type (bullet > plain > heading)
+# определял temperature/prompt для ВСЕГО документа — plain-блоки в резюме
+# с хотя бы одним bullet-блоком не получали relaxed-промпт вовсе. План B
+# разбил attempt_1 на до 3 отдельных вызовов (bullet/plain/heading+table),
+# каждый со своей temperature/промптом; freeze-блоки в Groq не отправляются
+# вовсе (их ответ всё равно игнорируется в _restore_and_validate).
+
+def test_PLANB1_mixed_bullet_plain_makes_exactly_2_calls():
+    """Резюме с bullet-блоком И plain-блоком (оба strategy=improve) должно
+    дать РОВНО 2 отдельных HTTP-вызова к Groq на attempt_1: один для
+    bullet-группы (temperature=0.40, стандартный промпт), один для
+    plain-группы (temperature=0.30, relaxed-промпт)."""
+    from docx import Document
+    from unittest.mock import patch
+
+    doc = Document()
+    doc.add_paragraph("John Smith")
+    doc.add_paragraph("john@example.com")
+    p = doc.add_paragraph("Managed a team of 5 designers")
+    p.style = doc.styles["List Bullet"]
+    doc.add_paragraph("Was responsible for backend systems")
+    buf = io.BytesIO(); doc.save(buf)
+
+    calls = []
+    def fake_post(url, headers=None, json=None, timeout=None):
+        calls.append(dict(json))
+        if len(calls) == 1:
+            return _FakeGroqResp("###ITEM_003###\nDirected a team of 5 designers\n\n")
+        return _FakeGroqResp("###ITEM_004###\nLed backend architecture and implementation\n\n")
+
+    with patch("requests.post", side_effect=fake_post):
+        result = mr._run_improve_pipeline(buf.getvalue(), "t.docx", None, "fake-key")
+
+    assert result["success"]
+    assert len(calls) == 2, f"ожидали 2 вызова, получили {len(calls)}"
+    temps = sorted(c["temperature"] for c in calls)
+    assert temps == [0.30, 0.40], f"ожидали temperature [0.30, 0.40], получили {temps}"
+    relaxed_present = any("creative freedom" in c["messages"][0]["content"] for c in calls)
+    standard_present = any("creative freedom" not in c["messages"][0]["content"] for c in calls)
+    assert relaxed_present and standard_present, "ожидали один relaxed + один стандартный промпт"
+
+
+def test_PLANB2_plain_only_makes_exactly_1_call():
+    """Резюме БЕЗ bullet-блоков (только plain, strategy=improve) должно
+    дать РОВНО 1 HTTP-вызов на attempt_1, с temperature=0.30 и
+    relaxed-промптом — группа bullet и группа heading/table пустые,
+    вызовы для них пропускаются."""
+    from docx import Document
+    from unittest.mock import patch
+
+    doc = Document()
+    doc.add_paragraph("Jane Doe")
+    doc.add_paragraph("jane@example.com")
+    doc.add_paragraph("Was responsible for backend systems")
+    buf = io.BytesIO(); doc.save(buf)
+
+    calls = []
+    def fake_post(url, headers=None, json=None, timeout=None):
+        calls.append(dict(json))
+        return _FakeGroqResp("###ITEM_003###\nLed backend architecture and implementation\n\n")
+
+    with patch("requests.post", side_effect=fake_post):
+        result = mr._run_improve_pipeline(buf.getvalue(), "t2.docx", None, "fake-key")
+
+    assert result["success"]
+    assert len(calls) == 1, f"ожидали 1 вызов, получили {len(calls)}"
+    assert calls[0]["temperature"] == 0.30
+    assert "creative freedom" in calls[0]["messages"][0]["content"]
+
+
+def test_PLANB3_all_freeze_makes_zero_calls():
+    """Резюме, где все блоки freeze (нет ни одного strategy=improve),
+    не должно делать НИ ОДНОГО HTTP-вызова к Groq — раньше (до Плана B)
+    freeze-блоки всё равно уходили в батч непрозрачными токенами, хотя
+    их ответ LLM всегда игнорируется в _restore_and_validate."""
+    from docx import Document
+    from unittest.mock import patch
+
+    doc = Document()
+    doc.add_paragraph("Mike Ross")
+    doc.add_paragraph("mike@example.com")
+    h = doc.add_paragraph("Experience")
+    h.style = doc.styles["Heading 1"]
+    buf = io.BytesIO(); doc.save(buf)
+
+    calls = []
+    def fake_post(url, headers=None, json=None, timeout=None):
+        calls.append(dict(json))
+        return _FakeGroqResp("SHOULD NOT BE CALLED")
+
+    with patch("requests.post", side_effect=fake_post):
+        result = mr._run_improve_pipeline(buf.getvalue(), "t3.docx", None, "fake-key")
+
+    assert result["success"]
+    assert len(calls) == 0, f"ожидали 0 вызовов, получили {len(calls)}"
+    qr = result["quality_report"]
+    assert all(b["decision"] == "kept_original" for b in qr["blocks"])
+
+
+# ===========================================================================
+# БЛОК: языковая детекция 11 -> 97 (LANG1-2)
+# ===========================================================================
+# Контекст: _LANGID_TO_NAME изначально содержал только 11 языков, из-за
+# чего резюме на любом из оставшихся ~86 языков, поддерживаемых langid,
+# ошибочно откатывались на "English" в _detect_language_simple(), хотя
+# сам текст резюме оставался на языке оригинала — это давало испорченный
+# результат. _ISO639_1_TO_NAME покрывает все 97 кодов, которые реально
+# распознаёт langid.
+
+def test_LANG1_iso639_dict_has_97_entries():
+    """_ISO639_1_TO_NAME должен покрывать все 97 языков, которые
+    langid.classify() реально способен распознать — не больше и не
+    меньше, без дублей."""
+    assert len(mr._ISO639_1_TO_NAME) == 97, (
+        f"ожидали 97 уникальных кодов, получили {len(mr._ISO639_1_TO_NAME)}"
+    )
+
+
+def test_LANG2_language_detection_beyond_old_11():
+    """Языки ВНЕ старого набора из 11 (German/Italian/Japanese/Portuguese)
+    должны определяться корректно через _ISO639_1_TO_NAME, а не
+    откатываться на 'English' как было раньше."""
+    samples = {
+        "German": "Softwareentwickler mit fünf Jahren Erfahrung in der Webentwicklung.",
+        "Italian": "Ingegnere del software con cinque anni di esperienza nello sviluppo web.",
+        "Japanese": "5年間のウェブ開発経験を持つソフトウェアエンジニア。",
+        "Portuguese": "Engenheiro de software com cinco anos de experiência em desenvolvimento web.",
+    }
+    for expected, text in samples.items():
+        result = mr._detect_language_simple(text)
+        assert result == expected, f"{expected}: ожидали {expected!r}, получили {result!r}"
+
+
+# ===========================================================================
+# БЛОК: исправление grammar/spelling — Правило 11 (RULE11)
+# ===========================================================================
+# Контекст: ни _build_standard_system_prompt(), ни
+# _build_plain_relaxed_system_prompt() изначально НЕ содержали явной
+# инструкции исправлять орфографию/грамматику — это подтверждённый пробел
+# между маркетинговым обещанием и реальным поведением модели. Правило 11
+# добавлено в ОБЕ функции, чтобы это работало независимо от
+# temperature/режима.
+
+def test_RULE11_both_prompts_contain_grammar_instruction():
+    """И стандартный, и relaxed system_prompt должны явно инструктировать
+    исправление орфографии/грамматики — в обеих версиях одинаково,
+    независимо от block_type/creativity-режима."""
+    standard = mr._build_standard_system_prompt(5, "English")
+    relaxed = mr._build_plain_relaxed_system_prompt(5, "English")
+    for name, prompt in [("standard", standard), ("relaxed", relaxed)]:
+        assert "spelling" in prompt.lower(), f"{name}: нет упоминания spelling"
+        assert "grammatical" in prompt.lower() or "grammar" in prompt.lower(), (
+            f"{name}: нет упоминания grammar/grammatical"
+        )
+
+
+# ===========================================================================
+# БЛОК: отчёт об изменениях "было -> стало" (CHANGES1-2)
+# ===========================================================================
+# Контекст: quality_report получил новый ключ "changes" — список ТОЛЬКО
+# принятых (decision == "accepted") изменений с original_text/
+# improved_text, для прозрачности перед пользователем (отдельная кнопка
+# "Скачать отчёт об изменениях" на фронтенде). freeze-блоки и
+# неудавшиеся (needs_retry) блоки не должны в него попадать.
+
+def test_CHANGES1_accepted_change_has_correct_texts():
+    """quality_report['changes'] должен содержать РОВНО одну запись для
+    единственного улучшенного improve-блока, с точным original_text и
+    improved_text; freeze-блоки не должны в неё попадать."""
+    from docx import Document
+    from unittest.mock import patch
+
+    doc = Document()
+    doc.add_paragraph("John Smith")
+    doc.add_paragraph("john@example.com")
+    doc.add_paragraph("Was responsible for backend systems")
+    buf = io.BytesIO(); doc.save(buf)
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        return _FakeGroqResp("###ITEM_003###\nLed backend architecture and implementation\n\n")
+
+    with patch("requests.post", side_effect=fake_post):
+        result = mr._run_improve_pipeline(buf.getvalue(), "t.docx", None, "fake-key")
+
+    changes = result["quality_report"]["changes"]
+    assert len(changes) == 1, f"ожидали 1 изменение, получили {len(changes)}"
+    assert changes[0]["id"] == "003"
+    assert changes[0]["original_text"] == "Was responsible for backend systems"
+    assert changes[0]["improved_text"] == "Led backend architecture and implementation"
+
+
+def test_CHANGES2_identical_text_not_in_changes():
+    """Если LLM вернул текст, идентичный оригиналу (needs_retry на обеих
+    попытках), блок НЕ должен появляться в quality_report['changes'] —
+    только реально принятые (decision == 'accepted') изменения."""
+    from docx import Document
+    from unittest.mock import patch
+
+    doc = Document()
+    doc.add_paragraph("Jane Doe")
+    doc.add_paragraph("jane@example.com")
+    doc.add_paragraph("Managed a team of 5 designers")
+    buf = io.BytesIO(); doc.save(buf)
+
+    def fake_post_identical(url, headers=None, json=None, timeout=None):
+        # и attempt_1, и retry возвращают текст, идентичный оригиналу
+        return _FakeGroqResp("###ITEM_003###\nManaged a team of 5 designers\n\n")
+
+    with patch("requests.post", side_effect=fake_post_identical):
+        result = mr._run_improve_pipeline(buf.getvalue(), "t2.docx", None, "fake-key")
+
+    changes = result["quality_report"]["changes"]
+    assert len(changes) == 0, f"ожидали 0 изменений (identical text), получили {len(changes)}"
