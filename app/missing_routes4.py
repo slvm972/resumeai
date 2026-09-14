@@ -841,6 +841,21 @@ def _quality_gate(orig_text, improved_text, threshold=0.95):
     одного сильного глагола на синоним в короткой фразе даёт sim>95%
     просто из-за общей длины окружающего текста). Только при отсутствии
     подтверждённых словесных изменений применяется порог similarity.
+
+    Cycle CM2 (фикс): раньше последняя ветка (случай "нет confirmed
+    genuine word-level change, но sim <= threshold") была тупиковой —
+    всегда возвращала False, независимо от значения threshold. Из-за
+    этого threshold фактически ни на что не влиял: единственный путь
+    к accepted=True шёл через первую ветку (genuine word change), а она
+    threshold вообще не смотрит. Подтверждено эмпирически (QG1 —
+    accepted=True при любом threshold от 0.10 до 0.99; identical-текст —
+    accepted=False при любом threshold из того же диапазона): граничное
+    значение threshold нигде не участвовало в решении. Теперь эта ветка
+    возвращает True — threshold реально работает как порог "достаточно
+    ли текст отличается от оригинала, даже если различие не сводится к
+    одному чистому изменению слова" (например, реордер, добавление
+    связующих слов, пунктуационные правки, затрагивающие сразу
+    несколько мест текста).
     """
     sim = _text_similarity(orig_text, improved_text)
     quality_ok, quality_reason = _has_quality_improvement(orig_text, improved_text)
@@ -848,7 +863,8 @@ def _quality_gate(orig_text, improved_text, threshold=0.95):
         return True, sim, f"accepted similarity={sim:.3f} {quality_reason}"
     if sim > threshold:
         return False, sim, f"similarity={sim:.3f} above threshold={threshold}"
-    return False, sim, f"no_quality_improvement ({quality_reason})"
+    return True, sim, f"accepted low_similarity={sim:.3f} below_threshold={threshold}"
+
 
 def _extract_retry_after_seconds(error_message, default=2.0, cap=12.0):
     """
@@ -866,7 +882,7 @@ def _extract_retry_after_seconds(error_message, default=2.0, cap=12.0):
 
 
 # ---------------------------------------------------------------------------
-# Per-block-type temperature (Phase 2, Шаг 2.1)
+# Per-block-type temperature (Phase 2, Шаг 2.1) + creativity_mode (Cycle CM1)
 # ---------------------------------------------------------------------------
 
 # Базовые значения по анализу 408 блоков из diagnose_batch_final (Фаза 1):
@@ -874,28 +890,54 @@ def _extract_retry_after_seconds(error_message, default=2.0, cap=12.0):
 #   PLAIN  (30% acceptance) — можно поднимать умеренно
 #   HEADING (0% acceptance) — оставить консервативным
 #   TABLE  (1.6% acceptance) — оставить консервативным, риск
-TEMP_BY_BLOCK_TYPE = {
-    "bullet": 0.40,
-    "plain": 0.30,
-    "heading": 0.15,
-    "table": 0.15,
+#
+# Cycle CM1: раньше был один плоский TEMP_BY_BLOCK_TYPE на все случаи —
+# теперь два набора значений по режиму creativity_mode ("precise" —
+# прежние значения без изменений, "creative" — повышенная temperature
+# для bullet/plain; heading/table остаются консервативными в обоих
+# режимах — по Фазе 1 там почти нулевой acceptance независимо от
+# temperature, поднимать их не имеет смысла). SIMILARITY_THRESHOLD_BY_MODE
+# аналогично управляет порогом _quality_gate() (после фикса Cycle CM2,
+# где threshold стал реально влиять на решение — см. докстринг
+# _quality_gate): чем ВЫШЕ threshold, тем МЯГЧЕ гейт (принимает более
+# похожие на оригинал переформулировки, не блокируя их retry'ем), чем
+# НИЖЕ — тем строже (требует более заметного отличия от оригинала).
+# Поэтому "creative" (мягче) имеет более высокий threshold (0.99), а
+# "precise" — прежнее, более строгое значение (0.95). Все защитные
+# механизмы (Fact Validation, Protected Tokens, freeze-стратегия,
+# Правило 11, запрет даунгрейда) от режима НЕ
+# зависят и применяются одинаково в обоих случаях.
+TEMP_BY_MODE = {
+    "precise": {"bullet": 0.40, "plain": 0.30, "heading": 0.15, "table": 0.15},
+    "creative": {"bullet": 0.60, "plain": 0.50, "heading": 0.15, "table": 0.15},
 }
+SIMILARITY_THRESHOLD_BY_MODE = {"precise": 0.95, "creative": 0.99}
+VALID_CREATIVITY_MODES = ("precise", "creative")
+
 TEMP_DEFAULT = 0.15          # fallback, если тип не найден
 TEMP_RETRY_BUMP = 0.15       # прибавка для attempt_2
 TEMP_RETRY_CAP = 0.55        # потолок для attempt_2
 
 
-def _select_batch_temperature(block_type, attempt_label):
+def _select_batch_temperature(block_type, attempt_label, creativity_mode="precise"):
     """
-    Выбрать temperature по (block_type, attempt_label). Значения — по
-    анализу 408 блоков из diagnose_batch_final (Фаза 1):
-      bullet  (53% acceptance)  -> 0.40
-      plain   (30% acceptance)  -> 0.30
-      heading (0% acceptance)   -> 0.15 (консервативно)
-      table   (1.6% acceptance) -> 0.15 (консервативно, риск)
+    Выбрать temperature по (block_type, attempt_label, creativity_mode).
+    Базовые значения — по анализу 408 блоков из diagnose_batch_final
+    (Фаза 1), для режима "precise" не изменились:
+      bullet  (53% acceptance)  -> 0.40 (precise) / 0.60 (creative)
+      plain   (30% acceptance)  -> 0.30 (precise) / 0.50 (creative)
+      heading (0% acceptance)   -> 0.15 (консервативно, оба режима)
+      table   (1.6% acceptance) -> 0.15 (консервативно, риск, оба режима)
       неизвестный тип -> TEMP_DEFAULT (0.15)
     Для attempt_2 (retry) добавляется TEMP_RETRY_BUMP (+0.15), но не выше
-    TEMP_RETRY_CAP (0.55).
+    TEMP_RETRY_CAP (0.55) — одинаково в обоих режимах, поверх base из
+    TEMP_BY_MODE[creativity_mode].
+
+    creativity_mode по умолчанию "precise" — обратная совместимость с
+    вызовами без этого параметра (существующие тесты Фазы 1/2, batch_diagnose_
+    improve.py). Невалидный creativity_mode (не из VALID_CREATIVITY_MODES)
+    тихо откатывается на "precise" — defensive fallback, не должен падать
+    с ошибкой.
 
     ВАЖНО (не спрятано, чтобы не потерять при следующей правке): Groq
     вызывается один раз на ВЕСЬ батч блоков (attempt_1 — все item_ids
@@ -906,7 +948,8 @@ def _select_batch_temperature(block_type, attempt_label):
     представительный тип на весь батч (см. _dominant_improve_block_type
     в месте вызова), а не тип конкретного отдельного блока.
     """
-    base = TEMP_BY_BLOCK_TYPE.get(block_type, TEMP_DEFAULT)
+    mode_temps = TEMP_BY_MODE.get(creativity_mode, TEMP_BY_MODE["precise"])
+    base = mode_temps.get(block_type, TEMP_DEFAULT)
     if attempt_label == "attempt_2":
         return min(base + TEMP_RETRY_BUMP, TEMP_RETRY_CAP)
     return base
@@ -925,7 +968,7 @@ def _dominant_improve_block_type(batch_item_ids, strategy_map, type_map):
     Приоритет: если среди improve-блоков батча есть хотя бы один bullet —
     "bullet"; иначе если есть хотя бы один plain — "plain"; иначе (только
     heading/table среди improve, либо improve-блоков в батче нет вовсе) —
-    "heading" (даст консервативную temperature через TEMP_BY_BLOCK_TYPE).
+    "heading" (даст консервативную temperature через TEMP_BY_MODE).
     """
     present_types = set()
     for iid in batch_item_ids:
@@ -1053,7 +1096,7 @@ def _build_plain_relaxed_system_prompt(n, detected_lang):
     )
 
 
-def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_key):
+def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_key, creativity_mode="precise"):
     """
     Общий защищённый pipeline улучшения резюме:
     Protected Tokens -> LLM -> Fact Validation -> Quality Gate -> Retry.
@@ -1063,11 +1106,26 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
       filename              — имя файла (для определения .docx) или None
       resume_text_fallback  — текст резюме, если файла нет (JSON-путь)
       api_key               — GROQ_API_KEY
+      creativity_mode        — "precise" (по умолчанию) или "creative"
+                                (Cycle CM1). Управляет ТОЛЬКО temperature
+                                (_select_batch_temperature) и порогом
+                                Quality Gate (SIMILARITY_THRESHOLD_BY_MODE).
+                                Все защитные механизмы (Fact Validation,
+                                Protected Tokens, freeze-стратегия, Правило
+                                11, запрет даунгрейда) одинаковы в обоих
+                                режимах и от этого параметра не зависят.
+                                Невалидное значение тихо откатывается на
+                                "precise" — обратная совместимость с
+                                вызовами без этого аргумента.
 
     Возвращает dict:
       {"success": True, ...}  — при успехе, те же поля что раньше отдавал /api/admin/improve
+      (дополнительно "creativity_mode": <фактически применённый режим>)
       {"success": False, "error": str, "status": int} — при ошибке
     """
+    if creativity_mode not in VALID_CREATIVITY_MODES:
+        creativity_mode = "precise"
+
     resume_text = ""
     orig_items = []
     NL = chr(10)
@@ -1236,7 +1294,7 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
             if block_type_for_group == "plain"
             else _build_standard_system_prompt(group_n, detected_lang)
         )
-        group_temperature = _select_batch_temperature(block_type_for_group, "attempt_1")
+        group_temperature = _select_batch_temperature(block_type_for_group, "attempt_1", creativity_mode)
 
         group_payload = {
             "model": "openai/gpt-oss-120b",
@@ -1357,8 +1415,11 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
                 })
                 continue
 
-            # Quality Gate
-            qg_ok, sim, qg_reason = _quality_gate(orig_text, improved)
+            # Quality Gate — порог зависит от creativity_mode (Cycle CM1);
+            # доступен через closure _restore_and_validate внутри
+            # _run_improve_pipeline, где creativity_mode уже провалидирован.
+            qg_threshold = SIMILARITY_THRESHOLD_BY_MODE.get(creativity_mode, 0.95)
+            qg_ok, sim, qg_reason = _quality_gate(orig_text, improved, threshold=qg_threshold)
             id_to_text[iid] = improved if qg_ok else None  # None = нужен retry
             block_reports.append({
                 "id": iid, "attempt": attempt_label,
@@ -1429,7 +1490,7 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
 
         # Phase 2, Шаг 2.1: temperature по block_type вместо хардкода 0.6
         attempt_2_block_type = _dominant_improve_block_type(retry_ids, strategy_map, type_map)
-        attempt_2_temperature = _select_batch_temperature(attempt_2_block_type, "attempt_2")
+        attempt_2_temperature = _select_batch_temperature(attempt_2_block_type, "attempt_2", creativity_mode)
 
         retry_payload = {
             "model": "openai/gpt-oss-120b",
@@ -1566,6 +1627,7 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
         "has_original_docx": original_bytes is not None,
         "quality_report": quality_report,
         "item_ids": item_ids,
+        "creativity_mode": creativity_mode,
     }
 
 
