@@ -13,8 +13,7 @@ import sys
 import pytest
 from unittest.mock import patch, MagicMock
 
-sys.path.insert(0, ".")
-import missing_routes4 as mr
+import app.missing_routes4 as mr
 
 
 # ===========================================================================
