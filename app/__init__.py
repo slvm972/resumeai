@@ -389,14 +389,6 @@ def _register_legacy_routes(app):
 
             resume_text = _extract_text_from_request()
 
-            from flask import current_app
-            _dbg_file = request.files.get('file') or request.files.get('resume')
-            current_app.logger.info(
-                "[DEBUG-LEAK] legacy_admin_analyze: filename=%s text_preview=%r",
-                _dbg_file.filename if _dbg_file else None,
-                resume_text[:80],
-            )
-
             if not resume_text or len(resume_text) < 20:
                 return jsonify({'success': False, 'error': 'Resume text is too short'}), 400
 
@@ -596,13 +588,6 @@ def _register_legacy_routes(app):
             # Извлечь текст из запроса (JSON или файл)
             resume_text = _extract_text_from_request()
 
-            _dbg_file = request.files.get('file') or request.files.get('resume')
-            current_app.logger.info(
-                "[DEBUG-LEAK] legacy_analyze: filename=%s text_preview=%r",
-                _dbg_file.filename if _dbg_file else None,
-                resume_text[:80],
-            )
-
             if not resume_text or len(resume_text) < 20:
                 return jsonify({'success': False, 'error': 'Resume text is too short or empty'}), 400
 
@@ -706,23 +691,18 @@ def _register_legacy_routes(app):
                     original_format = 'pdf'
                 elif fname_lower.endswith('.doc'):
                     original_format = 'doc'
+                creativity_mode = request.form.get('creativity_mode', 'precise')
             else:
                 data = request.get_json() or {}
                 resume_text_fallback = data.get('resume_text', '').strip()
                 original_format = data.get('original_format', 'txt')
+                creativity_mode = data.get('creativity_mode', 'precise')
 
             if not original_bytes and not resume_text_fallback:
                 return jsonify({'success': False, 'error': 'resume_text is required'}), 400
 
-            current_app.logger.info(
-                "[DEBUG-LEAK] legacy_improve: has_file=%s filename=%s fallback_preview=%r",
-                'file' in request.files,
-                filename,
-                (resume_text_fallback or '')[:80],
-            )
-
             api_key = current_app.config.get('GROQ_API_KEY')
-            result = _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_key)
+            result = _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_key, creativity_mode)
 
             if not result.get('success'):
                 return jsonify({'success': False, 'error': result.get('error')}), result.get('status', 500)
@@ -748,6 +728,7 @@ def _register_legacy_routes(app):
                 'item_ids': result['item_ids'],
                 'quality_report': result.get('quality_report'),
                 'has_original_docx': result.get('has_original_docx', False),
+                'creativity_mode': result.get('creativity_mode', 'precise'),
             })
         except Exception as e:
             import traceback
@@ -795,22 +776,6 @@ def _register_legacy_routes(app):
                 item_ids = session.get('item_ids', [])
 
             _dbg_token = session.get('original_docx_token')
-            _dbg_token_found = None
-            if not original_file and _dbg_token:
-                try:
-                    _dbg_token_found = _load_temp_upload(_dbg_token) is not None
-                except Exception:
-                    _dbg_token_found = False
-            current_app.logger.info(
-                "[DEBUG-LEAK] legacy_improve_docx: has_original_file=%s item_ids_source=%s item_ids=%s "
-                "session_token_present=%s session_token_preview=%s temp_upload_found=%s",
-                bool(original_file),
-                'form' if item_ids_raw else 'session',
-                item_ids,
-                bool(_dbg_token),
-                (_dbg_token[:12] if _dbg_token else None),
-                _dbg_token_found,
-            )
 
             # Defensive: одноразовое использование session-токена. Очищаем
             # сразу после чтения — даже если этот конкретный запрос его не

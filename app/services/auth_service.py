@@ -25,17 +25,17 @@ class AuthService:
             # Создать бесплатную подписку
             # credits_granted/credits_used заданы явно — не полагаемся на
             # column-default в модели для бизнес-логики выдачи стартовых
-            # кредитов: default=1 в Subscription сейчас даёт тот же результат,
+            # кредитов: default=1 в Subscription сейчас даёт другой результат,
             # но если его когда-нибудь изменят по другой причине (например,
             # для другого места создания Subscription), регистрация не должна
             # молча изменить поведение.
-            # Бизнес-правило: free-план даёт ровно 1 кредит на единый пул
-            # (одно бесплатное действие — analyze ИЛИ improve, суммарно).
+            # Бизнес-правило: free-план даёт 2 кредита на единый пул
+            # (два бесплатных действия — analyze и/или improve, суммарно).
             subscription = Subscription(
                 user_id=user.id,
                 plan_name='free',
                 status='active',
-                credits_granted=1,
+                credits_granted=2,
                 credits_used=0,
             )
             db.session.add(subscription)
