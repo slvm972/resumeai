@@ -567,6 +567,22 @@
 
         <!-- Improve button -->
         <div id="improveBtnWrap" style="display:none;margin-top:1rem">
+          <div id="creativityModeSelector" style="margin-bottom:.75rem;display:flex;gap:.5rem">
+            <label style="flex:1;cursor:pointer;background:var(--surface2);border:1px solid var(--accent);border-radius:8px;padding:.6rem .75rem;font-size:.8rem;display:flex;flex-direction:column;gap:.2rem">
+              <span style="display:flex;align-items:center;gap:.4rem">
+                <input type="radio" name="creativityMode" value="precise" checked onchange="updateCreativityModeStyle()" style="margin:0">
+                <strong>Precise</strong>
+              </span>
+              <span style="color:var(--muted);font-size:.72rem">Минимальные, безопасные правки — готово к использованию сразу</span>
+            </label>
+            <label style="flex:1;cursor:pointer;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:.6rem .75rem;font-size:.8rem;display:flex;flex-direction:column;gap:.2rem">
+              <span style="display:flex;align-items:center;gap:.4rem">
+                <input type="radio" name="creativityMode" value="creative" onchange="updateCreativityModeStyle()" style="margin:0">
+                <strong>Creative</strong>
+              </span>
+              <span style="color:var(--muted);font-size:.72rem">Более смелые формулировки — проверьте через отчёт об изменениях перед отправкой</span>
+            </label>
+          </div>
           <button id="improveBtn" class="btn-primary" style="width:100%" onclick="improveResume()">
             ✨ Improve My Resume
           </button>
@@ -1420,6 +1436,13 @@
     document.getElementById('improveModal').classList.remove('open');
   }
 
+  function updateCreativityModeStyle() {
+    document.querySelectorAll('#creativityModeSelector label').forEach(label => {
+      const input = label.querySelector('input[type="radio"]');
+      label.style.borderColor = input.checked ? 'var(--accent)' : 'var(--border)';
+    });
+  }
+
   async function improveResume() {
     if (!lastResumeText || !lastAnalysisData) return;
     document.getElementById('improveModal').classList.add('open');
@@ -1431,6 +1454,8 @@
 
     try {
       let res;
+      const selectedCreativityMode =
+        (document.querySelector('input[name="creativityMode"]:checked') || {}).value || 'precise';
       // Предпочитаем отправку РЕАЛЬНОГО файла (как уже делает admin.html) —
       // тогда /api/improve извлекает items через _extract_structured()
       // (гранулярность ячеек), той же функцией, что использует downloadImproved()
@@ -1445,6 +1470,7 @@
       if (selectedFile) {
         const formData = new FormData();
         formData.append('file', selectedFile);
+        formData.append('creativity_mode', selectedCreativityMode);
         res = await fetch('/api/improve', { method: 'POST', body: formData });
       } else {
         res = await fetch('/api/improve', {
@@ -1453,7 +1479,8 @@
           body: JSON.stringify({
             resume_text: lastResumeText,
             analysis: lastAnalysisData,
-            original_format: lastOriginalFormat   // передаём формат исходного файла
+            original_format: lastOriginalFormat,   // передаём формат исходного файла
+            creativity_mode: selectedCreativityMode
           })
         });
       }
