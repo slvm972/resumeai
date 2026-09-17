@@ -220,5 +220,123 @@ def test_S1_3_no_intro_paragraph_precise_unaffected():
         assert "REPOSITION" not in call["system_prompt"]
 
 
+# ===========================================================================
+# Cycle S2 — фикс регрессии, найденной на реальном резюме (Дмитрий
+# Соколов): "О себе" физически идёт ОТДЕЛЬНОЙ строкой-заголовком перед
+# текстом summary, поэтому фиксированный i==2 из Cycle S1 промахивался
+# (i==2 — сам заголовок, freeze; реальный текст summary на i==3 уходил
+# в обычную plain-группу без repositioning-промпта).
+#
+# Новый алгоритм: пропускаем подряд идущие frozen-строки начиная с i==2,
+# останавливаемся на первом же improve-элементе — если он plain, это и
+# есть summary; если нет (bullet/heading/table) — отдельного summary нет,
+# дальше не смотрим.
+# ===========================================================================
+
+ABOUT_ME_HEADER = "About Me"  # короткий label — freeze по длине (<15, без глагола-маркера),
+                                # НЕ через SECTION_HEADERS_SET — механизм языконезависим
+
+
+def _docx_header_then_summary():
+    """name(freeze,i0) / email(freeze,i1) / "About Me"(freeze,i2) /
+    summary-текст(plain,improve,i3) / "Experience"(freeze,i4) / bullet(improve,i5).
+    Воспроизводит структуру реального резюме, на котором Cycle S1 промахнулся."""
+    return _make_docx([
+        ("John Smith", None),
+        ("john.smith@example.com", None),
+        (ABOUT_ME_HEADER, None),
+        (SUMMARY_TEXT, None),
+        (HEADER_TEXT, None),
+        (BULLET_TEXT, "List Bullet"),
+    ])
+
+
+def _docx_bullet_then_plain_no_header():
+    """name(freeze,i0) / email(freeze,i1) / bullet(improve,i2) /
+    plain(improve,i3), БЕЗ единого заголовка — структура, идентичная той,
+    что уже один раз ловила регрессию (test_CREATIVE1_mixed_bullet_plain).
+    summary_item_id должен остаться None: первый non-frozen элемент
+    (i==2) — bullet, не plain, поиск останавливается сразу."""
+    return _make_docx([
+        ("John Smith", None),
+        ("john.smith@example.com", None),
+        (BULLET_TEXT, "List Bullet"),
+        (PLAIN2_TEXT, None),
+    ])
+
+
+def test_S2_1_summary_found_at_index_3_when_header_is_separate_block():
+    """Заголовок "О себе"/"About Me" отдельным блоком на i==2 (freeze),
+    реальный текст summary — на i==3. summary_item_id должен указывать
+    именно на текст (i==3), а не на заголовок и не остаться None."""
+    docx_bytes = _docx_header_then_summary()
+    captured = []
+
+    with patch("requests.post", side_effect=_fake_post_factory(captured)):
+        result = mr._run_improve_pipeline(
+            docx_bytes, "resume.docx", None, "fake-api-key",
+            creativity_mode="creative",
+        )
+
+    assert result["success"], result.get("error")
+    summary_calls = [c for c in captured if "REPOSITION" in c["system_prompt"]]
+    assert len(summary_calls) == 1, \
+        f"ожидали ровно 1 repositioning-вызов, получили {len(summary_calls)}"
+
+    # Именно ТЕКСТ с i==3 (SUMMARY_TEXT) должен уйти в repositioning-вызов —
+    # не заголовок "About Me" (он заморожен, ушёл бы токеном @@@...@@@,
+    # не читаемым текстом) и не bullet.
+    assert SUMMARY_TEXT in summary_calls[0]["user_prompt"]
+    assert ABOUT_ME_HEADER not in summary_calls[0]["user_prompt"]
+    assert BULLET_TEXT not in summary_calls[0]["user_prompt"]
+    assert summary_calls[0]["temperature"] == mr.TEMP_BY_MODE["creative"]["summary"]
+
+
+def test_S2_2_summary_found_at_index_2_when_no_separate_header():
+    """Без отдельного заголовка — summary-текст сразу на i==2 (тот же
+    сценарий, что в S1_1/S1_2, продублирован здесь под явным именем S2_2
+    по требованию ТЗ Cycle S2)."""
+    docx_bytes = _docx_with_summary_before_header()
+    captured = []
+
+    with patch("requests.post", side_effect=_fake_post_factory(captured)):
+        result = mr._run_improve_pipeline(
+            docx_bytes, "resume.docx", None, "fake-api-key",
+            creativity_mode="creative",
+        )
+
+    assert result["success"], result.get("error")
+    summary_calls = [c for c in captured if "REPOSITION" in c["system_prompt"]]
+    assert len(summary_calls) == 1
+    assert SUMMARY_TEXT in summary_calls[0]["user_prompt"]
+
+
+def test_S2_3_regression_guard_bullet_at_index_2_gives_none():
+    """Защита от регрессии: структура, идентичная test_CREATIVE1_mixed_
+    bullet_plain (i==2 bullet, i==3 plain, без заголовков). Поиск должен
+    остановиться на i==2 (bullet, не plain) и НЕ продолжить искать
+    дальше — summary_item_id остаётся None, PLAIN2_TEXT уходит в обычную
+    plain-группу без repositioning-промпта."""
+    docx_bytes = _docx_bullet_then_plain_no_header()
+    captured = []
+
+    with patch("requests.post", side_effect=_fake_post_factory(captured)):
+        result = mr._run_improve_pipeline(
+            docx_bytes, "resume.docx", None, "fake-api-key",
+            creativity_mode="creative",
+        )
+
+    assert result["success"], result.get("error")
+    assert len(captured) == 2, f"ожидали 2 вызова (bullet+plain), получили {len(captured)}"
+    for call in captured:
+        assert "REPOSITION" not in call["system_prompt"], \
+            "i==2 — bullet, не plain: поиск summary должен был остановиться здесь, " \
+            "PLAIN2_TEXT на i==3 не должен был стать summary"
+
+    temps = sorted(c["temperature"] for c in captured)
+    assert temps == sorted([0.60, 0.50]), \
+        f"обычные creative-температуры (bullet=0.60, plain=0.50) — получили {temps}"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

@@ -1170,7 +1170,14 @@ def _build_summary_repositioning_prompt(n, detected_lang):
         f"made. Correcting an error is not the same as inventing a fact: "
         f"you may fix HOW something is said without changing WHAT is said. "
         f"Do not flag or comment on corrections — just fix them silently, "
-        f"as part of the normal output."
+        f"as part of the normal output.\n"
+        f"12. Avoid weak or passive phrasing (e.g., \"выполнял разнообразные задачи\", "
+        f"\"занимался задачами\"). Reframe into a focused, strong professional statement "
+        f"based strictly on the provided context. Do NOT use heavy nominal style or "
+        f"awkward verbs (e.g., \"осуществлял\", \"проводил\", \"содействовал\"). Use direct, "
+        f"strong action phrasing. This applies regardless of {detected_lang} — the examples "
+        f"above are illustrative of the pattern to avoid (bureaucratic, over-formal, "
+        f"passive-sounding wording), not a Russian-only rule."
     )
 
 
@@ -1258,6 +1265,8 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
 
     n_items = len(orig_items)
     summary_item_id = None
+    summary_search_done = False
+    SUMMARY_SEARCH_MAX_INDEX = 5  # предохранитель от длинных цепочек frozen-строк
     for i, item in enumerate(orig_items):
         item_id = str(i + 1).zfill(3)
         item_ids.append(item_id)
@@ -1272,26 +1281,37 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
 
         strategy_map[item_id] = strategy
 
-        # Cycle S1 (уточнение после регрессии на test_CREATIVE1): вместо
-        # позиционной эвристики "до первого заголовка" — фиксированный
-        # индекс i==2 (третий элемент, сразу после двух hard-frozen имя/
-        # контакт). Прежний вариант зависел от SECTION_HEADERS_SET —
-        # небольшого захардкоженного EN/RU/HE-набора, не синхронизированного
-        # с 97-языковой детекцией языка в остальном пайплайне: на резюме,
-        # где заголовок секции не совпадал строкой с этим набором (украинский,
-        # французский, китайский и т.д.), эвристика тихо деградировала до
-        # "первый plain+improve item вообще в документе" — подтверждено
-        # регрессией на фикстуре без единого заголовка (test_CREATIVE1_
-        # mixed_bullet_plain_creative_temperatures: bullet+plain без headers
-        # ошибочно отдавал plain-item в summary-группу).
-        # i==2 согласуется с уже существующим допущением пайплайна (i<=1
-        # всегда freeze по позиции, не по содержанию) и не зависит от языка
-        # вообще. Промах (третий элемент — не summary, например сам
-        # заголовок секции или что-то замороженное) даёт безопасный отказ:
-        # summary_item_id остаётся None, поведение падает до обычного
-        # plain-блока — не ложное срабатывание на случайном содержимом.
-        if i == 2 and strategy == "improve" and type_map.get(item_id) == "plain":
-            summary_item_id = item_id
+        # Cycle S2 (фикс регрессии на реальном резюме — фиксированный i==2
+        # из Cycle S1 промахивался, когда "О себе" физически идёт ОТДЕЛЬНОЙ
+        # строкой-заголовком перед текстом summary, а не слит с ним:
+        # i==2 тогда попадает на сам заголовок, который либо короткий без
+        # глагола-маркера, либо совпал с SECTION_HEADERS_SET — в обоих
+        # случаях freeze, и summary_item_id оставался None, а реальный
+        # текст summary на i==3 уходил в обычную plain-группу).
+        #
+        # Новый алгоритм: пропускаем подряд идущие frozen-строки начиная
+        # с i==2 (заголовок "О себе", лишняя строка контактов — что угодно
+        # структурное), но ОСТАНАВЛИВАЕМСЯ на первом же improve-элементе,
+        # каким бы он ни был. Если это plain — это и есть summary. Если
+        # bullet/heading/table — значит отдельного summary-абзаца нет
+        # вообще (уже начался Experience), дальше не смотрим.
+        #
+        # Это НЕ откат к отклонённому варианту "первый plain+improve item
+        # в диапазоне [2,5]" (тот вариант проверен и отклонён — реинтродьюсит
+        # регрессию: на фикстуре test_CREATIVE1_mixed_bullet_plain, где
+        # i==2 — bullet "Managed a team...", а i==3 — обычный plain-буллет
+        # "Delivered comprehensive quarterly...", диапазон-вариант нашёл бы
+        # это i==3 и ошибочно объявил бы summary'ем; вариант с остановкой
+        # на первом improve останавливается уже на i==2 (bullet, не plain)
+        # и корректно даёт None). SUMMARY_SEARCH_MAX_INDEX — потолок на
+        # случай патологически длинной цепочки frozen-строк подряд.
+        if not summary_search_done and i >= 2:
+            if strategy == "improve":
+                if type_map.get(item_id) == "plain":
+                    summary_item_id = item_id
+                summary_search_done = True
+            elif i >= SUMMARY_SEARCH_MAX_INDEX:
+                summary_search_done = True
 
         if strategy == "freeze":
             # Заморозить целиком — AI не видит содержимое
