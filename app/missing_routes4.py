@@ -909,7 +909,7 @@ def _extract_retry_after_seconds(error_message, default=2.0, cap=12.0):
 # зависят и применяются одинаково в обоих случаях.
 TEMP_BY_MODE = {
     "precise": {"bullet": 0.40, "plain": 0.30, "heading": 0.15, "table": 0.15},
-    "creative": {"bullet": 0.60, "plain": 0.50, "heading": 0.15, "table": 0.15},
+    "creative": {"bullet": 0.60, "plain": 0.50, "heading": 0.15, "table": 0.15, "summary": 0.65},
 }
 SIMILARITY_THRESHOLD_BY_MODE = {"precise": 0.95, "creative": 0.99}
 VALID_CREATIVITY_MODES = ("precise", "creative")
@@ -1096,6 +1096,84 @@ def _build_plain_relaxed_system_prompt(n, detected_lang):
     )
 
 
+def _build_summary_repositioning_prompt(n, detected_lang):
+    """
+    Cycle S1: system_prompt для summary/"О себе"-блока — используется
+    вместо _build_plain_relaxed_system_prompt, и ТОЛЬКО когда
+    creativity_mode == "creative" И для батча нашёлся summary_item_id
+    (позиционная эвристика — см. цикл классификации в
+    _run_improve_pipeline). n здесь всегда будет 1 (ровно один
+    summary-блок на резюме), параметр общий по конвенции с остальными
+    build-функциями.
+
+    Правила 1-4 и 7-9 — тот же механический контракт формата, что и в
+    _build_standard_system_prompt/_build_plain_relaxed_system_prompt
+    (###ITEM_NNN### идентификаторы, защищённые @@@...@@@ токены,
+    многострочность, запрет слияния/разбиения блоков). Без него
+    ломается _parse_ai_response() — этого не было в исходном черновике
+    промпта (согласован по содержанию отдельно, вне этого ТЗ), контракт
+    добавлен как техническая необходимость, не как смысловая правка.
+    Не менять независимо от двух других промптов — синхронно с ними.
+
+    Содержательное отличие от relaxed-промпта — правило 5: вместо
+    "reorder внутри предложения" здесь прямо разрешено ПЕРЕСТРОИТЬ
+    порядок предложений внутри блока целиком (не только слов внутри
+    одного предложения), чтобы вывести на первый план самую сильную/
+    сеньорную характеристику кандидата — это и есть repositioning,
+    которого не было ни у стандартного, ни у relaxed промпта.
+
+    Правило 6 — расширенный запрет на выдумку: помимо чисел/сущностей
+    (как и в остальных промптах) здесь отдельно и явно запрещено
+    приписывать неподтверждённые оценочные качества ("expert",
+    "award-winning" и т.п.) — это самый вероятный failure mode именно
+    при repositioning, и это НЕ "новый факт" в терминах _extract_facts/
+    _validate_block (там числа и Title-Case слова, не оценочные
+    прилагательные) — та проверка это не ловит вообще. Известное
+    ограничение, сознательно НЕ расширяется в этом цикле (см. ТЗ
+    Cycle S1: "НЕ ДЕЛАТЬ В ЭТОМ ЦИКЛЕ: расширение _FABRICATED_CLAIM_RE") —
+    полагаемся здесь только на промпт, эмпирическая проверка на реальных
+    прогонах — отдельная задача после деплоя.
+
+    Правило 11 — как и в двух других промптах, базовая гигиена текста,
+    без изменений.
+    """
+    return (
+        f"You are a professional resume writer specializing in personal branding and positioning.\n"
+        f"This block is the candidate's professional summary (\"About Me\") section.\n\n"
+        f"RULES:\n"
+        f"1. Write ONLY in {detected_lang}\n"
+        f"2. Input has {n} blocks, each starting with ###ITEM_NNN###\n"
+        f"3. Return ALL {n} blocks in the SAME order with the SAME ###ITEM_NNN### identifiers\n"
+        f"4. Tokens like @@@A1B2C3D4E5F6@@@ are protected values — copy them EXACTLY as-is\n"
+        f"5. Unlike other sections, here you may actively REPOSITION the summary — reorder and "
+        f"restructure sentences within this ONE block to lead with the candidate's strongest, "
+        f"most senior-sounding qualification, then compress supporting context into one tight, "
+        f"focused statement.\n"
+        f"6. You may reorder, merge and restructure sentences — but may NOT introduce any "
+        f"company, job title, technology, certification, metric or number that is not already "
+        f"present, literally, somewhere in the block below. Do not invent qualities the original "
+        f"doesn't support (\"expert\", \"award-winning\", \"fault-tolerant infrastructure\") "
+        f"unless the original text states or unambiguously implies it. NEVER downgrade a verb or "
+        f"phrase to something weaker or more generic than the original.\n"
+        f"7. Keep unchanged: everything that is a token, section headers, dates, IDs\n"
+        f"8. Multiline items: keep same number of lines, single newline between them\n"
+        f"9. Do NOT merge blocks, do NOT split blocks, do NOT add extra ###ITEM### markers\n"
+        f"10. NEVER invent or add anything not in the original: no new jobs, certifications, "
+        f"courses, achievements, responsibilities, skills, education, outcomes, results, "
+        f"company names, or numbers that are not already present. Reordering and restructuring "
+        f"must never turn into a causal explanation you invented yourself (phrases like "
+        f"\"resulting in\", \"which improved\", \"leading to\", \"by leveraging\", \"ensuring\", "
+        f"\"driving\" are still forbidden).\n"
+        f"11. Fix spelling mistakes, grammatical errors, and awkward or "
+        f"unnatural phrasing wherever you find them in the original text — "
+        f"this applies even to blocks where no other improvement is being "
+        f"made. Correcting an error is not the same as inventing a fact: "
+        f"you may fix HOW something is said without changing WHAT is said. "
+        f"Do not flag or comment on corrections — just fix them silently, "
+        f"as part of the normal output."
+    )
+
+
 def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_key, creativity_mode="precise"):
     """
     Общий защищённый pipeline улучшения резюме:
@@ -1179,6 +1257,7 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
     type_map = {}       # item_id -> block_type (heading/bullet/table/plain), для Phase 2 Шаг 2.1
 
     n_items = len(orig_items)
+    summary_item_id = None
     for i, item in enumerate(orig_items):
         item_id = str(i + 1).zfill(3)
         item_ids.append(item_id)
@@ -1192,6 +1271,27 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
             strategy = _classify_item(text, i, n_items)
 
         strategy_map[item_id] = strategy
+
+        # Cycle S1 (уточнение после регрессии на test_CREATIVE1): вместо
+        # позиционной эвристики "до первого заголовка" — фиксированный
+        # индекс i==2 (третий элемент, сразу после двух hard-frozen имя/
+        # контакт). Прежний вариант зависел от SECTION_HEADERS_SET —
+        # небольшого захардкоженного EN/RU/HE-набора, не синхронизированного
+        # с 97-языковой детекцией языка в остальном пайплайне: на резюме,
+        # где заголовок секции не совпадал строкой с этим набором (украинский,
+        # французский, китайский и т.д.), эвристика тихо деградировала до
+        # "первый plain+improve item вообще в документе" — подтверждено
+        # регрессией на фикстуре без единого заголовка (test_CREATIVE1_
+        # mixed_bullet_plain_creative_temperatures: bullet+plain без headers
+        # ошибочно отдавал plain-item в summary-группу).
+        # i==2 согласуется с уже существующим допущением пайплайна (i<=1
+        # всегда freeze по позиции, не по содержанию) и не зависит от языка
+        # вообще. Промах (третий элемент — не summary, например сам
+        # заголовок секции или что-то замороженное) даёт безопасный отказ:
+        # summary_item_id остаётся None, поведение падает до обычного
+        # plain-блока — не ложное срабатывание на случайном содержимом.
+        if i == 2 and strategy == "improve" and type_map.get(item_id) == "plain":
+            summary_item_id = item_id
 
         if strategy == "freeze":
             # Заморозить целиком — AI не видит содержимое
@@ -1261,9 +1361,26 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
         if strategy_map.get(iid) == "improve" and type_map.get(iid) not in ("bullet", "plain")
     ]  # heading/table (и любой другой тип, если появится)
 
+    # Cycle S1: summary-блок ("О себе") получает отдельный, более смелый
+    # промпт (_build_summary_repositioning_prompt) — но ТОЛЬКО в creative-
+    # режиме. В precise summary_item_id остаётся внутри group_plain_ids
+    # как обычный plain-блок (он там и так уже есть — тип "plain",
+    # strategy "improve" — просто ничего не делаем), обрабатывается
+    # идентично любому другому plain-блоку, как будто Cycle S1 не
+    # существует. Только в creative вырезаем его из group_plain_ids и
+    # заводим отдельную группу — попадание в обе группы одновременно
+    # означало бы, что LLM увидит один и тот же блок дважды в разных
+    # HTTP-вызовах.
+    group_summary_ids = []
+    if creativity_mode == "creative" and summary_item_id:
+        group_summary_ids = [summary_item_id]
+        if summary_item_id in group_plain_ids:
+            group_plain_ids = [iid for iid in group_plain_ids if iid != summary_item_id]
+
     # (block_type для _select_batch_temperature/выбора промпта, item_ids группы)
     attempt_1_groups = [
         ("bullet", group_bullet_ids),
+        ("summary", group_summary_ids),
         ("plain", group_plain_ids),
         ("heading", group_other_ids),  # heading/table вместе — тот же default, что был у _dominant_improve_block_type
     ]
@@ -1289,11 +1406,12 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
             f"Return with ###ITEM_NNN### identifiers.\n\n"
             f"{group_ai_input}\n\nOUTPUT ({group_n} blocks):"
         )
-        group_system_prompt = (
-            _build_plain_relaxed_system_prompt(group_n, detected_lang)
-            if block_type_for_group == "plain"
-            else _build_standard_system_prompt(group_n, detected_lang)
-        )
+        if block_type_for_group == "summary":
+            group_system_prompt = _build_summary_repositioning_prompt(group_n, detected_lang)
+        elif block_type_for_group == "plain":
+            group_system_prompt = _build_plain_relaxed_system_prompt(group_n, detected_lang)
+        else:
+            group_system_prompt = _build_standard_system_prompt(group_n, detected_lang)
         group_temperature = _select_batch_temperature(block_type_for_group, "attempt_1", creativity_mode)
 
         group_payload = {
