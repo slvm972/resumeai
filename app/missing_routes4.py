@@ -1029,7 +1029,13 @@ def _build_standard_system_prompt(n, detected_lang):
         f"produce unnatural phrases like \"внёс в эксплуатацию\" (use \"ввёл в эксплуатацию\" "
         f"or \"внедрил\" instead). This applies regardless of {detected_lang} — the examples "
         f"above illustrate the pattern to avoid (bureaucratic, unnatural, passive-sounding "
-        f"wording), not a Russian-only rule."
+        f"wording), not a Russian-only rule.\n\n"
+        f"EXAMPLES:\n"
+        f"- Bad: \"Занимался внедрением системы...\" -> Good: \"Внедрил систему...\"\n"
+        f"- Bad: \"Внёс в эксплуатацию систему...\" -> Good: \"Ввёл в эксплуатацию систему...\" "
+        f"/ \"Внедрил систему...\"\n"
+        f"- Bad: \"Выполнял задачи по обновлению...\" -> Good: \"Реализовал проект "
+        f"обновления...\""
     )
 
 
@@ -1188,6 +1194,69 @@ def _build_summary_repositioning_prompt(n, detected_lang):
         f"above are illustrative of the pattern to avoid (bureaucratic, over-formal, "
         f"passive-sounding wording), not a Russian-only rule."
     )
+
+
+# ---------------------------------------------------------------------------
+# Deterministic Sanitizer (Cycle B2) — гарантированная пост-обработка типовых
+# неестественных формулировок/канцелярита на уровне Python-кода, поверх
+# промпт-инструкций (Rule 12 + EXAMPLES, Cycle B1/B2). Промпт снижает частоту,
+# но не даёт гарантии на каждый отдельный ответ модели — это защита второго
+# эшелона: детерминированная, не зависит от флуктуаций LLM.
+# ---------------------------------------------------------------------------
+
+# (плохая фраза -> хорошая замена). Регистронезависимый ПОИСК (re.IGNORECASE),
+# но замена сохраняет регистр первой буквы оригинального совпадения — см.
+# _sanitize_awkward_phrasing. Список НЕ претендует на грамматическую полноту
+# русского языка — это конкретные, эмпирически найденные (Cycle B2 диагноз на
+# improved_resume (4).docx) паттерны, а не общий корректор. Расширять по мере
+# обнаружения новых конкретных случаев, тем же способом.
+_SANITIZER_REPLACEMENTS = [
+    # "вн[её]с/внесла/внесли в эксплуатацию" -> "ввёл/ввела/ввели в эксплуатацию":
+    # выбрана эта замена, а не альтернативный "внедрил" из ТЗ — "ввёл в
+    # эксплуатацию" структурно безопасна для точечной подстановки регэкспом
+    # (тот же глагольный паттерн "глагол + в эксплуатацию + [остаток без
+    # изменений]"), тогда как "внедрил" — глагол другой валентности, требующий
+    # убрать "в эксплуатацию" из фразы целиком; тоже возможно, но менее
+    # устойчиво при неизвестной длине/структуре остатка предложения.
+    (re.compile(r"вн[её]с в эксплуатацию", re.IGNORECASE), "ввёл в эксплуатацию"),
+    (re.compile(r"внесла в эксплуатацию", re.IGNORECASE), "ввела в эксплуатацию"),
+    (re.compile(r"внесли в эксплуатацию", re.IGNORECASE), "ввели в эксплуатацию"),
+    # "осуществлял(а/и) миграцию" -> "провёл/провела/провели миграцию": та же
+    # логика — "провёл миграцию" безопасная прямая подстановка (глагол +
+    # винительный падеж), "мигрировал" из ТЗ потребовал бы реструктуризации
+    # предложения (другая глагольная модель управления), небезопасной для
+    # точечного regex-сплайса.
+    (re.compile(r"осуществлял миграцию", re.IGNORECASE), "провёл миграцию"),
+    (re.compile(r"осуществляла миграцию", re.IGNORECASE), "провела миграцию"),
+    (re.compile(r"осуществляли миграцию", re.IGNORECASE), "провели миграцию"),
+]
+
+
+def _sanitize_awkward_phrasing(text):
+    """
+    Cycle B2: применить детерминированные замены известных неестественных
+    формулировок/канцелярита к тексту, уже сгенерированному LLM (вызывается
+    ПОСЛЕ _restore_text, ДО _validate_block/_quality_gate — так итоговый
+    отчёт и сравнение сходства считаются по тому же тексту, что реально
+    попадёт в документ, а не по промежуточной несанированной версии).
+
+    Не новый факт в терминах Fact Validation — это подстановка синонимичной
+    формулировки того же смысла, а не добавление контента; порядок вызова
+    относительно _validate_block выбран так, чтобы обе проверки (факты,
+    качество) видели уже финальный текст.
+    """
+    if not text:
+        return text
+
+    def _match_case(replacement, matched_text):
+        if matched_text[:1].isupper():
+            return replacement[:1].upper() + replacement[1:]
+        return replacement
+
+    for pattern, replacement in _SANITIZER_REPLACEMENTS:
+        text = pattern.sub(lambda m: _match_case(replacement, m.group(0)), text)
+
+    return text
 
 
 def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_key, creativity_mode="precise"):
@@ -1546,6 +1615,7 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
                 continue
 
             improved = _restore_text(parsed[iid], store)
+            improved = _sanitize_awkward_phrasing(improved)  # Cycle B2: детерминированная пост-обработка
 
             # Fact Validation
             fact_ok, fact_reason = _validate_block(orig_text, improved)
