@@ -1020,7 +1020,16 @@ def _build_standard_system_prompt(n, detected_lang):
         f"made. Correcting an error is not the same as inventing a fact: "
         f"you may fix HOW something is said without changing WHAT is said. "
         f"Do not flag or comment on corrections — just fix them silently, "
-        f"as part of the normal output."
+        f"as part of the normal output.\n"
+        f"12. When an achievement bullet already leads with a verb, that verb must be "
+        f"strong, active, and past-tense (e.g., \"Внедрил\", \"Настроил\", \"Оптимизировал\", "
+        f"\"Провёл\", \"Сократил\"). STRICTLY FORBIDDEN: bureaucratic compound verbs like "
+        f"\"осуществлял\", \"выполнял задачи\", \"принимал участие\", \"занимался\" (and their "
+        f"equivalents in other languages). Ensure natural language collocations — do NOT "
+        f"produce unnatural phrases like \"внёс в эксплуатацию\" (use \"ввёл в эксплуатацию\" "
+        f"or \"внедрил\" instead). This applies regardless of {detected_lang} — the examples "
+        f"above illustrate the pattern to avoid (bureaucratic, unnatural, passive-sounding "
+        f"wording), not a Russian-only rule."
     )
 
 
