@@ -1192,16 +1192,29 @@ def _build_summary_repositioning_prompt(n, detected_lang):
         f"awkward verbs (e.g., \"осуществлял\", \"проводил\", \"содействовал\"). Use direct, "
         f"strong action phrasing. This applies regardless of {detected_lang} — the examples "
         f"above are illustrative of the pattern to avoid (bureaucratic, over-formal, "
-        f"passive-sounding wording), not a Russian-only rule."
+        f"passive-sounding wording), not a Russian-only rule.\n"
+        f"13. Ensure proper spacing between sentences — every sentence-ending punctuation "
+        f"mark (., !, ?) must be followed by a space before the next sentence starts. "
+        f"Prefer PRESENT-tense, identity-forward positioning over past-tense action "
+        f"statements as the PRIMARY framing of this block (past-tense achievement "
+        f"descriptions belong in the Experience section, not here) — e.g., avoid leading "
+        f"with \"Отвечал за...\"; prefer \"Специалист..., решающий задачи...\" or similar "
+        f"present-tense/participle framing. This is about HOW the candidate is positioned "
+        f"(who they ARE), not a list of past actions.\n"
+        f"EXAMPLE:\n"
+        f"- Bad: \"Специалист по сетям.Отвечал за задачи...\"\n"
+        f"- Good: \"Специалист по сетям и системному администрированию, решающий "
+        f"комплексные задачи инфраструктуры...\""
     )
 
 
 # ---------------------------------------------------------------------------
-# Deterministic Sanitizer (Cycle B2) — гарантированная пост-обработка типовых
-# неестественных формулировок/канцелярита на уровне Python-кода, поверх
-# промпт-инструкций (Rule 12 + EXAMPLES, Cycle B1/B2). Промпт снижает частоту,
-# но не даёт гарантии на каждый отдельный ответ модели — это защита второго
-# эшелона: детерминированная, не зависит от флуктуаций LLM.
+# Deterministic Sanitizer (Cycle B2, расширен Cycle S3) — гарантированная
+# пост-обработка типовых неестественных формулировок/канцелярита И типовых
+# пунктуационных огрехов (слипшиеся предложения) на уровне Python-кода,
+# поверх промпт-инструкций. Промпт снижает частоту, но не даёт гарантии на
+# каждый отдельный ответ модели — это защита второго эшелона:
+# детерминированная, не зависит от флуктуаций LLM.
 # ---------------------------------------------------------------------------
 
 # (плохая фраза -> хорошая замена). Регистронезависимый ПОИСК (re.IGNORECASE),
@@ -1229,6 +1242,26 @@ _SANITIZER_REPLACEMENTS = [
     (re.compile(r"осуществлял миграцию", re.IGNORECASE), "провёл миграцию"),
     (re.compile(r"осуществляла миграцию", re.IGNORECASE), "провела миграцию"),
     (re.compile(r"осуществляли миграцию", re.IGNORECASE), "провели миграцию"),
+    # Cycle S3: восстановление пропущенного пробела после конца предложения
+    # (".", "!", "?") перед заглавной буквой следующего предложения —
+    # "администрированию.Отвечал" -> "администрированию. Отвечал".
+    #
+    # ВАЖНО — отклонение от буквального ТЗ: исходно предложенный паттерн
+    # (?<=[.!?])(?=[А-ЯЁA-Z]) без требования к символу ПЕРЕД знаком
+    # препинания ломает технические термины вида "ASP.NET"/".NET" (уже explicitly
+    # защищённые как protected token в _PROTECT_PATTERNS/TECH_SPECIAL —
+    # домен продукта это IT-резюме, где такие термины реальны, не гипотетичны).
+    # Проверено эмпирически: наивный паттерн даёт "ASP. NET", "Разработка на
+    # . NET Core" — порча корректного, уже защищённого контента.
+    #
+    # Уточнение: требуем СТРОЧНУЮ букву (кириллица/латиница) непосредственно
+    # ПЕРЕД знаком препинания — реальные концы предложений почти всегда
+    # оканчиваются на строчную букву слова, тогда как технические термины
+    # (ASP.NET) — на заглавную (сокращение), либо точка вообще ничему
+    # буквенному не предшествует (".NET" в начале). Компромисс: пропускает
+    # редкий случай run-on после заглавной аббревиатуры ("...в IT.Затем...")
+    # — осознанно, т.к. недочинить безопаснее, чем сломать защищённый термин.
+    (re.compile(r"(?<=[а-яёa-z][.!?])(?=[А-ЯЁA-Z])"), " "),
 ]
 
 

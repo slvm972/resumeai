@@ -338,5 +338,59 @@ def test_S2_3_regression_guard_bullet_at_index_2_gives_none():
         f"обычные creative-температуры (bullet=0.60, plain=0.50) — получили {temps}"
 
 
+# ===========================================================================
+# Cycle S3 — Punctuation Sanitizer (слипшиеся предложения) + усиление
+# summary-промпта (пробелы + present-tense позиционирование).
+# ===========================================================================
+
+def test_S3_1_punctuation_sanitizer_fixes_missing_space():
+    result = mr._sanitize_awkward_phrasing("администрированию.Отвечал за задачи")
+    assert result == "администрированию. Отвечал за задачи"
+
+
+def test_S3_1_punctuation_sanitizer_handles_exclamation_and_question():
+    assert mr._sanitize_awkward_phrasing("Готово!Далее следующий шаг") == \
+        "Готово! Далее следующий шаг"
+    assert mr._sanitize_awkward_phrasing("Уверены?Переходим к делу") == \
+        "Уверены? Переходим к делу"
+
+
+def test_S3_1_punctuation_sanitizer_noop_on_already_spaced_text():
+    clean = "Специалист по сетям. Отвечал за инфраструктуру."
+    assert mr._sanitize_awkward_phrasing(clean) == clean
+
+
+def test_S3_1_regression_guard_dot_net_not_broken():
+    """Ключевая находка при критической оценке ТЗ: буквально предложенный
+    паттерн (?<=[.!?])(?=[А-ЯЁA-Z]) без требования к символу ПЕРЕД точкой
+    ломает уже защищённые (в _PROTECT_PATTERNS/TECH_SPECIAL) технические
+    термины вида "ASP.NET"/".NET" — реалистичные для IT-резюме, не
+    гипотетические. Уточнённый паттерн (?<=[а-яёa-z][.!?])(?=[А-ЯЁA-Z])
+    требует строчную букву перед знаком препинания — у ASP.NET перед
+    точкой заглавная "P", у .NET перед точкой вообще нет буквы."""
+    assert mr._sanitize_awkward_phrasing("Опыт работы с ASP.NET Framework") == \
+        "Опыт работы с ASP.NET Framework"
+    assert mr._sanitize_awkward_phrasing("Разработка на .NET Core") == \
+        "Разработка на .NET Core"
+
+
+def test_S3_1_combines_with_B2_sanitizer_in_same_text():
+    """Оба санитайзера (B2 — канцелярит, S3 — пунктуация) работают в одном
+    и том же тексте за один проход _sanitize_awkward_phrasing, не мешая
+    друг другу."""
+    result = mr._sanitize_awkward_phrasing(
+        "Внёс в эксплуатацию систему.Осуществлял миграцию БД."
+    )
+    assert result == "Ввёл в эксплуатацию систему. Провёл миграцию БД."
+
+
+def test_S3_2_summary_prompt_has_spacing_and_present_tense_rules():
+    prompt = mr._build_summary_repositioning_prompt(1, "Russian")
+    assert "sentence-ending punctuation" in prompt or "spacing between sentences" in prompt
+    assert "PRESENT" in prompt
+    assert "Отвечал за" in prompt  # bad-пример на месте
+    assert "решающий" in prompt    # good-пример (причастие) на месте
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
