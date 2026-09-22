@@ -148,7 +148,7 @@ def test_B2_regression_sanitizer_applied_before_validation_in_pipeline():
     doc.add_paragraph("John Smith")
     doc.add_paragraph("john.smith@example.com")
     doc.add_paragraph(
-        "Managed backup infrastructure and внёс в эксплуатацию new disaster recovery system",
+        "Configured backup infrastructure and внёс в эксплуатацию new disaster recovery system",
         style="List Bullet",
     )
     buf = io.BytesIO()
@@ -168,8 +168,12 @@ def test_B2_regression_sanitizer_applied_before_validation_in_pipeline():
             # ведущего глагола синонимом (genuine word change, остаётся на
             # позиции 0 — не задевает Fact Validation по капитализации),
             # "внёс в эксплуатацию" оставляем нетронутым — его обязан
-            # поймать sanitizer, не LLM.
-            rewritten = text.replace("Managed", "Directed", 1)
+            # поймать sanitizer, не LLM. Configured/Deployed — нейтральная
+            # пара (Cycle R1.1): "Managed"/"Directed" здесь коллидировали с
+            # role-escalation guard'ом (Managed backup infrastructure
+            # попадает под tech-exception lookahead), хотя тест вообще не
+            # про роли — заменено, чтобы не зависеть от несвязанной логики.
+            rewritten = text.replace("Configured", "Deployed", 1)
             out_parts.append(f"###ITEM_{iid}###\n{rewritten}")
         content = "\n\n".join(out_parts)
         resp = MagicMock()

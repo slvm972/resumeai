@@ -1080,11 +1080,11 @@ def test_CHANGES1_accepted_change_has_correct_texts():
     doc = Document()
     doc.add_paragraph("John Smith")
     doc.add_paragraph("john@example.com")
-    doc.add_paragraph("Was responsible for backend systems")
+    doc.add_paragraph("Managed a team of 5 designers")
     buf = io.BytesIO(); doc.save(buf)
 
     def fake_post(url, headers=None, json=None, timeout=None):
-        return _FakeGroqResp("###ITEM_003###\nLed backend architecture and implementation\n\n")
+        return _FakeGroqResp("###ITEM_003###\nDirected a team of 5 designers\n\n")
 
     with patch("requests.post", side_effect=fake_post):
         result = mr._run_improve_pipeline(buf.getvalue(), "t.docx", None, "fake-key")
@@ -1092,8 +1092,8 @@ def test_CHANGES1_accepted_change_has_correct_texts():
     changes = result["quality_report"]["changes"]
     assert len(changes) == 1, f"ожидали 1 изменение, получили {len(changes)}"
     assert changes[0]["id"] == "003"
-    assert changes[0]["original_text"] == "Was responsible for backend systems"
-    assert changes[0]["improved_text"] == "Led backend architecture and implementation"
+    assert changes[0]["original_text"] == "Managed a team of 5 designers"
+    assert changes[0]["improved_text"] == "Directed a team of 5 designers"
 
 
 def test_CHANGES2_identical_text_not_in_changes():

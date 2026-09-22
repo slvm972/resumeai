@@ -1009,7 +1009,7 @@ def _build_standard_system_prompt(n, detected_lang):
         f"3. Return ALL {n} blocks in the SAME order with the SAME ###ITEM_NNN### identifiers\n"
         f"4. Tokens like @@@A1B2C3D4E5F6@@@ are protected values — copy them EXACTLY as-is\n"
         f"5. Improve ONLY: job descriptions and skill descriptions — use stronger, more precise action verbs for what is already described. Do not add new clauses, outcomes, or explanations.\n"
-        f"6. NEVER downgrade a verb or phrase to something weaker, more generic, or less professional than the original (example of a FORBIDDEN downgrade: \"Collaborated with\" → \"Worked with\"). Only replace a word if the replacement is strictly stronger or more precise (example of a CORRECT upgrade: \"Managed\" → \"Directed\"). If you are not confident the replacement is stronger, leave the original word unchanged.\n"
+        f"6. NEVER downgrade a verb or phrase to something weaker, more generic, or less professional than the original (example of a FORBIDDEN downgrade: \"Collaborated with\" → \"Worked with\"). Only replace a word if the replacement is strictly stronger or more precise (example of a CORRECT upgrade: \"Configured\" → \"Deployed\"). If you are not confident the replacement is stronger, leave the original word unchanged. This upgrade must NEVER change the level of organizational responsibility implied by the original — see Rule 14.\n"
         f"7. Keep unchanged: everything that is a token, section headers, dates, IDs\n"
         f"8. Multiline items: keep same number of lines, single newline between them\n"
         f"9. Do NOT merge blocks, do NOT split blocks, do NOT add extra ###ITEM### markers\n"
@@ -1035,7 +1035,25 @@ def _build_standard_system_prompt(n, detected_lang):
         f"- Bad: \"Внёс в эксплуатацию систему...\" -> Good: \"Ввёл в эксплуатацию систему...\" "
         f"/ \"Внедрил систему...\"\n"
         f"- Bad: \"Выполнял задачи по обновлению...\" -> Good: \"Реализовал проект "
-        f"обновления...\""
+        f"обновления...\"\n\n"
+        f"14. STRICT ROLE PRESERVATION: NEVER elevate an individual-contributor role into "
+        f"a management, leadership, ownership, or supervisory role unless the source "
+        f"explicitly states such responsibility. Words like \"worked on\", \"participated "
+        f"in\", \"was involved in\", \"handled\", \"supported\", \"maintained\", \"was "
+        f"responsible for\", \"assisted with\", \"contributed to\" (and their Russian "
+        f"equivalents \"работал над\", \"участвовал в\", \"занимался\", \"отвечал за\", "
+        f"\"поддерживал\", \"выполнял\") do NOT by themselves prove management or "
+        f"leadership — do NOT automatically transform them into \"led\", \"managed\", "
+        f"\"directed\", \"headed\", \"supervised\", \"oversaw\", \"owned\", \"руководил\", "
+        f"\"возглавлял\", \"управлял командой\", \"курировал\". Prefer precise technical/"
+        f"operational verbs instead when supported by the source (e.g., \"configured\", "
+        f"\"administered\", \"maintained\", \"implemented\", \"deployed\", \"troubleshot\", "
+        f"\"upgraded\", \"monitored\"). This is about preserving the FACTUAL responsibility "
+        f"level, not about avoiding strong verbs — a strong, precise IC-level verb is still "
+        f"encouraged. Conversely, if the source ALREADY establishes genuine management or "
+        f"leadership (e.g., \"Руководил командой из 5 инженеров\", \"Управлял отделом "
+        f"технической поддержки\"), that leadership level MUST be preserved, not "
+        f"downgraded."
     )
 
 
@@ -1072,6 +1090,17 @@ def _build_plain_relaxed_system_prompt(n, detected_lang):
     исправлять орфографию/грамматику/неуклюжие формулировки. Это не
     про творческую свободу, а базовая гигиена текста — работает
     одинаково независимо от temperature/режима.
+
+    Cycle R1 (фикс Role Escalation): Rule 5 раньше явно ПООЩРЯЛ замену
+    ("PREFER... e.g.") \"was responsible for\" -> \"led\" и \"managed\" ->
+    \"directed\" — ровно тот паттерн эскалации уровня ответственности
+    (IC-формулировка -> management-формулировка), который Rule 14 теперь
+    запрещает. Это была не просто иллюстрация, а активная инструкция —
+    вероятный первопричинный источник бага. Заменено на неэскалирующие
+    примеры (helped with -> supported, worked on -> implemented — оба
+    IC-уровня, не про организационную власть). Rule 6 аналогично лишился
+    примера \"Managed\" -> \"Directed\" (management-регистр) в пользу
+    нейтрального.
     """
     return (
         f"You are a professional resume editor.\n\n"
@@ -1081,16 +1110,18 @@ def _build_plain_relaxed_system_prompt(n, detected_lang):
         f"3. Return ALL {n} blocks in the SAME order with the SAME ###ITEM_NNN### identifiers\n"
         f"4. Tokens like @@@A1B2C3D4E5F6@@@ are protected values — copy them EXACTLY as-is\n"
         f"5. These blocks allow more creative freedom than usual: PREFER replacing weak verbs "
-        f"with strong, active-voice alternatives (e.g. \"was responsible for\" -> \"led\", "
-        f"\"managed\" -> \"directed\"). You CAN reorder clauses or phrases within a sentence if "
-        f"the meaning is fully preserved. You CAN add connecting words or prepositions for "
-        f"clarity and flow. PREFER active voice over passive voice.\n"
+        f"with strong, active-voice alternatives (e.g. \"helped with\" -> \"supported\", "
+        f"\"worked on\" -> \"implemented\" — precise IC-level verbs, not a change in "
+        f"organizational responsibility; see Rule 14). You CAN reorder clauses or phrases "
+        f"within a sentence if the meaning is fully preserved. You CAN add connecting words "
+        f"or prepositions for clarity and flow. PREFER active voice over passive voice.\n"
         f"6. NEVER downgrade a verb or phrase to something weaker, more generic, or less "
         f"professional than the original (example of a FORBIDDEN downgrade: \"Collaborated "
         f"with\" → \"Worked with\"). Only replace a word if the replacement is strictly "
-        f"stronger or more precise (example of a CORRECT upgrade: \"Managed\" → \"Directed\"). "
-        f"If you are not confident the replacement is stronger, leave the original word "
-        f"unchanged.\n"
+        f"stronger or more precise (example of a CORRECT upgrade: \"Configured\" → "
+        f"\"Deployed\"). If you are not confident the replacement is stronger, leave the "
+        f"original word unchanged. This upgrade must NEVER change the level of "
+        f"organizational responsibility implied by the original — see Rule 14.\n"
         f"7. Keep unchanged: everything that is a token, section headers, dates, IDs\n"
         f"8. Multiline items: keep same number of lines, single newline between them\n"
         f"9. Do NOT merge blocks, do NOT split blocks, do NOT add extra ###ITEM### markers\n"
@@ -1107,7 +1138,25 @@ def _build_plain_relaxed_system_prompt(n, detected_lang):
         f"made. Correcting an error is not the same as inventing a fact: "
         f"you may fix HOW something is said without changing WHAT is said. "
         f"Do not flag or comment on corrections — just fix them silently, "
-        f"as part of the normal output."
+        f"as part of the normal output.\n"
+        f"14. STRICT ROLE PRESERVATION: NEVER elevate an individual-contributor role into "
+        f"a management, leadership, ownership, or supervisory role unless the source "
+        f"explicitly states such responsibility. Words like \"worked on\", \"participated "
+        f"in\", \"was involved in\", \"handled\", \"supported\", \"maintained\", \"was "
+        f"responsible for\", \"assisted with\", \"contributed to\" (and their Russian "
+        f"equivalents \"работал над\", \"участвовал в\", \"занимался\", \"отвечал за\", "
+        f"\"поддерживал\", \"выполнял\") do NOT by themselves prove management or "
+        f"leadership — do NOT automatically transform them into \"led\", \"managed\", "
+        f"\"directed\", \"headed\", \"supervised\", \"oversaw\", \"owned\", \"руководил\", "
+        f"\"возглавлял\", \"управлял командой\", \"курировал\". Prefer precise technical/"
+        f"operational verbs instead when supported by the source (e.g., \"configured\", "
+        f"\"administered\", \"maintained\", \"implemented\", \"deployed\", \"troubleshot\", "
+        f"\"upgraded\", \"monitored\"). This is about preserving the FACTUAL responsibility "
+        f"level, not about avoiding strong verbs — a strong, precise IC-level verb is still "
+        f"encouraged. Conversely, if the source ALREADY establishes genuine management or "
+        f"leadership (e.g., \"Руководил командой из 5 инженеров\", \"Управлял отделом "
+        f"технической поддержки\"), that leadership level MUST be preserved, not "
+        f"downgraded."
     )
 
 
@@ -1204,7 +1253,17 @@ def _build_summary_repositioning_prompt(n, detected_lang):
         f"EXAMPLE:\n"
         f"- Bad: \"Специалист по сетям.Отвечал за задачи...\"\n"
         f"- Good: \"Специалист по сетям и системному администрированию, решающий "
-        f"комплексные задачи инфраструктуры...\""
+        f"комплексные задачи инфраструктуры...\"\n"
+        f"14. STRICT ROLE PRESERVATION: Rule 5's \"most senior-sounding qualification\" means "
+        f"choosing WHICH of the candidate's existing, stated qualifications to lead with — it "
+        f"does NOT mean implying a higher organizational role, title, or level of authority "
+        f"than the original text supports. NEVER elevate an individual-contributor "
+        f"description into a management, leadership, ownership, or supervisory framing "
+        f"(\"led\", \"managed\", \"directed\", \"headed\", \"supervised\", \"oversaw\", "
+        f"\"owned\", \"руководил\", \"возглавлял\", \"управлял командой\", \"курировал\") "
+        f"unless the source explicitly states such responsibility. Conversely, if the source "
+        f"ALREADY establishes genuine management or leadership, that level MUST be preserved "
+        f"— this rule constrains upward drift, not accurate reporting of real seniority."
     )
 
 
@@ -1290,6 +1349,74 @@ def _sanitize_awkward_phrasing(text):
         text = pattern.sub(lambda m: _match_case(replacement, m.group(0)), text)
 
     return text
+
+
+# "led" — ОТДЕЛЬНО от остальных, БЕЗ re.IGNORECASE на уровне этого
+# под-паттерна: "LED" (Light Emitting Diode) — обычное слово на IT/
+# network-резюме ("LED indicators", "LED display", "configured LED
+# status lights on switches"), полностью заглавными буквами — это
+# аббревиатура/техническое сокращение, не форма глагола "lead". Ловим
+# ТОЛЬКО "led"/"Led" (строчный в середине предложения, заглавный в
+# начале — обычные формы прошедшего времени глагола), НЕ "LED"
+# (полностью прописными).
+_ROLE_ELEVATION_LED_RE = re.compile(r"\bLed\b|\bled\b")
+
+# "managed"/"directed" — с negative lookahead перед известными
+# техническими существительными, где эти слова — ПРИЛАГАТЕЛЬНОЕ/
+# техническая классификация оборудования/понятия, а не глагол,
+# описывающий управление ЛЮДЬМИ: "managed switch"/"managed network"/
+# "managed infrastructure"/"managed services" — стандартная сетевая
+# терминология (managed vs unmanaged switch); "directed graph"/
+# "directed broadcast" — термины CS/networking. Без исключения
+# guard ошибочно реагировал бы на чисто техническое описание
+# оборудования как на claim об управлении людьми.
+_MANAGED_DIRECTED_TECH_EXCEPTIONS = (
+    r"switch(?:es)?|network(?:s)?|infrastructure|service(?:s)?|hosting|"
+    r"server(?:s)?|device(?:s)?|endpoint(?:s)?|environment(?:s)?|"
+    r"instance(?:s)?|host(?:s)?|node(?:s)?|cluster(?:s)?|database(?:s)?|"
+    r"system(?:s)?"
+)
+_ROLE_ELEVATION_MARKERS_RE = re.compile(
+    r"\bmanaged\b(?!\s+(?:\w+\s+)?(?:" + _MANAGED_DIRECTED_TECH_EXCEPTIONS + r"))"
+    r"|\bdirected\b(?!\s+(?:\w+\s+)?(?:graph|acyclic|broadcast))"
+    r"|\b(?:headed|supervised|oversaw|owned)\b"
+    r"|(?:руководил|возглавлял|курировал)(?:а|и)?\b"
+    r"|управля(?:л|ла|ли)\s+(?:командой|отделом|департаментом|группой|подразделением|службой)",
+    re.IGNORECASE,
+)
+
+
+def _extract_role_elevation_markers(text):
+    """Cycle R1: множество найденных в тексте маркеров management/
+    leadership-роли (нормализовано к нижнему регистру)."""
+    if not text:
+        return set()
+    markers = {m.group(0).lower() for m in _ROLE_ELEVATION_MARKERS_RE.finditer(text)}
+    markers |= {m.group(0).lower() for m in _ROLE_ELEVATION_LED_RE.finditer(text)}
+    return markers
+
+
+def _check_role_escalation(orig_text, new_text):
+    """
+    Cycle R1: обнаружить недопустимую эскалацию уровня ответственности —
+    improved-текст вводит management/leadership-маркер, которого не было
+    в оригинале НИ В КАКОМ ВИДЕ. НЕ blacklist по словам в new_text: если
+    orig уже содержит хотя бы один такой маркер — guard не вмешивается
+    вообще (сохраняет genuine management, включая замену одного
+    management-маркера на другой синоним того же регистра, например
+    "Managed"->"Directed" — не сверяем, КАКОЙ конкретно маркер на какой
+    заменён, только появился ли management-регистр там, где его не было).
+    Отдельная функция, не слияние с _validate_block — её поведение и
+    существующие тесты не затронуты.
+    """
+    if not new_text or not orig_text:
+        return True, ""
+    if _extract_role_elevation_markers(orig_text):
+        return True, ""
+    new_markers = _extract_role_elevation_markers(new_text)
+    if new_markers:
+        return False, f"Role escalation: introduced {', '.join(sorted(new_markers)[:3])} not present in original"
+    return True, ""
 
 
 def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_key, creativity_mode="precise"):
@@ -1665,6 +1792,21 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
                 })
                 continue
 
+            # Cycle R1: Role Escalation guard — отдельно от Fact Validation
+            escalation_ok, escalation_reason = _check_role_escalation(orig_text, improved)
+            if not escalation_ok:
+                id_to_text[iid] = orig_text
+                block_reports.append({
+                    "id": iid, "attempt": attempt_label,
+                    "strategy": strategy,
+                    "decision": "rejected_role_escalation",
+                    "reason": escalation_reason,
+                    "similarity": _text_similarity(orig_text, improved),
+                    "original_text": orig_text,
+                    "improved_text": improved,
+                })
+                continue
+
             # Quality Gate — порог зависит от creativity_mode (Cycle CM1);
             # доступен через closure _restore_and_validate внутри
             # _run_improve_pipeline, где creativity_mode уже провалидирован.
@@ -1728,6 +1870,11 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
             f"- Copy protected tokens @@@...@@@ EXACTLY as-is\n"
             f"- Return EXACTLY {n_retry} blocks with ###ITEM_NNN### identifiers\n"
             f"- NEVER invent new facts, numbers, companies or technologies\n"
+            f"- NEVER elevate an individual-contributor description (\"worked on\", \"was "
+            f"responsible for\", \"participated in\", \"занимался\", \"отвечал за\", "
+            f"\"участвовал в\") into a management/leadership framing (\"led\", \"managed\", "
+            f"\"directed\", \"руководил\", \"возглавлял\", \"управлял командой\") unless the "
+            f"source already states such responsibility\n"
             f"- If a block genuinely has nothing to improve (e.g. it is a name, title, header, or list of "
             f"items), return it completely unchanged — do not pad it to appear different."
         )
@@ -1860,6 +2007,7 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
             "accepted":        sum(1 for r in final_decisions if r["decision"] == "accepted"),
             "kept_original":   sum(1 for r in final_decisions if r["decision"] == "kept_original"),
             "rejected_facts":  sum(1 for r in final_decisions if r["decision"] == "rejected_facts"),
+            "rejected_role_escalation": sum(1 for r in final_decisions if r["decision"] == "rejected_role_escalation"),
             "needs_retry":     sum(1 for r in final_decisions if r["decision"] == "needs_retry"),
             "avg_similarity":  round(
                 sum(r["similarity"] for r in final_decisions) / max(len(final_decisions), 1), 3
