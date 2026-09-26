@@ -729,6 +729,8 @@ def _register_legacy_routes(app):
                 'quality_report': result.get('quality_report'),
                 'has_original_docx': result.get('has_original_docx', False),
                 'creativity_mode': result.get('creativity_mode', 'precise'),
+                'guardrail_report': result.get('guardrail_report'),
+                'guardrail_rejected': result.get('guardrail_rejected', False),
             })
         except Exception as e:
             import traceback

@@ -1118,3 +1118,174 @@ def test_CHANGES2_identical_text_not_in_changes():
 
     changes = result["quality_report"]["changes"]
     assert len(changes) == 0, f"ожидали 0 изменений (identical text), получили {len(changes)}"
+
+
+# ===========================================================================
+# БЛОК: Guardrail-интеграция в _run_improve_pipeline() (GUARD1-4)
+# ===========================================================================
+# Контекст: Этап 8a добавил whole-resume Guardrail-проверку (модуль
+# app/services/resume_guardrail.py, тестируется отдельно и изолированно
+# в tests/test_resume_guardrail.py) в конец _run_improve_pipeline(),
+# сразу после restored_list, до сборки improved_text_for_docx/
+# display_text. guardrail_enabled читается из current_app.config
+# (try/except -> False вне app_context, как и остальные current_app-
+# вызовы в этом файле, например [DEBUG-LEAK-BULLETS]). Здесь мокается
+# GuardrailService.run_check напрямую — сам Guardrail уже протестирован
+# изолированно, тут проверяется только интеграция (вызывается/не
+# вызывается, откат restored_list, проброс отчёта в return dict).
+
+def test_GUARD1_disabled_by_default_never_calls_guardrail():
+    """guardrail_enabled=False (дефолт, БЕЗ app_context вообще — как и
+    остальные 5 direct-call тестов на _run_improve_pipeline в этом
+    файле) -> GuardrailService.run_check НЕ должен вызываться вообще.
+    All-freeze резюме (как в PLANB3) — Groq тоже не вызывается, тест
+    сфокусирован ровно на Guardrail-поведении."""
+    from docx import Document
+    from unittest.mock import patch
+
+    doc = Document()
+    doc.add_paragraph("Mike Ross")
+    doc.add_paragraph("mike@example.com")
+    h = doc.add_paragraph("Experience")
+    h.style = doc.styles["Heading 1"]
+    buf = io.BytesIO(); doc.save(buf)
+
+    def _fail_if_called(*a, **kw):
+        pytest.fail("GuardrailService.run_check не должен вызываться при guardrail_enabled=False")
+
+    with patch("app.services.resume_guardrail.GuardrailService.run_check", side_effect=_fail_if_called):
+        result = mr._run_improve_pipeline(buf.getvalue(), "guard1.docx", None, "fake-key")
+
+    assert result["success"]
+    assert result["guardrail_report"] is None
+    assert result["guardrail_rejected"] is False
+
+
+def test_GUARD2_enabled_not_rejected_keeps_improvements():
+    """guardrail_enabled=True, GuardrailService.run_check замокан на
+    guardrail_rejected=False -> improved_resume/display_text остаются
+    как посчитал pipeline (реальное изменение сохраняется, ничего не
+    откатывается)."""
+    from flask import Flask
+    from docx import Document
+    from unittest.mock import patch
+
+    doc = Document()
+    doc.add_paragraph("John Smith")
+    doc.add_paragraph("john@example.com")
+    doc.add_paragraph("Managed a team of 5 designers")
+    buf = io.BytesIO(); doc.save(buf)
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        return _FakeGroqResp("###ITEM_003###\nDirected a team of 5 designers\n\n")
+
+    fake_guardrail_result = {
+        "success": True, "pass": True, "findings": [],
+        "guardrail_rejected": False, "tokens_used": 3, "error": None,
+    }
+
+    test_app = Flask(__name__)
+    test_app.config["GUARDRAIL_ENABLED"] = True
+
+    with test_app.app_context():
+        with patch("requests.post", side_effect=fake_post), \
+             patch("app.services.resume_guardrail.GuardrailService.run_check", return_value=fake_guardrail_result):
+            result = mr._run_improve_pipeline(buf.getvalue(), "guard2.docx", None, "fake-key")
+
+    assert result["success"]
+    assert result["display_text"] != result["original_text"]
+    assert "Directed a team of 5 designers" in result["display_text"]
+    assert result["guardrail_rejected"] is False
+
+
+def test_GUARD3_enabled_rejected_rolls_back_to_original():
+    """guardrail_enabled=True, GuardrailService.run_check замокан на
+    guardrail_rejected=True -> полный откат: display_text ==
+    original_text, и КАЖДЫЙ item в improved_resume равен своему
+    оригинальному тексту (парсинг тем же regex, что использует
+    реальный _apply_improved_text_to_docx: r"###ITEM_(\\d+)(?::\\w+)?###")."""
+    from flask import Flask
+    from docx import Document
+    from unittest.mock import patch
+
+    doc = Document()
+    doc.add_paragraph("John Smith")
+    doc.add_paragraph("john@example.com")
+    doc.add_paragraph("Managed a team of 5 designers")
+    buf = io.BytesIO(); doc.save(buf)
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        return _FakeGroqResp("###ITEM_003###\nDirected a team of 5 designers\n\n")
+
+    fake_guardrail_result = {
+        "success": True, "pass": False,
+        "findings": [{
+            "type": "ROLE_ESCALATION", "severity": "high",
+            "original_excerpt": "Managed a team of 5 designers",
+            "improved_excerpt": "Directed a team of 5 designers",
+            "explanation": "test finding",
+        }],
+        "guardrail_rejected": True, "tokens_used": 3, "error": None,
+    }
+
+    test_app = Flask(__name__)
+    test_app.config["GUARDRAIL_ENABLED"] = True
+
+    with test_app.app_context():
+        with patch("requests.post", side_effect=fake_post), \
+             patch("app.services.resume_guardrail.GuardrailService.run_check", return_value=fake_guardrail_result):
+            result = mr._run_improve_pipeline(buf.getvalue(), "guard3.docx", None, "fake-key")
+
+    assert result["success"]
+    assert result["display_text"] == result["original_text"]
+    assert "Directed a team of 5 designers" not in result["display_text"]
+
+    parts = re.split(r"###ITEM_(\d+)(?::\w+)?###", result["improved_resume"])
+    id_to_text = {}
+    i = 1
+    while i + 1 < len(parts):
+        id_to_text[parts[i].zfill(3)] = parts[i + 1].strip()
+        i += 2
+
+    original_lines = result["original_text"].split(NL)
+    for idx, item_id in enumerate(result["item_ids"]):
+        assert id_to_text[item_id] == original_lines[idx], (
+            f"item {item_id}: ожидали оригинал {original_lines[idx]!r}, "
+            f"получили {id_to_text[item_id]!r}"
+        )
+
+
+def test_GUARD4_guardrail_report_matches_mocked_return_value():
+    """guardrail_report в возвращаемом dict должен быть РОВНО тем, что
+    вернул замоканный run_check (guardrail_enabled=True)."""
+    from flask import Flask
+    from docx import Document
+    from unittest.mock import patch
+
+    doc = Document()
+    doc.add_paragraph("John Smith")
+    doc.add_paragraph("john@example.com")
+    doc.add_paragraph("Managed a team of 5 designers")
+    buf = io.BytesIO(); doc.save(buf)
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        return _FakeGroqResp("###ITEM_003###\nDirected a team of 5 designers\n\n")
+
+    fake_guardrail_result = {
+        "success": True, "pass": False,
+        "findings": [{
+            "type": "ROLE_ESCALATION", "severity": "high",
+            "original_excerpt": "x", "improved_excerpt": "y", "explanation": "z",
+        }],
+        "guardrail_rejected": True, "tokens_used": 7, "error": None,
+    }
+
+    test_app = Flask(__name__)
+    test_app.config["GUARDRAIL_ENABLED"] = True
+
+    with test_app.app_context():
+        with patch("requests.post", side_effect=fake_post), \
+             patch("app.services.resume_guardrail.GuardrailService.run_check", return_value=fake_guardrail_result):
+            result = mr._run_improve_pipeline(buf.getvalue(), "guard4.docx", None, "fake-key")
+
+    assert result["guardrail_report"] == fake_guardrail_result

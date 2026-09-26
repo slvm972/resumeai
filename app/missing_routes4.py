@@ -1954,6 +1954,31 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
     except Exception:
         pass
 
+    # --- Guardrail: whole-resume проверка перед финальной сборкой ---
+    try:
+        from flask import current_app
+        guardrail_enabled = current_app.config.get("GUARDRAIL_ENABLED", False)
+    except Exception:
+        guardrail_enabled = False
+    guardrail_report = None
+    guardrail_rejected = False
+
+    if guardrail_enabled:
+        from app.services.resume_guardrail import GuardrailService
+        candidate_display_text = "\n".join(restored_list)
+        guardrail_report = GuardrailService.run_check(
+            original_text=resume_text,
+            improved_text=candidate_display_text,
+            language=detected_lang,
+            api_key=api_key,
+            provider="groq",
+        )
+        tokens_total += guardrail_report.get("tokens_used", 0)
+        guardrail_rejected = guardrail_report.get("guardrail_rejected", False)
+
+        if guardrail_rejected:
+            restored_list = [item["text"] for item in orig_items]
+
     # Цикл A: суффикс :TYPE добавляется ТОЛЬКО здесь, на финальной сборке —
     # LLM все ###ITEM_NNN### маркеры (в ai_blocks, в retry, в парсинге
     # ответа модели) видел и продолжает видеть без суффикса. Тип берётся
@@ -2026,6 +2051,8 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
         "quality_report": quality_report,
         "item_ids": item_ids,
         "creativity_mode": creativity_mode,
+        "guardrail_report": guardrail_report,
+        "guardrail_rejected": guardrail_rejected,
     }
 
 

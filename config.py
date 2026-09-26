@@ -30,6 +30,7 @@ class Config:
 
     # Groq API (БЕСПЛАТНО: 14,400 req/day)
     GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
+    GUARDRAIL_ENABLED = os.environ.get('GUARDRAIL_ENABLED', 'false').lower() == 'true'
 
     # Google Gemini API
     GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
