@@ -709,7 +709,16 @@ def _register_legacy_routes(app):
 
             # Списать один Improve-кредит — раньше этого шага не было вообще,
             # то есть кредиты/квота на improve никогда фактически не расходовались.
-            if user and not is_admin and subscription:
+            quality_summary = (result.get('quality_report') or {}).get('summary') or {}
+            no_real_improvement = quality_summary.get('accepted', 0) == 0
+
+            if (
+                user
+                and not is_admin
+                and subscription
+                and not result.get('guardrail_rejected', False)
+                and not no_real_improvement
+            ):
                 subscription.improvement_used += 1
                 subscription.credits_used += 1
                 db.session.commit()
