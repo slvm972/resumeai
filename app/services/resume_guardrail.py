@@ -462,27 +462,46 @@ class LocalFallbackGuardrailProvider(GuardrailProvider):
             }
 
         try:
+            # Построчное сравнение: обе функции писались для отдельных
+            # блоков, а на целом многострочном тексте _validate_block
+            # принимает глагол в начале строки (не первой) за "факт".
+            orig_lines = original_text.split("\n")
+            impr_lines = improved_text.split("\n")
+
+            if len(orig_lines) != len(impr_lines):
+                return {
+                    "success": False,
+                    "pass": None,
+                    "findings": [],
+                    "tokens_used": 0,
+                    "error": "Local fallback cannot align original and improved text line by line",
+                }
+
             findings = []
 
-            fact_ok, fact_reason = _validate_block(original_text, improved_text)
-            if not fact_ok:
-                findings.append({
-                    "type": "invented_fact",
-                    "severity": "high",  # подстраховка последней линии, без LLM-нюансов — при срабатывании лучше перебдеть
-                    "original_excerpt": original_text,
-                    "improved_excerpt": improved_text,
-                    "explanation": fact_reason,
-                })
+            for o, n in zip(orig_lines, impr_lines):
+                if o.strip() == n.strip():
+                    continue
 
-            role_ok, role_reason = _check_role_escalation(original_text, improved_text)
-            if not role_ok:
-                findings.append({
-                    "type": "role_escalation",
-                    "severity": "high",
-                    "original_excerpt": original_text,
-                    "improved_excerpt": improved_text,
-                    "explanation": role_reason,
-                })
+                fact_ok, fact_reason = _validate_block(o, n)
+                if not fact_ok:
+                    findings.append({
+                        "type": "invented_fact",
+                        "severity": "high",  # подстраховка последней линии, без LLM-нюансов — при срабатывании лучше перебдеть
+                        "original_excerpt": o,
+                        "improved_excerpt": n,
+                        "explanation": fact_reason,
+                    })
+
+                role_ok, role_reason = _check_role_escalation(o, n)
+                if not role_ok:
+                    findings.append({
+                        "type": "role_escalation",
+                        "severity": "high",
+                        "original_excerpt": o,
+                        "improved_excerpt": n,
+                        "explanation": role_reason,
+                    })
 
             return {
                 "success": True,

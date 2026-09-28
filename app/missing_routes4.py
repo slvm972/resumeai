@@ -1999,8 +1999,9 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
     if guardrail_enabled:
         from app.services.resume_guardrail import GuardrailService
         candidate_display_text = "\n".join(restored_list)
+        aligned_original_text = "\n".join(item["text"] for item in orig_items)
         guardrail_report = GuardrailService.run_check(
-            original_text=resume_text,
+            original_text=aligned_original_text,
             improved_text=candidate_display_text,
             language=detected_lang,
             api_key=api_key,

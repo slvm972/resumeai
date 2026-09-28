@@ -1289,3 +1289,55 @@ def test_GUARD4_guardrail_report_matches_mocked_return_value():
             result = mr._run_improve_pipeline(buf.getvalue(), "guard4.docx", None, "fake-key")
 
     assert result["guardrail_report"] == fake_guardrail_result
+
+
+def test_GUARD5_guardrail_receives_original_in_same_order_as_candidate():
+    """ПРАВКА A: original_text, передаваемый в GuardrailService.run_check,
+    собран из orig_items (порядок документа), а не из resume_text
+    (_extract_full_text_from_docx: сначала все параграфы, потом ячейки
+    таблиц). Иначе судья видит "добавленные" должности и даты в
+    .docx с таблицами. Проверка: строка "Senior Software Engineer" из
+    ячейки таблицы стоит на одном и том же индексе в original_text и
+    improved_text, которые получил run_check."""
+    from flask import Flask
+    from docx import Document
+    from unittest.mock import patch
+
+    doc = Document()
+    doc.add_paragraph("Опыт работы")
+    table = doc.add_table(rows=1, cols=2)
+    table.rows[0].cells[0].text = "Senior Software Engineer"
+    table.rows[0].cells[1].text = "2020 - 2023"
+    bullet = doc.add_paragraph("Managed a team of 5 designers")
+    bullet.style = doc.styles["List Bullet"]
+    buf = io.BytesIO(); doc.save(buf)
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        return _FakeGroqResp("###ITEM_004###\nDirected a team of 5 designers\n\n")
+
+    captured = {}
+
+    def fake_run_check(*args, **kwargs):
+        captured.update(kwargs)
+        return {
+            "success": True, "pass": True, "findings": [],
+            "guardrail_rejected": False, "tokens_used": 0, "error": None,
+        }
+
+    test_app = Flask(__name__)
+    test_app.config["GUARDRAIL_ENABLED"] = True
+
+    with test_app.app_context():
+        with patch("requests.post", side_effect=fake_post), \
+             patch("app.services.resume_guardrail.GuardrailService.run_check", side_effect=fake_run_check):
+            result = mr._run_improve_pipeline(buf.getvalue(), "guard5.docx", None, "fake-key")
+
+    assert result["success"]
+    target = "Senior Software Engineer"
+    orig_lines = captured["original_text"].split("\n")
+    impr_lines = captured["improved_text"].split("\n")
+    assert target in orig_lines and target in impr_lines
+    assert orig_lines.index(target) == impr_lines.index(target), (
+        f"порядок строк расходится: в original_text индекс {orig_lines.index(target)}, "
+        f"в improved_text индекс {impr_lines.index(target)}"
+    )

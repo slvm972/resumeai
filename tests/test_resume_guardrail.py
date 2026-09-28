@@ -819,3 +819,90 @@ def test_35_local_fallback_returns_clean_failure_on_import_error(monkeypatch):
     assert result["pass"] is None
     assert result["findings"] == []
     assert result["error"]
+
+
+# ===========================================================================
+# ПРАВКА B — LocalFallbackGuardrailProvider сравнивает текст ПОСТРОЧНО
+# (_validate_block/_check_role_escalation писались для отдельных блоков;
+# на целом многострочном тексте глагол в начале не первой строки давал
+# ложное "Invented facts"). Ровно 3 теста.
+# ===========================================================================
+
+def test_36_local_fallback_checks_only_the_changed_line_pair(monkeypatch):
+    """Многострочный текст с одной изменённой строкой: обе функции
+    вызваны ТОЛЬКО с этой парой строк и ни разу с аргументом,
+    содержащим перенос строки."""
+    validate_calls = []
+    role_calls = []
+
+    def fake_validate(o, n):
+        validate_calls.append((o, n))
+        return True, ""
+
+    def fake_role(o, n):
+        role_calls.append((o, n))
+        return True, ""
+
+    _install_fake_missing_routes4(monkeypatch, fake_validate, fake_role)
+
+    original = "Опыт работы\nManaged a team of 5\nEnglish (Native)"
+    improved = "Опыт работы\nDirected a team of 5\nEnglish (Native)"
+    result = grd.LocalFallbackGuardrailProvider.check(original, improved, "English", "fake-key")
+
+    assert result["success"] is True
+    assert result["pass"] is True
+    assert validate_calls == [("Managed a team of 5", "Directed a team of 5")]
+    assert role_calls == [("Managed a team of 5", "Directed a team of 5")]
+    assert all("\n" not in arg for call in validate_calls + role_calls for arg in call)
+
+
+def test_37_local_fallback_fails_cleanly_when_line_counts_differ(monkeypatch):
+    """Разное число строк: success=False, проверки на целых текстах не
+    запускаются (фейки не вызваны)."""
+    calls = []
+
+    def fake_validate(o, n):
+        calls.append(("validate", o, n))
+        return True, ""
+
+    def fake_role(o, n):
+        calls.append(("role", o, n))
+        return True, ""
+
+    _install_fake_missing_routes4(monkeypatch, fake_validate, fake_role)
+
+    result = grd.LocalFallbackGuardrailProvider.check(
+        "line one\nline two", "line one\nline two\nline three", "English", "fake-key",
+    )
+
+    assert result["success"] is False
+    assert result["pass"] is None
+    assert result["findings"] == []
+    assert result["tokens_used"] == 0
+    assert result["error"] == "Local fallback cannot align original and improved text line by line"
+    assert calls == []
+
+
+def test_38_local_fallback_finding_excerpts_are_the_line_pair(monkeypatch):
+    """При срабатывании на изменённой строке original_excerpt/
+    improved_excerpt в finding — именно эта пара строк, а не весь текст;
+    explanation — reason из функции как есть."""
+    _install_fake_missing_routes4(
+        monkeypatch,
+        validate_block_fn=lambda o, n: (False, "Invented facts: 50") if "50" in n else (True, ""),
+        check_role_escalation_fn=lambda o, n: (True, ""),
+    )
+
+    original = "Опыт работы\nteam of 5\nEnglish (Native)"
+    improved = "Опыт работы\nteam of 50\nEnglish (Native)"
+    result = grd.LocalFallbackGuardrailProvider.check(original, improved, "English", "fake-key")
+
+    assert result["success"] is True
+    assert result["pass"] is False
+    assert len(result["findings"]) == 1
+    finding = result["findings"][0]
+    assert finding["type"] == "invented_fact"
+    assert finding["severity"] == "high"
+    assert finding["original_excerpt"] == "team of 5"
+    assert finding["improved_excerpt"] == "team of 50"
+    assert finding["explanation"] == "Invented facts: 50"
