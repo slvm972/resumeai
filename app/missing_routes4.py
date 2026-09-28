@@ -999,7 +999,12 @@ def _build_standard_system_prompt(n, detected_lang):
     инструкция исправлять орфографию/грамматику/неуклюжие формулировки
     даже в блоках, где больше ничего не меняется. Не противоречит
     правилу 10: исправление ФОРМЫ ("как сказано") явно разграничено с
-    запретом придумывать ФАКТЫ ("что сказано").
+    запретом придумывать ФАКТЫ ("что сказано"). Расширено: явно
+    требует согласовывать падеж/форму зависимых слов под НОВЫЙ глагол,
+    если модель сама заменила глагол (например рус. "руководил
+    командой" -> "возглавлял" требует "команду", не "командой") —
+    модель не применяла это к своим же правкам при повышенной
+    температуре.
     """
     return (
         f"You are a professional resume editor.\n\n"
@@ -1019,8 +1024,16 @@ def _build_standard_system_prompt(n, detected_lang):
         f"this applies even to blocks where no other improvement is being "
         f"made. Correcting an error is not the same as inventing a fact: "
         f"you may fix HOW something is said without changing WHAT is said. "
-        f"Do not flag or comment on corrections — just fix them silently, "
-        f"as part of the normal output.\n"
+        f"This includes grammatical agreement introduced by YOUR OWN edits: "
+        f"if you replace a verb with another verb, and the language requires "
+        f"a specific case, preposition, or grammatical form for the words "
+        f"that depend on that verb (e.g. Russian verb government — "
+        f"\"руководить\" takes the instrumental case while \"возглавлять\" "
+        f"takes the accusative), you MUST update those dependent words to "
+        f"match the NEW verb's requirements — do not leave a dependent word "
+        f"in the form required by the verb you just replaced. Do not flag "
+        f"or comment on corrections — just fix them silently, as part of "
+        f"the normal output.\n"
         f"12. When an achievement bullet already leads with a verb, that verb must be "
         f"strong, active, and past-tense (e.g., \"Внедрил\", \"Настроил\", \"Оптимизировал\", "
         f"\"Провёл\", \"Сократил\"). STRICTLY FORBIDDEN: bureaucratic compound verbs like "
@@ -1089,7 +1102,9 @@ def _build_plain_relaxed_system_prompt(n, detected_lang):
     одинаково в стандартном и relaxed промптах) — явная инструкция
     исправлять орфографию/грамматику/неуклюжие формулировки. Это не
     про творческую свободу, а базовая гигиена текста — работает
-    одинаково независимо от temperature/режима.
+    одинаково независимо от temperature/режима. Расширено: явно
+    требует согласовывать падеж/форму зависимых слов под НОВЫЙ глагол
+    после замены (universal verb-government fix, не русское правило).
 
     Cycle R1 (фикс Role Escalation): Rule 5 раньше явно ПООЩРЯЛ замену
     ("PREFER... e.g.") \"was responsible for\" -> \"led\" и \"managed\" ->
@@ -1137,8 +1152,16 @@ def _build_plain_relaxed_system_prompt(n, detected_lang):
         f"this applies even to blocks where no other improvement is being "
         f"made. Correcting an error is not the same as inventing a fact: "
         f"you may fix HOW something is said without changing WHAT is said. "
-        f"Do not flag or comment on corrections — just fix them silently, "
-        f"as part of the normal output.\n"
+        f"This includes grammatical agreement introduced by YOUR OWN edits: "
+        f"if you replace a verb with another verb, and the language requires "
+        f"a specific case, preposition, or grammatical form for the words "
+        f"that depend on that verb (e.g. Russian verb government — "
+        f"\"руководить\" takes the instrumental case while \"возглавлять\" "
+        f"takes the accusative), you MUST update those dependent words to "
+        f"match the NEW verb's requirements — do not leave a dependent word "
+        f"in the form required by the verb you just replaced. Do not flag "
+        f"or comment on corrections — just fix them silently, as part of "
+        f"the normal output.\n"
         f"14. STRICT ROLE PRESERVATION: NEVER elevate an individual-contributor role into "
         f"a management, leadership, ownership, or supervisory role unless the source "
         f"explicitly states such responsibility. Words like \"worked on\", \"participated "
@@ -1199,7 +1222,9 @@ def _build_summary_repositioning_prompt(n, detected_lang):
     прогонах — отдельная задача после деплоя.
 
     Правило 11 — как и в двух других промптах, базовая гигиена текста,
-    без изменений.
+    без изменений. Расширено синхронно с двумя другими промптами:
+    требование согласовывать падеж/форму зависимых слов под НОВЫЙ
+    глагол, если его заменила сама модель.
     """
     return (
         f"You are a professional resume writer specializing in personal branding and positioning.\n"
@@ -1233,8 +1258,16 @@ def _build_summary_repositioning_prompt(n, detected_lang):
         f"this applies even to blocks where no other improvement is being "
         f"made. Correcting an error is not the same as inventing a fact: "
         f"you may fix HOW something is said without changing WHAT is said. "
-        f"Do not flag or comment on corrections — just fix them silently, "
-        f"as part of the normal output.\n"
+        f"This includes grammatical agreement introduced by YOUR OWN edits: "
+        f"if you replace a verb with another verb, and the language requires "
+        f"a specific case, preposition, or grammatical form for the words "
+        f"that depend on that verb (e.g. Russian verb government — "
+        f"\"руководить\" takes the instrumental case while \"возглавлять\" "
+        f"takes the accusative), you MUST update those dependent words to "
+        f"match the NEW verb's requirements — do not leave a dependent word "
+        f"in the form required by the verb you just replaced. Do not flag "
+        f"or comment on corrections — just fix them silently, as part of "
+        f"the normal output.\n"
         f"12. Avoid weak or passive phrasing (e.g., \"выполнял разнообразные задачи\", "
         f"\"занимался задачами\"). Reframe into a focused, strong professional statement "
         f"based strictly on the provided context. Do NOT use heavy nominal style or "
@@ -2078,9 +2111,11 @@ def register_missing_routes(app, _extract_text_from_request, _get_current_user):
             if file:
                 filename = file.filename
                 original_bytes = file.read()
+                creativity_mode = request.form.get("creativity_mode", "precise")
             else:
                 data = request.get_json() or {}
                 resume_text_fallback = data.get("resume_text", "").strip()
+                creativity_mode = data.get("creativity_mode", "precise")
 
             current_app.logger.info(
                 "[DEBUG-LEAK] legacy_admin_improve: has_file=%s filename=%s fallback_preview=%r",
@@ -2089,7 +2124,7 @@ def register_missing_routes(app, _extract_text_from_request, _get_current_user):
                 (resume_text_fallback or "")[:80],
             )
 
-            result = _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_key)
+            result = _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_key, creativity_mode)
 
             if not result.get("success"):
                 return jsonify({"success": False, "error": result.get("error")}), result.get("status", 500)
