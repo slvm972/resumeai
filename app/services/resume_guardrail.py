@@ -151,9 +151,19 @@ when present):
     FAIL example: "assisted team with API" -> "built the API"
   - TITLE_OR_COMPANY_CHANGE: a job title, degree, certification name,
     or company/institution name differs from ORIGINAL (even a
-    slightly more senior-sounding title counts).
+    slightly more senior-sounding title counts). Report this ONLY
+    when IMPROVED names a DIFFERENT title, degree, certification,
+    company or institution (different rank or level, field of study,
+    employer, school). Do NOT report rewording of the SAME title,
+    degree or name: added or removed function words, inflection, word
+    order, abbreviation, or translation into the resume's language
+    (e.g. "бакалавр компьютерных наук" -> "бакалавр в области компьютерных наук";
+    "Senior Software Engineer" -> "Старший инженер-программист").
   - DATE_OR_DURATION_CHANGE: any date, date range, or duration of
-    employment/education differs from ORIGINAL.
+    employment/education differs from ORIGINAL. Report this ONLY
+    when the actual dates or the length of time differ. Formatting
+    differences of the same date or range (e.g. "2020 - 2023" vs
+    "2020–2023") are NOT a change.
 
 severity="medium" (report as a backstop — a separate fact-checker
 downstream already catches some of these, this is not the only line
