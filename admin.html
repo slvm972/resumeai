@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
@@ -108,7 +108,7 @@ h1{font-size:1.75rem;font-weight:700;margin-bottom:.35rem}
     </div>
     <div class="result-content" id="resultContent"></div>
     <button class="btn" id="improveBtn" onclick="improveResume()" style="display:none;margin-top:1rem;width:100%;background:var(--accent)">
-      вњЁ Improve Resume (Admin)
+      ✨ Improve Resume (Admin)
     </button>
   </div>
   <div class="result-box" id="improveBox" style="display:none;margin-top:1rem">
@@ -118,7 +118,7 @@ h1{font-size:1.75rem;font-weight:700;margin-bottom:.35rem}
     </div>
     <div class="result-content" id="improveContent" style="white-space:pre-wrap;font-family:inherit"></div>
     <button class="btn" id="downloadDocxBtn" onclick="downloadDocx()" style="display:none;margin-top:1rem;width:100%;background:#2ecc71">
-      рџ“Ґ Download as DOCX
+      📥 Download as DOCX
     </button>
     <button id="downloadOdtBtnAdmin" class="btn" onclick="downloadOdtAdmin()" style="margin-top:.5rem;width:100%;background:linear-gradient(135deg,#8b5cf6,#6366f1)">📄 Download as ODT</button>
     <button id="downloadPdfBtnAdmin" class="btn" onclick="downloadPdfAdmin()" style="margin-top:.5rem;width:100%;background:linear-gradient(135deg,#3b82f6,#06b6d4)">📕 Download as PDF</button>
@@ -274,7 +274,7 @@ let improvedResumeText = null;
 
 async function improveResume() {
   const btn = document.getElementById("improveBtn");
-  btn.textContent = "вЏі Improving...";
+  btn.textContent = "⏳ Improving...";
   btn.disabled = true;
   document.getElementById("improveBox").style.display = "none";
   improvedResumeText = null;
@@ -303,7 +303,7 @@ async function improveResume() {
     }
   } catch(e) { alert("Error: " + e.message); }
   finally {
-    btn.textContent = "вњЁ Improve Resume (Admin)";
+    btn.textContent = "✨ Improve Resume (Admin)";
     btn.disabled = false;
   }
 }
