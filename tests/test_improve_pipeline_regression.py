@@ -58,7 +58,10 @@ def test_run_improve_pipeline_no_nameerror_on_first_call(app_ctx):
     """
     from app.missing_routes4 import _run_improve_pipeline
 
-    resume_text = "John Doe\njohn.doe@example.com"  # >=20 символов, 2 строки -> обе hard-freeze (i<=1)
+    resume_text = (
+        "John Doe\njohn.doe@example.com\n"
+        "Developed internal tools for the sales team"
+    )  # 3-я строка — обычный bullet с глаголом -> "improve", не freeze
 
     with patch('requests.post', side_effect=_fake_groq_response) as mock_post:
         result = _run_improve_pipeline(

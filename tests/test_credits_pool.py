@@ -98,7 +98,40 @@ _FAKE_IMPROVE_RESULT = {
     'display_text': 'improved text',
     'detected_language': 'en',
     'item_ids': ['001'],
-    'quality_report': None,
+    # Реалистичный quality_report (форма — 1:1 с тем, что реально строит
+    # _run_improve_pipeline в app/missing_routes4.py) с summary.accepted=1:
+    # None здесь читался бы нашим же фиксом no_real_improvement (коммит
+    # 4af09e6) как "0 improvements accepted" и не списывал бы кредит — эти
+    # тесты проверяют механику пула/счётчиков именно при РЕАЛЬНОМ
+    # улучшении, а не пустой результат.
+    'quality_report': {
+        'total_blocks': 1,
+        'retry_triggered': 0,
+        'retry_ids': [],
+        'blocks': [{
+            'id': '001',
+            'attempt': 'attempt_1',
+            'strategy': 'improve',
+            'decision': 'accepted',
+            'reason': 'accepted similarity=0.800 changed_words=2 len_delta=10.0%',
+            'similarity': 0.8,
+            'original_text': 'original text',
+            'improved_text': 'improved text',
+        }],
+        'changes': [{
+            'id': '001',
+            'original_text': 'original text',
+            'improved_text': 'improved text',
+        }],
+        'summary': {
+            'accepted': 1,
+            'kept_original': 0,
+            'rejected_facts': 0,
+            'rejected_role_escalation': 0,
+            'needs_retry': 0,
+            'avg_similarity': 0.8,
+        },
+    },
     'has_original_docx': False,
 }
 
