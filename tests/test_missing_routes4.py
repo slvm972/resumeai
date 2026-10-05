@@ -1343,3 +1343,17 @@ def test_GUARD5_guardrail_receives_original_in_same_order_as_candidate():
     )
 
 
+
+def test_CREATIVE1_creative_mode_block_appears_only_for_creative():
+    """creativity_mode=="creative" добавляет блок "CREATIVE MODE" в
+    конец промта в обеих функциях (_build_standard_system_prompt,
+    _build_plain_relaxed_system_prompt); "precise" и вызов без
+    явного аргумента (default) — блок отсутствует."""
+    for fn in (mr._build_standard_system_prompt, mr._build_plain_relaxed_system_prompt):
+        creative = fn(3, "English", creativity_mode="creative")
+        precise = fn(3, "English", creativity_mode="precise")
+        default = fn(3, "English")
+
+        assert "CREATIVE MODE" in creative, f"{fn.__name__}: блок отсутствует при creative"
+        assert "CREATIVE MODE" not in precise, f"{fn.__name__}: блок лишний при precise"
+        assert "CREATIVE MODE" not in default, f"{fn.__name__}: блок лишний по умолчанию"

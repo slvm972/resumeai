@@ -983,7 +983,7 @@ def _dominant_improve_block_type(batch_item_ids, strategy_map, type_map):
     return "heading"  # только heading/table среди improve, либо improve-блоков нет
 
 
-def _build_standard_system_prompt(n, detected_lang):
+def _build_standard_system_prompt(n, detected_lang, creativity_mode="precise"):
     """
     Phase 2, План B: стандартный (не relaxed) system_prompt, вынесен в
     отдельную функцию — чтобы можно было собрать его с ГРУППОВЫМ n
@@ -1004,8 +1004,23 @@ def _build_standard_system_prompt(n, detected_lang):
     если модель сама заменила глагол (например рус. "руководил
     командой" -> "возглавлял" требует "команду", не "командой") —
     модель не применяла это к своим же правкам при повышенной
-    температуре.
+    температуре. Добавлен creative-блок (ШАГ 2): при
+    creativity_mode=="creative" в конец промта добавляется явная
+    инструкция смелее переформулировать стиль, по-прежнему строго в
+    рамках Rule 14 (роль/объём не эскалировать).
     """
+    extra_creative_instruction = (
+        f"\nCREATIVE MODE: elevate the language more boldly than a "
+        f"conservative edit would — prefer vivid, high-impact phrasing "
+        f"over a safe, minimal one-word synonym swap. A full rephrasing "
+        f"of a sentence that conveys the same facts more compellingly is "
+        f"preferred over a timid substitution. This is still fully "
+        f"bounded by every rule above, Rule 14 in particular: never "
+        f"claim a higher level of responsibility, ownership, or "
+        f"authorship than the original states. Elevate STYLE, never "
+        f"ELEVATE SCOPE OR ROLE.\n"
+        if creativity_mode == "creative" else ""
+    )
     return (
         f"You are a professional resume editor.\n\n"
         f"RULES:\n"
@@ -1067,10 +1082,10 @@ def _build_standard_system_prompt(n, detected_lang):
         f"leadership (e.g., \"Руководил командой из 5 инженеров\", \"Управлял отделом "
         f"технической поддержки\"), that leadership level MUST be preserved, not "
         f"downgraded."
-    )
+    ) + extra_creative_instruction
 
 
-def _build_plain_relaxed_system_prompt(n, detected_lang):
+def _build_plain_relaxed_system_prompt(n, detected_lang, creativity_mode="precise"):
     """
     Phase 2, Шаг 2.2: смягчённый system_prompt — используется вместо
     стандартного, когда _dominant_improve_block_type() для батча attempt_1
@@ -1116,7 +1131,24 @@ def _build_plain_relaxed_system_prompt(n, detected_lang):
     IC-уровня, не про организационную власть). Rule 6 аналогично лишился
     примера \"Managed\" -> \"Directed\" (management-регистр) в пользу
     нейтрального.
+
+    Добавлен creative-блок (ШАГ 2, синхронно со standard-промптом):
+    при creativity_mode=="creative" в конец промта добавляется явная
+    инструкция смелее переформулировать стиль, строго в рамках
+    Rule 14.
     """
+    extra_creative_instruction = (
+        f"\nCREATIVE MODE: elevate the language more boldly than a "
+        f"conservative edit would — prefer vivid, high-impact phrasing "
+        f"over a safe, minimal one-word synonym swap. A full rephrasing "
+        f"of a sentence that conveys the same facts more compellingly is "
+        f"preferred over a timid substitution. This is still fully "
+        f"bounded by every rule above, Rule 14 in particular: never "
+        f"claim a higher level of responsibility, ownership, or "
+        f"authorship than the original states. Elevate STYLE, never "
+        f"ELEVATE SCOPE OR ROLE.\n"
+        if creativity_mode == "creative" else ""
+    )
     return (
         f"You are a professional resume editor.\n\n"
         f"RULES:\n"
@@ -1180,7 +1212,7 @@ def _build_plain_relaxed_system_prompt(n, detected_lang):
         f"leadership (e.g., \"Руководил командой из 5 инженеров\", \"Управлял отделом "
         f"технической поддержки\"), that leadership level MUST be preserved, not "
         f"downgraded."
-    )
+    ) + extra_creative_instruction
 
 
 def _build_summary_repositioning_prompt(n, detected_lang):
@@ -1700,9 +1732,9 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
         if block_type_for_group == "summary":
             group_system_prompt = _build_summary_repositioning_prompt(group_n, detected_lang)
         elif block_type_for_group == "plain":
-            group_system_prompt = _build_plain_relaxed_system_prompt(group_n, detected_lang)
+            group_system_prompt = _build_plain_relaxed_system_prompt(group_n, detected_lang, creativity_mode)
         else:
-            group_system_prompt = _build_standard_system_prompt(group_n, detected_lang)
+            group_system_prompt = _build_standard_system_prompt(group_n, detected_lang, creativity_mode)
         group_temperature = _select_batch_temperature(block_type_for_group, "attempt_1", creativity_mode)
 
         group_payload = {
