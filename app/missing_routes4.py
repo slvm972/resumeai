@@ -1019,6 +1019,16 @@ def _build_standard_system_prompt(n, detected_lang, creativity_mode="precise"):
         f"claim a higher level of responsibility, ownership, or "
         f"authorship than the original states. Elevate STYLE, never "
         f"ELEVATE SCOPE OR ROLE.\n"
+        f"Restructure, do not just swap words: a weak, passive, or "
+        f"duty-listing sentence (\"was responsible for X\", \"involved in "
+        f"Y\") should become a single strong sentence led by one precise "
+        f"action verb and focused on the SAME scope and outcome already "
+        f"present in the original — not a new one. Sharpen HOW the "
+        f"existing fact is expressed, never WHAT the fact is. If the "
+        f"original gives no outcome, number, or scale, do not invent one "
+        f"to sound more impressive — a strong verb on its own is enough; "
+        f"a fabricated metric or result violates Rule 10 above "
+        f"regardless of how plausible it sounds.\n"
         if creativity_mode == "creative" else ""
     )
     return (
@@ -1147,6 +1157,16 @@ def _build_plain_relaxed_system_prompt(n, detected_lang, creativity_mode="precis
         f"claim a higher level of responsibility, ownership, or "
         f"authorship than the original states. Elevate STYLE, never "
         f"ELEVATE SCOPE OR ROLE.\n"
+        f"Restructure, do not just swap words: a weak, passive, or "
+        f"duty-listing sentence (\"was responsible for X\", \"involved in "
+        f"Y\") should become a single strong sentence led by one precise "
+        f"action verb and focused on the SAME scope and outcome already "
+        f"present in the original — not a new one. Sharpen HOW the "
+        f"existing fact is expressed, never WHAT the fact is. If the "
+        f"original gives no outcome, number, or scale, do not invent one "
+        f"to sound more impressive — a strong verb on its own is enough; "
+        f"a fabricated metric or result violates Rule 10 above "
+        f"regardless of how plausible it sounds.\n"
         if creativity_mode == "creative" else ""
     )
     return (

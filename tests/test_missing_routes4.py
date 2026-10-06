@@ -1357,3 +1357,20 @@ def test_CREATIVE1_creative_mode_block_appears_only_for_creative():
         assert "CREATIVE MODE" in creative, f"{fn.__name__}: блок отсутствует при creative"
         assert "CREATIVE MODE" not in precise, f"{fn.__name__}: блок лишний при precise"
         assert "CREATIVE MODE" not in default, f"{fn.__name__}: блок лишний по умолчанию"
+
+def test_CREATIVE2_restructure_paragraph_appears_only_for_creative():
+    """Второй абзац блока CREATIVE MODE ("Restructure, do not just swap
+    words": переформулировать слабое/пассивное предложение вокруг одного
+    сильного глагола, не придумывая новых фактов) присутствует при
+    creativity_mode=="creative" и отсутствует при "precise" и по
+    умолчанию — в обеих функциях."""
+    phrase = "Restructure, do not just swap words"
+    for fn in (mr._build_standard_system_prompt, mr._build_plain_relaxed_system_prompt):
+        creative = fn(3, "English", creativity_mode="creative")
+        precise = fn(3, "English", creativity_mode="precise")
+        default = fn(3, "English")
+
+        assert phrase in creative, f"{fn.__name__}: абзац отсутствует при creative"
+        assert "violates Rule 10 above" in creative, f"{fn.__name__}: нет явной ссылки на Rule 10"
+        assert phrase not in precise, f"{fn.__name__}: абзац лишний при precise"
+        assert phrase not in default, f"{fn.__name__}: абзац лишний по умолчанию"
