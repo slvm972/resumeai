@@ -52,10 +52,17 @@ def _odt_paragraph_texts(buf):
 # конкретных глифов.
 # ---------------------------------------------------------------------------
 
-_TEST_FONT_PATH = "/mnt/skills/examples/canvas-design/canvas-fonts/BricolageGrotesque-Regular.ttf"
+_TEST_FONT_PATH = str(__import__("pathlib").Path(__file__).resolve().parent.parent / "static" / "fonts" / "FiraSans-Regular.ttf")
 
 
 def _patch_pdf_fonts(monkeypatch):
+    # Изолируем глобальный реестр шрифтов reportlab: после теста он
+    # возвращается в исходное состояние, чтобы шрифты, зарегистрированные
+    # здесь, не "протекали" в другие тесты (например, test_pdf_export.py).
+    monkeypatch.setattr(pdfmetrics, "_fonts", dict(pdfmetrics._fonts))
+    monkeypatch.setattr(pdfmetrics, "_typefaces", dict(pdfmetrics._typefaces))
+    monkeypatch.setattr(pdfmetrics, "_dynFaceNames", dict(pdfmetrics._dynFaceNames))
+
     def _fake_register():
         mr._pdf_font_registered = True
         for name in (mr._PDF_FONT_NAME, mr._PDF_FONT_NAME_LATIN,

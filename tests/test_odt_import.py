@@ -29,6 +29,24 @@ APP = create_app('testing')
 SAMPLE_ODT_PATH = os.path.join(os.path.dirname(__file__), 'sample_import.odt')
 
 
+def _find_libreoffice():
+    """Найти исполняемый файл LibreOffice: 'libreoffice' (Linux/macOS), затем
+    'soffice' (так он называется в Windows), затем стандартные папки установки
+    в Windows. Возвращает полный путь или None, если LibreOffice не найден."""
+    import shutil
+    for name in ("libreoffice", "soffice"):
+        found = shutil.which(name)
+        if found:
+            return found
+    for candidate in (
+        r"C:\Program Files\LibreOffice\program\soffice.exe",
+        r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+    ):
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
 def _build_sample_odt(path):
     """
     Собрать тестовый .odt через LibreOffice headless конвертацию из .docx —
@@ -55,8 +73,11 @@ def _build_sample_odt(path):
 
     doc.save(docx_path)
 
+    lo = _find_libreoffice()
+    if lo is None:
+        pytest.skip("LibreOffice не найден (ни 'libreoffice', ни 'soffice')")
     result = subprocess.run(
-        ["libreoffice", "--headless", "--convert-to", "odt",
+        [lo, "--headless", "--convert-to", "odt",
          "--outdir", tmp_dir, docx_path],
         capture_output=True, text=True, timeout=60,
     )
@@ -169,8 +190,11 @@ def test_08_odt_heading_text_not_lost():
     doc.add_paragraph("Worked at Acme Corp for 5 years.")
     doc.save(docx_path)
 
+    lo = _find_libreoffice()
+    if lo is None:
+        pytest.skip("LibreOffice не найден (ни 'libreoffice', ни 'soffice')")
     result = subprocess.run(
-        ["libreoffice", "--headless", "--convert-to", "odt",
+        [lo, "--headless", "--convert-to", "odt",
          "--outdir", tmp_dir, docx_path],
         capture_output=True, text=True, timeout=60,
     )

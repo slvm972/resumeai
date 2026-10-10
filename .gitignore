@@ -1,47 +1,61 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-venv/
-env/
-ENV/
-
-# Flask
-instance/
-.webassets-cache
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# Environment variables
+# ===== Secrets (never publish) =====
+config.env
 .env
-config.env.local
-*.local
+.env.*
+*.pem
+*.key
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
+# ===== Databases and local data =====
+*.db
+*.db-shm
+*.db-wal
+*.sqlite3
+instance/
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Uploads
+# ===== User uploads (keep the folder itself) =====
 uploads/*
 !uploads/.gitkeep
 
-# Logs
-*.log
-.aider*
+# ===== Python / test caches =====
+__pycache__/
+*.py[cod]
+.pytest_cache/
+venv/
+.venv/
+env/
 
-config.env
+# ===== Editor and AI-tool leftovers =====
+.aider*
+.vscode/
+.idea/
+
+# ===== Generated results of experiments =====
+diagnose_batch_*/
+diagnose_output/
+batch_results*/
+test_one_result/
+outputs/
+compare_result*.json
+run2_result_*.json
+run3_result_*.json
+step2_result_*.json
+weak_*.json
+*.zip
+
+# ===== Private / local only =====
+BUSINESS_PLAN.md
+_archive/
+listing.txt
+
+# ===== OS junk =====
+Thumbs.db
+.DS_Store
+node_modules/
 
 .tmp.driveupload/
-outputs/
+.gitignore.old
+test_resumes/
+test_resumes_real/
+test_weak/
+test_one/
+resume_ua.docx
