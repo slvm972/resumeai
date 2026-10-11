@@ -1504,6 +1504,65 @@ def _check_role_escalation(orig_text, new_text):
     return True, ""
 
 
+def _normalize_excerpt(text):
+    """strip + схлопнуть любые последовательности пробельных символов в один пробел."""
+    return " ".join((text or "").split())
+
+
+def _rollback_flagged_items(restored_list, orig_items, findings):
+    """
+    Построчный откат по findings Guardrail вместо отката всего резюме из-за
+    одной строки. Возвращает НОВЫЙ список той же длины (restored_list не
+    мутируется).
+
+    Правила:
+    1. Учитываются только findings со severity == "high". Если таких нет —
+       полный откат (как раньше).
+    2. Для каждого такого finding improved_excerpt нормализуется (strip +
+       схлопнутые пробелы) и ищется среди строк restored_list, которые
+       отличаются от orig_items[i]["text"]: сначала точное совпадение после
+       нормализации; если точного нет — допускается вложение в одну сторону
+       (excerpt внутри строки или строка внутри excerpt).
+    3. Ровно один кандидат — строка помечается. Ноль или несколько, а также
+       пустой или многострочный excerpt — сопоставление неудачно.
+    4. Если хоть один high-finding не сопоставился — полный откат.
+    5. Иначе откатываются только помеченные строки.
+    """
+    originals = [item["text"] for item in orig_items]
+
+    high = [f for f in (findings or []) if isinstance(f, dict) and f.get("severity") == "high"]
+    if not high:
+        return list(originals)
+
+    changed = [i for i in range(len(restored_list)) if restored_list[i] != originals[i]]
+    norm = {i: _normalize_excerpt(restored_list[i]) for i in changed}
+    flagged = set()
+
+    for f in high:
+        raw = f.get("improved_excerpt")
+        raw = raw if isinstance(raw, str) else ""
+        excerpt = _normalize_excerpt(raw)
+        if not excerpt or len(raw.strip().splitlines()) > 1:
+            return list(originals)
+
+        exact = [i for i in changed if norm[i] == excerpt]
+        if exact:
+            candidates = exact
+        else:
+            candidates = [
+                i for i in changed
+                if norm[i] and (excerpt in norm[i] or norm[i] in excerpt)
+            ]
+        if len(candidates) != 1:
+            return list(originals)
+        flagged.add(candidates[0])
+
+    result = list(restored_list)
+    for i in flagged:
+        result[i] = originals[i]
+    return result
+
+
 def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_key, creativity_mode="precise"):
     """
     Общий защищённый pipeline улучшения резюме:
@@ -2063,7 +2122,18 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
         guardrail_rejected = guardrail_report.get("guardrail_rejected", False)
 
         if guardrail_rejected:
-            restored_list = [item["text"] for item in orig_items]
+            # Построчный откат: откатываются только строки, на которые
+            # указывают high-findings; если хоть один finding не
+            # сопоставился со строкой — полный откат (см. функцию).
+            restored_list = _rollback_flagged_items(
+                restored_list, orig_items, guardrail_report.get("findings") or [],
+            )
+            # guardrail_rejected остаётся True только если не уцелело ни одной
+            # принятой правки — на этом флаге держится логика кредитов в
+            # app/__init__.py (кредит не списывается при полном откате).
+            guardrail_rejected = all(
+                restored_list[i] == orig_items[i]["text"] for i in range(len(orig_items))
+            )
 
     # Цикл A: суффикс :TYPE добавляется ТОЛЬКО здесь, на финальной сборке —
     # LLM все ###ITEM_NNN### маркеры (в ai_blocks, в retry, в парсинге

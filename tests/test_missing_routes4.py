@@ -1374,3 +1374,108 @@ def test_CREATIVE2_restructure_paragraph_appears_only_for_creative():
         assert "violates Rule 10 above" in creative, f"{fn.__name__}: нет явной ссылки на Rule 10"
         assert phrase not in precise, f"{fn.__name__}: абзац лишний при precise"
         assert phrase not in default, f"{fn.__name__}: абзац лишний по умолчанию"
+
+
+# ===========================================================================
+# Построчный откат по high-findings Guardrail (_rollback_flagged_items)
+# ===========================================================================
+
+def _run_pipeline_with_guardrail_findings(findings):
+    """Прогоняет _run_improve_pipeline на резюме с двумя улучшаемыми
+    строками (обе принимаются пайплайном), Guardrail включён и замокан на
+    guardrail_rejected=True с переданными findings. Возвращает (result,
+    captured), где captured — kwargs, с которыми вызван run_check."""
+    from flask import Flask
+    from docx import Document
+    from unittest.mock import patch
+
+    doc = Document()
+    doc.add_paragraph("John Smith")
+    doc.add_paragraph("john@example.com")
+    doc.add_paragraph("Managed a team of 5 designers")
+    doc.add_paragraph("Built internal dashboards for the sales team")
+    buf = io.BytesIO(); doc.save(buf)
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        return _FakeGroqResp(
+            "###ITEM_003###\nDirected a team of 5 designers\n\n"
+            "###ITEM_004###\nEngineered internal dashboards for the sales team\n\n"
+        )
+
+    captured = {}
+
+    def fake_run_check(*args, **kwargs):
+        captured.update(kwargs)
+        return {
+            "success": True, "pass": False, "findings": findings,
+            "guardrail_rejected": True, "tokens_used": 3, "error": None,
+        }
+
+    test_app = Flask(__name__)
+    test_app.config["GUARDRAIL_ENABLED"] = True
+
+    with test_app.app_context():
+        with patch("requests.post", side_effect=fake_post), \
+             patch("app.services.resume_guardrail.GuardrailService.run_check", side_effect=fake_run_check):
+            result = mr._run_improve_pipeline(buf.getvalue(), "rollback.docx", None, "fake-key")
+
+    return result, captured
+
+
+def _high_finding(improved_excerpt):
+    return {
+        "type": "ROLE_ESCALATION", "severity": "high",
+        "original_excerpt": "x", "improved_excerpt": improved_excerpt,
+        "explanation": "test finding",
+    }
+
+
+def test_ROLLBACK1_single_flagged_line_rolled_back_others_kept():
+    """high-finding с improved_excerpt, совпадающим ровно с одной
+    изменённой строкой: откатывается только она, остальное улучшение на
+    месте, guardrail_rejected False (кредит в app/__init__.py спишется)."""
+    result, captured = _run_pipeline_with_guardrail_findings(
+        [_high_finding("Directed a team of 5 designers")]
+    )
+
+    # предпосылка: обе правки были приняты ДО Guardrail
+    assert "Directed a team of 5 designers" in captured["improved_text"]
+    assert "Engineered internal dashboards for the sales team" in captured["improved_text"]
+
+    assert result["success"]
+    assert result["display_text"].split("\n") == [
+        "John Smith",
+        "john@example.com",
+        "Managed a team of 5 designers",                    # откатили только эту
+        "Engineered internal dashboards for the sales team",  # улучшение уцелело
+    ]
+    assert result["guardrail_rejected"] is False
+
+
+def test_ROLLBACK2_unmatched_high_finding_falls_back_to_full_rollback():
+    """high-finding, не совпавший ни с одной строкой: полный откат,
+    guardrail_rejected True."""
+    result, captured = _run_pipeline_with_guardrail_findings(
+        [_high_finding("completely unrelated phrase")]
+    )
+
+    assert "Directed a team of 5 designers" in captured["improved_text"]  # было что откатывать
+
+    assert result["success"]
+    assert result["display_text"] == result["original_text"]
+    assert result["guardrail_rejected"] is True
+
+
+def test_ROLLBACK3_all_changed_lines_flagged_equals_original():
+    """Помечены все изменённые строки: результат равен оригиналу,
+    guardrail_rejected True (не осталось ни одной принятой правки)."""
+    result, captured = _run_pipeline_with_guardrail_findings([
+        _high_finding("Directed a team of 5 designers"),
+        _high_finding("Engineered internal dashboards for the sales team"),
+    ])
+
+    assert "Engineered internal dashboards for the sales team" in captured["improved_text"]
+
+    assert result["success"]
+    assert result["display_text"] == result["original_text"]
+    assert result["guardrail_rejected"] is True
