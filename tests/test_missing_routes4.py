@@ -1479,3 +1479,60 @@ def test_ROLLBACK3_all_changed_lines_flagged_equals_original():
     assert result["success"]
     assert result["display_text"] == result["original_text"]
     assert result["guardrail_rejected"] is True
+
+
+# ===========================================================================
+# quality_report после отката Guardrail: откаченные правки не "accepted"
+# ===========================================================================
+
+def test_QRCHANGES1_partial_rollback_keeps_only_surviving_change():
+    """Частичный откат: в changes остаётся только уцелевшая правка,
+    summary.accepted == 1; "blocks" (полная история) и остальные поля
+    summary не меняются."""
+    result, _ = _run_pipeline_with_guardrail_findings(
+        [_high_finding("Directed a team of 5 designers")]
+    )
+    qr = result["quality_report"]
+
+    assert result["guardrail_rejected"] is False  # одно улучшение уцелело
+    assert [c["id"] for c in qr["changes"]] == ["004"]
+    assert qr["changes"][0]["improved_text"] == "Engineered internal dashboards for the sales team"
+    assert qr["summary"]["accepted"] == 1
+
+    # история блоков не тронута: оба блока там по-прежнему "accepted"
+    accepted_in_blocks = {b["id"] for b in qr["blocks"] if b["decision"] == "accepted"}
+    assert accepted_in_blocks == {"003", "004"}
+    # остальные поля summary не менялись (два frozen-блока: имя и email)
+    assert qr["summary"]["kept_original"] == 2
+
+
+def test_QRCHANGES2_without_guardrail_changes_and_accepted_as_before():
+    """Без Guardrail (флаг выключен, вне app_context): changes и accepted
+    такие же, как раньше — обе правки на месте, run_check не вызывается."""
+    from docx import Document
+    from unittest.mock import patch
+
+    doc = Document()
+    doc.add_paragraph("John Smith")
+    doc.add_paragraph("john@example.com")
+    doc.add_paragraph("Managed a team of 5 designers")
+    doc.add_paragraph("Built internal dashboards for the sales team")
+    buf = io.BytesIO(); doc.save(buf)
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        return _FakeGroqResp(
+            "###ITEM_003###\nDirected a team of 5 designers\n\n"
+            "###ITEM_004###\nEngineered internal dashboards for the sales team\n\n"
+        )
+
+    def _fail_if_called(*a, **kw):
+        pytest.fail("GuardrailService.run_check не должен вызываться при выключенном флаге")
+
+    with patch("requests.post", side_effect=fake_post), \
+         patch("app.services.resume_guardrail.GuardrailService.run_check", side_effect=_fail_if_called):
+        result = mr._run_improve_pipeline(buf.getvalue(), "qr2.docx", None, "fake-key")
+
+    qr = result["quality_report"]
+    assert result["guardrail_report"] is None
+    assert [c["id"] for c in qr["changes"]] == ["003", "004"]
+    assert qr["summary"]["accepted"] == 2

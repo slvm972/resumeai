@@ -2171,21 +2171,31 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
         final_by_id[r["id"]] = r
     final_decisions = list(final_by_id.values())
 
+    # Откат Guardrail (построчный или полный): restored_list здесь уже
+    # содержит результат отката, поэтому правка, у которой итоговая строка
+    # снова равна original_text, откачена и не должна числиться принятой.
+    # "blocks" (полная история) и остальные поля summary не меняются.
+    accepted_changes = []
+    for r in final_decisions:
+        if r["decision"] != "accepted":
+            continue
+        idx = int(r["id"]) - 1
+        if 0 <= idx < len(restored_list) and restored_list[idx] == r.get("original_text", ""):
+            continue  # правка откачена
+        accepted_changes.append({
+            "id": r["id"],
+            "original_text": r.get("original_text", ""),
+            "improved_text": r.get("improved_text", ""),
+        })
+
     quality_report = {
         "total_blocks": len(orig_items),
         "retry_triggered": len(retry_ids),
         "retry_ids": retry_ids,
         "blocks": all_reports,
-        "changes": [
-            {
-                "id": r["id"],
-                "original_text": r.get("original_text", ""),
-                "improved_text": r.get("improved_text", ""),
-            }
-            for r in final_decisions if r["decision"] == "accepted"
-        ],
+        "changes": accepted_changes,
         "summary": {
-            "accepted":        sum(1 for r in final_decisions if r["decision"] == "accepted"),
+            "accepted":        len(accepted_changes),
             "kept_original":   sum(1 for r in final_decisions if r["decision"] == "kept_original"),
             "rejected_facts":  sum(1 for r in final_decisions if r["decision"] == "rejected_facts"),
             "rejected_role_escalation": sum(1 for r in final_decisions if r["decision"] == "rejected_role_escalation"),
