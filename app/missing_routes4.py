@@ -1092,6 +1092,20 @@ def _build_standard_system_prompt(n, detected_lang, creativity_mode="precise"):
         f"leadership (e.g., \"Руководил командой из 5 инженеров\", \"Управлял отделом "
         f"технической поддержки\"), that leadership level MUST be preserved, not "
         f"downgraded."
+        f"\n15. PARTICIPATION AND HELP STAY AT THAT LEVEL. If the original "
+        f"says the person helped, assisted, took part in, participated in, "
+        f"or was involved in something (e.g. \"helped\", \"assisted\", "
+        f"\"took part in\", \"was involved in\", \"помогал\", \"участвовал\", "
+        f"\"брала участь\", \"допомагала\"), keep the rewrite at a supporting "
+        f"level: use verbs such as supported, assisted, contributed to, "
+        f"helped with, or their equivalents in {detected_lang} "
+        f"(for example \"содействовал\", \"поддерживал\", \"сприяла\"). "
+        f"Never turn it into sole ownership of the task: do not use "
+        f"created, built, resolved, installed, performed, prepared, "
+        f"provisioned, coordinated, led, or their equivalents in "
+        f"{detected_lang} for something the original only says the person "
+        f"helped with or took part in. Strengthening the verb is fine; "
+        f"claiming the whole task is not.\n"
     ) + extra_creative_instruction
 
 
@@ -1232,6 +1246,20 @@ def _build_plain_relaxed_system_prompt(n, detected_lang, creativity_mode="precis
         f"leadership (e.g., \"Руководил командой из 5 инженеров\", \"Управлял отделом "
         f"технической поддержки\"), that leadership level MUST be preserved, not "
         f"downgraded."
+        f"\n15. PARTICIPATION AND HELP STAY AT THAT LEVEL. If the original "
+        f"says the person helped, assisted, took part in, participated in, "
+        f"or was involved in something (e.g. \"helped\", \"assisted\", "
+        f"\"took part in\", \"was involved in\", \"помогал\", \"участвовал\", "
+        f"\"брала участь\", \"допомагала\"), keep the rewrite at a supporting "
+        f"level: use verbs such as supported, assisted, contributed to, "
+        f"helped with, or their equivalents in {detected_lang} "
+        f"(for example \"содействовал\", \"поддерживал\", \"сприяла\"). "
+        f"Never turn it into sole ownership of the task: do not use "
+        f"created, built, resolved, installed, performed, prepared, "
+        f"provisioned, coordinated, led, or their equivalents in "
+        f"{detected_lang} for something the original only says the person "
+        f"helped with or took part in. Strengthening the verb is fine; "
+        f"claiming the whole task is not.\n"
     ) + extra_creative_instruction
 
 

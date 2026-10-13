@@ -1536,3 +1536,21 @@ def test_QRCHANGES2_without_guardrail_changes_and_accepted_as_before():
     assert result["guardrail_report"] is None
     assert [c["id"] for c in qr["changes"]] == ["003", "004"]
     assert qr["summary"]["accepted"] == 2
+
+
+def test_RULE15_participation_rule_in_both_editor_prompts_not_in_summary():
+    """Rule 15 ("PARTICIPATION AND HELP STAY AT THAT LEVEL": помощь и
+    участие не превращать в самостоятельное выполнение) присутствует в
+    обеих функциях-промптах редактора для creativity_mode="precise",
+    "creative" и при вызове без аргумента, стоит после Rule 14 (на
+    отдельной строке) и отсутствует в _build_summary_repositioning_prompt."""
+    marker = "PARTICIPATION AND HELP STAY AT THAT LEVEL"
+    for fn in (mr._build_standard_system_prompt, mr._build_plain_relaxed_system_prompt):
+        for kwargs in ({"creativity_mode": "precise"}, {"creativity_mode": "creative"}, {}):
+            prompt = fn(3, "English", **kwargs)
+            assert marker in prompt, f"{fn.__name__} {kwargs}: Rule 15 отсутствует"
+            assert "{detected_lang}" not in prompt, f"{fn.__name__} {kwargs}: не подставился detected_lang"
+            assert "downgraded.\n15. " + marker in prompt, f"{fn.__name__} {kwargs}: Rule 15 не на отдельной строке после Rule 14"
+            assert prompt.index("14. ") < prompt.index("15. " + marker)
+
+    assert marker not in mr._build_summary_repositioning_prompt(3, "English")
