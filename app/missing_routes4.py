@@ -1591,6 +1591,67 @@ def _rollback_flagged_items(restored_list, orig_items, findings):
     return result
 
 
+_INVENTED_FINDING_TYPES = {
+    "FACT_HALLUCINATION", "METRIC_HALLUCINATION", "TECHNOLOGY_HALLUCINATION",
+}
+
+
+def _find_unique_changed_line(restored_list, orig_items, improved_excerpt):
+    """
+    Индекс единственной строки restored_list, которая отличается от
+    оригинала и соответствует improved_excerpt: нормализация пробелов,
+    точное совпадение, иначе вложение в одну сторону. Возвращает None,
+    если кандидатов ноль или больше одного, либо excerpt пустой или
+    многострочный. Отдельный сопоставитель для _rollback_invented_lines;
+    _rollback_flagged_items использует собственную логику.
+    """
+    raw = improved_excerpt if isinstance(improved_excerpt, str) else ""
+    excerpt = _normalize_excerpt(raw)
+    if not excerpt or len(raw.strip().splitlines()) > 1:
+        return None
+
+    changed = [i for i in range(len(restored_list)) if restored_list[i] != orig_items[i]["text"]]
+    norm = {i: _normalize_excerpt(restored_list[i]) for i in changed}
+
+    exact = [i for i in changed if norm[i] == excerpt]
+    if exact:
+        candidates = exact
+    else:
+        candidates = [
+            i for i in changed
+            if norm[i] and (excerpt in norm[i] or norm[i] in excerpt)
+        ]
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _rollback_invented_lines(restored_list, orig_items, findings):
+    """
+    Откат строк, в которых судья нашёл выдуманную деталь (type из
+    _INVENTED_FINDING_TYPES, severity "medium" или "high"). Откатывается
+    только сопоставленная строка; finding, который не сопоставился (ноль
+    или несколько кандидатов, пустой или многострочный excerpt), просто
+    пропускается. Полного отката здесь нет никогда. Сопоставление идёт по
+    входному restored_list, поэтому результат не зависит от порядка
+    findings. Возвращает НОВЫЙ список (restored_list не мутируется).
+    """
+    to_rollback = set()
+    for f in findings or []:
+        if not isinstance(f, dict):
+            continue
+        if f.get("type") not in _INVENTED_FINDING_TYPES:
+            continue
+        if f.get("severity") not in ("medium", "high"):
+            continue
+        idx = _find_unique_changed_line(restored_list, orig_items, f.get("improved_excerpt"))
+        if idx is not None:
+            to_rollback.add(idx)
+
+    result = list(restored_list)
+    for i in to_rollback:
+        result[i] = orig_items[i]["text"]
+    return result
+
+
 def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_key, creativity_mode="precise"):
     """
     Общий защищённый pipeline улучшения резюме:
@@ -2162,6 +2223,18 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
             guardrail_rejected = all(
                 restored_list[i] == orig_items[i]["text"] for i in range(len(orig_items))
             )
+
+        # Выдуманная деталь (FACT/METRIC/TECHNOLOGY_HALLUCINATION, medium
+        # или high), которую судья пометил, но откатом не покрыл: откатываем
+        # только сопоставленную строку, полного отката здесь никогда нет.
+        if not guardrail_rejected:
+            rolled = _rollback_invented_lines(
+                restored_list, orig_items, guardrail_report.get("findings") or [])
+            if rolled != restored_list:
+                restored_list = rolled
+                guardrail_rejected = all(
+                    restored_list[i] == orig_items[i]["text"]
+                    for i in range(len(orig_items)))
 
     # Цикл A: суффикс :TYPE добавляется ТОЛЬКО здесь, на финальной сборке —
     # LLM все ###ITEM_NNN### маркеры (в ai_blocks, в retry, в парсинге

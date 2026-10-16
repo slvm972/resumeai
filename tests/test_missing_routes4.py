@@ -1380,7 +1380,7 @@ def test_CREATIVE2_restructure_paragraph_appears_only_for_creative():
 # Построчный откат по high-findings Guardrail (_rollback_flagged_items)
 # ===========================================================================
 
-def _run_pipeline_with_guardrail_findings(findings):
+def _run_pipeline_with_guardrail_findings(findings, judge_rejected=True, improve_second_line=True):
     """Прогоняет _run_improve_pipeline на резюме с двумя улучшаемыми
     строками (обе принимаются пайплайном), Guardrail включён и замокан на
     guardrail_rejected=True с переданными findings. Возвращает (result,
@@ -1397,10 +1397,10 @@ def _run_pipeline_with_guardrail_findings(findings):
     buf = io.BytesIO(); doc.save(buf)
 
     def fake_post(url, headers=None, json=None, timeout=None):
-        return _FakeGroqResp(
-            "###ITEM_003###\nDirected a team of 5 designers\n\n"
-            "###ITEM_004###\nEngineered internal dashboards for the sales team\n\n"
-        )
+        body = "###ITEM_003###\nDirected a team of 5 designers\n\n"
+        if improve_second_line:
+            body += "###ITEM_004###\nEngineered internal dashboards for the sales team\n\n"
+        return _FakeGroqResp(body)
 
     captured = {}
 
@@ -1408,7 +1408,7 @@ def _run_pipeline_with_guardrail_findings(findings):
         captured.update(kwargs)
         return {
             "success": True, "pass": False, "findings": findings,
-            "guardrail_rejected": True, "tokens_used": 3, "error": None,
+            "guardrail_rejected": judge_rejected, "tokens_used": 3, "error": None,
         }
 
     test_app = Flask(__name__)
@@ -1554,3 +1554,76 @@ def test_RULE15_participation_rule_in_both_editor_prompts_not_in_summary():
             assert prompt.index("14. ") < prompt.index("15. " + marker)
 
     assert marker not in mr._build_summary_repositioning_prompt(3, "English")
+
+
+# ===========================================================================
+# Откат строк с выдуманной деталью (_rollback_invented_lines)
+# ===========================================================================
+
+def _invented_finding(improved_excerpt, type_="FACT_HALLUCINATION", severity="medium"):
+    return {
+        "type": type_, "severity": severity,
+        "original_excerpt": "x", "improved_excerpt": improved_excerpt,
+        "explanation": "test finding",
+    }
+
+
+def test_INVENTED1_medium_hallucination_line_rolled_back_others_kept():
+    """FACT_HALLUCINATION medium с excerpt, совпавшим с одной изменённой
+    строкой, судья вернул guardrail_rejected=False: строка откатилась,
+    остальная правка на месте, guardrail_rejected False, откатанной
+    строки нет в quality_report["changes"]."""
+    result, captured = _run_pipeline_with_guardrail_findings(
+        [_invented_finding("Directed a team of 5 designers")], judge_rejected=False,
+    )
+
+    # предпосылка: обе правки были приняты ДО Guardrail
+    assert "Directed a team of 5 designers" in captured["improved_text"]
+    assert "Engineered internal dashboards for the sales team" in captured["improved_text"]
+
+    assert result["success"]
+    assert result["display_text"].split("\n") == [
+        "John Smith",
+        "john@example.com",
+        "Managed a team of 5 designers",                      # откатили выдумку
+        "Engineered internal dashboards for the sales team",  # уцелела
+    ]
+    assert result["guardrail_rejected"] is False
+    qr = result["quality_report"]
+    assert [c["id"] for c in qr["changes"]] == ["004"]
+    assert qr["summary"]["accepted"] == 1
+
+
+def test_INVENTED2_unmatched_finding_rolls_nothing_back_and_does_not_raise():
+    """Finding, не совпавший ни с одной строкой: ничего не откатывается,
+    исключений нет, полного отката нет."""
+    result, captured = _run_pipeline_with_guardrail_findings(
+        [_invented_finding("completely unrelated phrase")], judge_rejected=False,
+    )
+
+    assert "Directed a team of 5 designers" in captured["improved_text"]
+
+    assert result["success"]
+    assert result["display_text"].split("\n")[2:] == [
+        "Directed a team of 5 designers",
+        "Engineered internal dashboards for the sales team",
+    ]
+    assert result["guardrail_rejected"] is False
+    assert [c["id"] for c in result["quality_report"]["changes"]] == ["003", "004"]
+
+
+def test_INVENTED3_flagged_only_changed_line_equals_original_and_rejected():
+    """Finding помечает единственную изменённую строку: результат равен
+    оригиналу, guardrail_rejected True (ни одной принятой правки)."""
+    result, captured = _run_pipeline_with_guardrail_findings(
+        [_invented_finding("Directed a team of 5 designers", type_="METRIC_HALLUCINATION")],
+        judge_rejected=False, improve_second_line=False,
+    )
+
+    assert "Directed a team of 5 designers" in captured["improved_text"]  # было что откатывать
+
+    assert result["success"]
+    assert result["display_text"] == result["original_text"]
+    assert result["guardrail_rejected"] is True
+    assert result["quality_report"]["changes"] == []
+    assert result["quality_report"]["summary"]["accepted"] == 0
