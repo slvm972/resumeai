@@ -1887,3 +1887,126 @@ def test_PII3_admin_improve_routes_log_no_resume_text_or_filename(caplog):
         assert r3.status_code == 200
 
     _assert_no_pii_in_logs(caplog)
+
+
+# ===========================================================================
+# БЛОК: детерминированная проверка формы строки (FORM1-5)
+# ===========================================================================
+# Контекст: в creative-режиме модель превращает строки в самоописания и
+# неверные формы (Rule 16), а Guardrail про факты/роль этого почти не ловит.
+# _check_form_violation() — чистая функция, вызванная в _restore_and_validate
+# после Role Escalation и до Quality Gate; нарушение -> блок откатывается к
+# оригиналу, decision 'rejected_form', без retry.
+
+_FORM_VIOLATIONS = [
+    # (оригинал, улучшенный, ожидаемая причина)
+    ("Отвечала за ведение документации и переписку с клиентами",
+     "Специалист, отвечающий за ведение документации и переписку с клиентами",
+     "self_description"),
+    ("Відповідала за ведення первинної документації",
+     "Фахівець з ведення первинної документації",
+     "self_description"),
+    ("Was responsible for assisting customers",
+     "Customer-focused professional helping customers",
+     "self_description"),
+    ("Responsible for teaching a class of children aged 7-9",
+     "Educator teaching a class of children aged 7-9",
+     "self_description"),
+    ("Was responsible for answering employee computer questions",
+     "Providing answers to employee computer questions.",
+     "gerund_opener"),
+    ("Имел категории B, C, E, знал город",
+     "Обладаю категориями B, C, E, знанием города",
+     "present_first_person"),
+    ("Осуществлял доставку грузов по городу",
+     "Осуществляю доставку грузов по городу",
+     "present_first_person"),
+    ("Відповідала за ведення первинної документації",
+     "Відповідальна за ведення первинної документації",
+     "adjective_opener"),
+    # правило е: существительное вместо глагола прошедшего времени
+    ("Вела документацию", "Ведение документации", "tense_changed"),
+    ("Відповідала за облік", "Ведення обліку", "tense_changed"),
+]
+
+
+@pytest.mark.parametrize("orig,improved,reason", _FORM_VIOLATIONS)
+def test_FORM1_violation_examples_return_reason(orig, improved, reason):
+    assert mr._check_form_violation(orig, improved) == reason
+
+
+@pytest.mark.parametrize("orig", [
+    "Вёл документацию и поддерживал переписку",
+    "Отвечала за ведение документации и переписку с клиентами",
+])
+def test_FORM1b_vedu_present_tense_detected_as_tense_changed(orig):
+    """'Веду' (оканчивается на 'у') правило г не ловит — ловит правило е."""
+    assert mr._check_form_violation(
+        orig, "Веду документацию и поддерживаю переписку") == "tense_changed"
+
+
+@pytest.mark.parametrize("orig,improved", [
+    ("Led team", "Directed team"),
+    ("Managing a team", "Managing a team of 5"),                 # оригинал тоже на -ing
+    ("Вела документацию", "Вела учёт документации"),
+    ("Веду документацию", "Веду учёт документации"),              # оригинал в том же виде
+    ("Осуществляю доставку грузов", "Осуществляю доставку грузов по городу"),
+    ("Відповідала за облік", "Відповідала за ведення обліку"),
+    ("• Managed team of 5", "• Directed team of 5"),              # ведущий маркер
+    ("Вела документацию", "Успешно вела документацию"),           # прошедшее во 2-м слове
+    ("Відповідав за облік", "Відповідав за ведення обліку"),      # укр. мужское прошедшее на -в
+    ("Отвечала за ведение", "Обеспечивала ведение"),              # другой глагол прошедшего
+    ("ניהל צוות מהנדסים", "הוביל וניהל צוות מהנדסים מקצועי"),     # иврит не проверяется
+])
+def test_FORM2_non_violations_return_none(orig, improved):
+    assert mr._check_form_violation(orig, improved) is None
+
+
+def test_FORM3_multiline_checks_first_nonempty_line_only():
+    # нарушение во второй строке не считается, в первой — считается
+    assert mr._check_form_violation("Led team\nsecond line", "Directed team\nProviding second") is None
+    assert mr._check_form_violation("\nLed team", "\nProviding team leadership") == "gerund_opener"
+    assert mr._check_form_violation("", "Providing x") is None
+    assert mr._check_form_violation("Led team", "") is None
+
+
+def test_FORM4_pure_function_no_network_or_state():
+    """Чистая функция: повторный вызов даёт тот же результат, сеть не нужна."""
+    from unittest.mock import patch
+    with patch("requests.post", side_effect=AssertionError("сеть не нужна")):
+        a = mr._check_form_violation("Was responsible for X", "Specialist in X")
+        b = mr._check_form_violation("Was responsible for X", "Specialist in X")
+    assert a == b == "self_description"
+
+
+def test_FORM5_pipeline_rejects_self_description_block_and_keeps_original():
+    """_run_improve_pipeline с замоканным Groq: 'Специалист по доставке грузов'
+    вместо обычной строки -> итог = оригинал, decision 'rejected_form',
+    summary.rejected_form == 1, accepted этот блок не включает."""
+    from docx import Document
+    from unittest.mock import patch
+
+    orig_line = "Осуществлял доставку грузов по городу"
+    doc = Document()
+    doc.add_paragraph("John Smith")
+    doc.add_paragraph("john@example.com")
+    doc.add_paragraph(orig_line)
+    buf = io.BytesIO(); doc.save(buf)
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        return _FakeGroqResp("###ITEM_003###\nСпециалист по доставке грузов\n\n")
+
+    with patch("requests.post", side_effect=fake_post):
+        result = mr._run_improve_pipeline(buf.getvalue(), "form5.docx", None, "fake-key")
+
+    assert result["success"]
+    assert orig_line in result["display_text"]
+    assert "Специалист" not in result["display_text"]
+
+    qr = result["quality_report"]
+    form_blocks = [b for b in qr["blocks"] if b["decision"] == "rejected_form"]
+    assert form_blocks and form_blocks[0]["id"] == "003"
+    assert form_blocks[0]["reason"] == "self_description"
+    assert qr["summary"]["rejected_form"] == 1
+    assert qr["summary"]["accepted"] == 0
+    assert all(c["id"] != "003" for c in qr["changes"])

@@ -1702,6 +1702,123 @@ def _normalize_chars_and_final_dot(orig_text, improved_text):
     return result
 
 
+_FORM_LEADING_MARKERS_RE = re.compile(r"^(?:[\s\u2022\u00b7*\-\u2013\u2014]+|\d+\s*[).]\s*)+")
+_FORM_SELF_DESC_EN = {
+    "professional", "specialist", "expert", "enthusiast", "educator",
+    "individual", "professionals", "specialists", "experts",
+}
+_FORM_SELF_DESC_RU_ROOTS = (
+    "специалист", "профессионал", "эксперт",
+    "фахів", "спеціаліст", "професіонал", "експерт",
+)
+
+
+def _form_first_line_words(text):
+    """Первая непустая строка блока -> список слов (нижний регистр, без
+    ведущих маркеров •/-/–/*/'1)' и без запятых/точек на конце слова)."""
+    for line in (text or "").split("\n"):
+        line = _FORM_LEADING_MARKERS_RE.sub("", line.strip())
+        if line:
+            return [w.lower().rstrip(",.;:!?") for w in line.split()]
+    return []
+
+
+def _form_script(word):
+    """'latin' | 'cyrillic' | 'other' (иврит/арабский/CJK и пр.) | None (нет букв)."""
+    scripts = set()
+    for c in word:
+        if not c.isalpha():
+            continue
+        o = ord(c)
+        if "a" <= c.lower() <= "z":
+            scripts.add("latin")
+        elif 0x0400 <= o <= 0x04FF:
+            scripts.add("cyrillic")
+        else:
+            scripts.add("other")
+    if "other" in scripts:
+        return "other"
+    if len(scripts) == 1:
+        return scripts.pop()
+    if scripts:
+        return "other"   # смесь алфавитов в одном слове — не проверяем
+    return None
+
+
+_PAST_CYR_ENDINGS = ("л", "ла", "ло", "ли", "лся", "лась", "лось", "лись")
+
+
+def _looks_past_cyr(w):
+    """Слово (нижний регистр) похоже на глагол прошедшего времени RU/UK:
+    окончания л/ла/ло/ли/лся/лась/лось/лись (длина 3+), а для длины 5+ ещё
+    'в' (украинское мужское прошедшее: відповідав, працював)."""
+    if len(w) < 3:
+        return False
+    if w.endswith(_PAST_CYR_ENDINGS):
+        return True
+    return len(w) >= 5 and w.endswith("в")
+
+
+def _check_form_violation(orig_text, improved_text):
+    """
+    Детерминированная проверка ФОРМЫ переписанной строки (Rule 16 как код,
+    а не как просьба в промте). Чистая функция: без сети и состояния.
+    Возвращает короткую причину нарушения или None.
+
+    Проверяется только ПЕРВАЯ непустая строка блока; нарушение
+    засчитывается лишь если оригинал начинался иначе (сравнение с
+    оригиналом). Иврит, арабский, китайский и пр. не проверяются.
+      gerund_opener        EN: первое слово improved на 'ing' (>4 букв)
+      self_description     EN: professional/specialist/expert/... среди первых
+                           двух слов; RU/UK: первое слово — специалист/эксперт/фахівець...
+      present_first_person RU/UK: первое слово на 'ю'/'юсь' (4+ букв)
+      adjective_opener     RU/UK: первое слово начинается с ответственн-/відповідальн-
+      tense_changed        RU/UK: оригинал начинался с глагола в прошедшем времени, а среди
+                           первых двух слов improved прошедшего времени нет
+    """
+    o_words = _form_first_line_words(orig_text)
+    i_words = _form_first_line_words(improved_text)
+    if not o_words or not i_words:
+        return None
+    o_first, i_first = o_words[0], i_words[0]
+    o_script, i_script = _form_script(o_first), _form_script(i_first)
+    if "other" in (o_script, i_script):
+        return None
+
+    if i_script == "latin":
+        def _is_gerund(w):
+            return w.endswith("ing") and len(w) > 4
+        if _is_gerund(i_first) and not _is_gerund(o_first):
+            return "gerund_opener"
+        for w in i_words[:2]:
+            if w in _FORM_SELF_DESC_EN and w not in o_words[:2]:
+                return "self_description"
+        return None
+
+    if i_script == "cyrillic":
+        def _is_self_desc(w):
+            return w.startswith(_FORM_SELF_DESC_RU_ROOTS)
+        if _is_self_desc(i_first) and not _is_self_desc(o_first):
+            return "self_description"
+
+        def _is_present_1p(w):
+            return len(w) >= 4 and (w.endswith("ю") or w.endswith("юсь"))
+        if _is_present_1p(i_first) and not _is_present_1p(o_first):
+            return "present_first_person"
+
+        def _is_adj_opener(w):
+            return w.startswith(("ответственн", "відповідальн"))
+        if _is_adj_opener(i_first) and not _is_adj_opener(o_first):
+            return "adjective_opener"
+
+        # е) смена прошедшего времени: оригинал начинался с глагола в
+        # прошедшем, а среди первых двух слов improved прошедшего нет
+        # ("Веду документацию", "Ведение документации" вместо "Вела ...").
+        if _looks_past_cyr(o_first) and not any(_looks_past_cyr(w) for w in i_words[:2]):
+            return "tense_changed"
+    return None
+
+
 def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_key, creativity_mode="precise"):
     """
     Общий защищённый pipeline улучшения резюме:
@@ -2080,6 +2197,23 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
                 })
                 continue
 
+            # Cycle FORM1: детерминированная проверка формы строки (Rule 16 как
+            # код) — отдельно от Fact Validation и Role Escalation. При
+            # нарушении блок откатывается к оригиналу, без retry.
+            form_reason = _check_form_violation(orig_text, improved)
+            if form_reason:
+                id_to_text[iid] = orig_text
+                block_reports.append({
+                    "id": iid, "attempt": attempt_label,
+                    "strategy": strategy,
+                    "decision": "rejected_form",
+                    "reason": form_reason,
+                    "similarity": _text_similarity(orig_text, improved),
+                    "original_text": orig_text,
+                    "improved_text": improved,
+                })
+                continue
+
             # Quality Gate — порог зависит от creativity_mode (Cycle CM1);
             # доступен через closure _restore_and_validate внутри
             # _run_improve_pipeline, где creativity_mode уже провалидирован.
@@ -2318,6 +2452,7 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
             "kept_original":   sum(1 for r in final_decisions if r["decision"] == "kept_original"),
             "rejected_facts":  sum(1 for r in final_decisions if r["decision"] == "rejected_facts"),
             "rejected_role_escalation": sum(1 for r in final_decisions if r["decision"] == "rejected_role_escalation"),
+            "rejected_form": sum(1 for r in final_decisions if r["decision"] == "rejected_form"),
             "needs_retry":     sum(1 for r in final_decisions if r["decision"] == "needs_retry"),
             "avg_similarity":  round(
                 sum(r["similarity"] for r in final_decisions) / max(len(final_decisions), 1), 3
