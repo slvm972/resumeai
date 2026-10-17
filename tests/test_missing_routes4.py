@@ -1556,6 +1556,24 @@ def test_RULE15_participation_rule_in_both_editor_prompts_not_in_summary():
     assert marker not in mr._build_summary_repositioning_prompt(3, "English")
 
 
+def test_RULE16_keep_tense_and_form_in_both_editor_prompts_not_in_summary():
+    """Rule 16 ("KEEP TENSE AND FORM": сохранять время, лицо и форму
+    предложения, не превращать пункт в именную группу/самоописание)
+    присутствует в обеих функциях-промптах редактора для
+    creativity_mode="precise", "creative" и при вызове без аргумента,
+    стоит после Rule 15 на отдельной строке и отсутствует в
+    _build_summary_repositioning_prompt."""
+    marker = "KEEP TENSE AND FORM"
+    for fn in (mr._build_standard_system_prompt, mr._build_plain_relaxed_system_prompt):
+        for kwargs in ({"creativity_mode": "precise"}, {"creativity_mode": "creative"}, {}):
+            prompt = fn(3, "English", **kwargs)
+            assert marker in prompt, f"{fn.__name__} {kwargs}: Rule 16 отсутствует"
+            assert "\n16. " + marker in prompt, f"{fn.__name__} {kwargs}: Rule 16 не на отдельной строке"
+            assert prompt.index("15. PARTICIPATION") < prompt.index("16. " + marker)
+
+    assert marker not in mr._build_summary_repositioning_prompt(3, "English")
+
+
 # ===========================================================================
 # Откат строк с выдуманной деталью (_rollback_invented_lines)
 # ===========================================================================

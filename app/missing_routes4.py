@@ -1105,7 +1105,16 @@ def _build_standard_system_prompt(n, detected_lang, creativity_mode="precise"):
         f"provisioned, coordinated, led, or their equivalents in "
         f"{detected_lang} for something the original only says the person "
         f"helped with or took part in. Strengthening the verb is fine; "
-        f"claiming the whole task is not.\n"
+        f"claiming the whole task is not."
+        f"\n16. KEEP TENSE AND FORM. Keep each bullet in the same tense, "
+        f"person and sentence form as the original. A job or period that "
+        f"is over must stay in the past tense: never switch to present "
+        f"tense or to a present participle (e.g. \"Веду\", \"Відповідаю\", "
+        f"\"Осуществляю\", \"Answering\") when the original used the past. "
+        f"Every bullet must remain a sentence led by a verb. Do not turn "
+        f"it into a noun phrase, a job title, a self-description (e.g. "
+        f"\"customer-focused professional\", \"специалист по...\") or a "
+        f"fragment ending in a gerund or participle.\n"
     ) + extra_creative_instruction
 
 
@@ -1259,7 +1268,16 @@ def _build_plain_relaxed_system_prompt(n, detected_lang, creativity_mode="precis
         f"provisioned, coordinated, led, or their equivalents in "
         f"{detected_lang} for something the original only says the person "
         f"helped with or took part in. Strengthening the verb is fine; "
-        f"claiming the whole task is not.\n"
+        f"claiming the whole task is not."
+        f"\n16. KEEP TENSE AND FORM. Keep each bullet in the same tense, "
+        f"person and sentence form as the original. A job or period that "
+        f"is over must stay in the past tense: never switch to present "
+        f"tense or to a present participle (e.g. \"Веду\", \"Відповідаю\", "
+        f"\"Осуществляю\", \"Answering\") when the original used the past. "
+        f"Every bullet must remain a sentence led by a verb. Do not turn "
+        f"it into a noun phrase, a job title, a self-description (e.g. "
+        f"\"customer-focused professional\", \"специалист по...\") or a "
+        f"fragment ending in a gerund or participle.\n"
     ) + extra_creative_instruction
 
 
