@@ -1766,3 +1766,124 @@ def test_INVENTED3_flagged_only_changed_line_equals_original_and_rejected():
     assert result["guardrail_rejected"] is True
     assert result["quality_report"]["changes"] == []
     assert result["quality_report"]["summary"]["accepted"] == 0
+
+
+# ===========================================================================
+# БЛОК: в логах нет персональных данных резюме (PII1-3)
+# ===========================================================================
+# Контекст: отладочные строки [DEBUG-LEAK], [DEBUG-LEAK-BULLETS],
+# [DEBUG-TYPE-SUFFIX], [DEBUG-EXPORT-SPACING] печатали в лог Render имя файла
+# и начало текста резюме (имя, почту, телефон). Для платного сервиса это
+# недопустимо — строки удалены. Тесты ниже запускаются ВНУТРИ app_context
+# (иначе current_app-вызовы молча пропускаются в try/except и тест был бы
+# пустым) и проверяют через caplog (DEBUG и выше), что метки не попали ни в
+# одну запись лога.
+
+PII_EMAIL = "marker.pii@example.com"
+PII_SURNAME = "Zzmarkerov"
+PII_PHONE = "+7 912 345 6789"
+PII_FILENAME = "Zzmarkerov_resume.docx"
+
+
+def _assert_no_pii_in_logs(caplog):
+    for rec in caplog.records:
+        msg = rec.getMessage()
+        if rec.exc_text:
+            msg += rec.exc_text
+        for marker in (PII_EMAIL, PII_SURNAME, PII_PHONE, PII_FILENAME):
+            assert marker not in msg, f"PII {marker!r} утекла в лог: {rec.name}: {msg[:200]!r}"
+
+
+def _pii_docx_bytes():
+    from docx import Document
+    doc = Document()
+    doc.add_paragraph("Ирина " + PII_SURNAME)
+    doc.add_paragraph(PII_EMAIL + " | " + PII_PHONE)
+    doc.add_paragraph("• Managed " + PII_SURNAME + " billing for 5 clients")
+    doc.add_paragraph("Was responsible for " + PII_SURNAME + " backend systems")
+    buf = io.BytesIO(); doc.save(buf)
+    return buf.getvalue()
+
+
+def test_PII1_run_improve_pipeline_logs_no_resume_text_or_filename(caplog):
+    """_run_improve_pipeline (замоканный Groq, docx с маркерами, в том числе
+    буллет-блок) не пишет в лог ни почту, ни фамилию, ни телефон, ни имя файла."""
+    import logging
+    from flask import Flask
+    from unittest.mock import patch
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        return _FakeGroqResp(
+            "###ITEM_003###\n• Directed " + PII_SURNAME + " billing for 5 clients\n\n"
+            "###ITEM_004###\nOwned " + PII_SURNAME + " backend systems\n\n")
+
+    app = Flask("pii1")
+    caplog.set_level(logging.DEBUG)
+    with app.app_context():
+        with patch("requests.post", side_effect=fake_post):
+            result = mr._run_improve_pipeline(_pii_docx_bytes(), PII_FILENAME, None, "fake-key")
+
+    assert result["success"]
+    _assert_no_pii_in_logs(caplog)
+
+
+def test_PII2_export_generators_and_docx_apply_log_no_resume_text(caplog):
+    """_generate_odt/_generate_pdf/_generate_rtf и _apply_improved_text_to_docx
+    (буллеты, схлопывание переносов) не логируют текст резюме."""
+    import logging
+    from flask import Flask
+
+    text = ("###ITEM_001###\nИрина " + PII_SURNAME + "\n\n"
+            "###ITEM_002###\n" + PII_EMAIL + " | " + PII_PHONE + "\n\n"
+            "###ITEM_003###\n• Directed " + PII_SURNAME + " billing\n• Second point")
+    app = Flask("pii2")
+    caplog.set_level(logging.DEBUG)
+    with app.app_context():
+        assert mr._generate_odt(text)
+        assert mr._generate_pdf(text)
+        assert mr._generate_rtf(text)
+        buf = mr._apply_improved_text_to_docx(_pii_docx_bytes(), text, ["001", "002", "003", "004"])
+        assert buf.getvalue()
+
+    _assert_no_pii_in_logs(caplog)
+
+
+def test_PII3_admin_improve_routes_log_no_resume_text_or_filename(caplog):
+    """/api/admin/improve (файл и JSON-fallback) и /api/admin/improve/docx
+    не логируют имя файла, текст резюме, почту и телефон."""
+    import logging
+    from unittest.mock import patch
+    from app import create_app
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        return _FakeGroqResp("###ITEM_003###\n• Directed " + PII_SURNAME + " billing for 5 clients\n\n")
+
+    app = create_app("testing")
+    app.config["TESTING"] = True
+    caplog.set_level(logging.DEBUG)
+    with app.app_context():
+        client = app.test_client()
+        with client.session_transaction() as sess:
+            sess["admin"] = "admin"
+
+        with patch("requests.post", side_effect=fake_post):
+            r1 = client.post(
+                "/api/admin/improve",
+                data={"file": (io.BytesIO(_pii_docx_bytes()), PII_FILENAME)},
+                content_type="multipart/form-data",
+            )
+            fallback_text = ("Ирина " + PII_SURNAME + "\n" + PII_EMAIL + " | " + PII_PHONE
+                             + "\n• Managed billing for 5 clients\nWas responsible for backend systems")
+            r2 = client.post("/api/admin/improve", json={"resume_text": fallback_text})
+        assert r1.status_code in (200, 500) and r2.status_code in (200, 500)
+
+        r3 = client.post(
+            "/api/admin/improve/docx",
+            data={"improved_resume": "###ITEM_001###\nИрина " + PII_SURNAME,
+                  "original_file": (io.BytesIO(_pii_docx_bytes()), PII_FILENAME),
+                  "item_ids": '["001","002","003","004"]'},
+            content_type="multipart/form-data",
+        )
+        assert r3.status_code == 200
+
+    _assert_no_pii_in_logs(caplog)

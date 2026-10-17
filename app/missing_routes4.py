@@ -508,16 +508,6 @@ def _apply_improved_text_to_docx(original_bytes, improved_text, item_ids):
     while i + 1 < len(parts):
         item_id = parts[i].zfill(3)
         text = parts[i + 1].strip()
-        _pre_collapse_repr = text if '•' in text else None
-        if _pre_collapse_repr is not None:
-            try:
-                from flask import current_app
-                current_app.logger.info(
-                    "[DEBUG-LEAK-BULLETS] item=%s BEFORE_collapse_repr=%r newline_count=%s",
-                    item_id, _pre_collapse_repr, _pre_collapse_repr.count(chr(10)),
-                )
-            except Exception:
-                pass
         # Настоящая причина удвоения буллетов/переносов (подтверждено
         # диагностикой [DEBUG-LEAK-BULLETS] на реальном тесте): браузер при
         # отправке improved_resume через multipart/form-data (FormData) на
@@ -535,20 +525,6 @@ def _apply_improved_text_to_docx(original_bytes, improved_text, item_ids):
         text = re.sub(r"\n{2,}", "\n", text)
         id_to_text[item_id] = text
         i += 2
-
-    # [DEBUG-LEAK-BULLETS] Временная диагностика: показать точное содержимое
-    # (включая непечатаемые символы через repr) для блоков с буллетами,
-    # чтобы понять, что реально приходит на этом этапе — до и после collapse.
-    try:
-        from flask import current_app
-        for _iid, _txt in id_to_text.items():
-            if '•' in _txt:
-                current_app.logger.info(
-                    "[DEBUG-LEAK-BULLETS] item=%s after_collapse_repr=%r newline_count=%s",
-                    _iid, _txt, _txt.count(chr(10)),
-                )
-    except Exception:
-        pass
 
     # Применяем — ищем каждый элемент по его ID
     for idx, item in enumerate(orig_items):
@@ -1788,17 +1764,6 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
     else:
         orig_items = [{"text": l, "type": "plain"} for l in resume_text.split(NL) if l.strip()]
 
-    try:
-        from flask import current_app
-        current_app.logger.info(
-            "[DEBUG-LEAK] _run_improve_pipeline: filename=%s text_preview=%r orig_items_count=%s",
-            filename,
-            resume_text[:80],
-            len(orig_items),
-        )
-    except Exception:
-        pass
-
     # -----------------------------------------------------------
     # Шаг 1: Protected Tokens — защита ДО AI
     # -----------------------------------------------------------
@@ -2249,19 +2214,6 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
         val = id_to_text_1.get(iid)
         restored_list.append(val if val is not None else item["text"])
 
-    # [DEBUG-LEAK-BULLETS] Диагностика: что лежит в restored_list для
-    # буллет-блоков сразу после restore/validate, до сборки improved_text_for_docx.
-    try:
-        from flask import current_app
-        for _i, _val in enumerate(restored_list):
-            if '•' in _val:
-                current_app.logger.info(
-                    "[DEBUG-LEAK-BULLETS] restored_list[%s] item_id=%s repr=%r newline_count=%s",
-                    _i, item_ids[_i], _val, _val.count(chr(10)),
-                )
-    except Exception:
-        pass
-
     # --- Guardrail: whole-resume проверка перед финальной сборкой ---
     try:
         from flask import current_app
@@ -2323,15 +2275,6 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
         )
     )
     display_text = "\n".join(restored_list)
-
-    try:
-        from flask import current_app
-        current_app.logger.info(
-            "[DEBUG-TYPE-SUFFIX] improved_text_for_docx repr(first 300): %r",
-            improved_text_for_docx[:300],
-        )
-    except Exception:
-        pass
 
     # --- Отчёт по блокам ---
     # Дедупликация ТОЛЬКО для summary-статистики (Цикл F2, доп.): для
@@ -2426,13 +2369,6 @@ def register_missing_routes(app, _extract_text_from_request, _get_current_user):
                 resume_text_fallback = data.get("resume_text", "").strip()
                 creativity_mode = data.get("creativity_mode", "precise")
 
-            current_app.logger.info(
-                "[DEBUG-LEAK] legacy_admin_improve: has_file=%s filename=%s fallback_preview=%r",
-                bool(file),
-                filename,
-                (resume_text_fallback or "")[:80],
-            )
-
             result = _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_key, creativity_mode)
 
             if not result.get("success"):
@@ -2480,22 +2416,6 @@ def register_missing_routes(app, _extract_text_from_request, _get_current_user):
 
             from flask import current_app
             _dbg_token = session.get("original_docx_token")
-            _dbg_token_found = None
-            if not original_file and _dbg_token:
-                try:
-                    _dbg_token_found = _load_temp_upload(_dbg_token) is not None
-                except Exception:
-                    _dbg_token_found = False
-            current_app.logger.info(
-                "[DEBUG-LEAK] legacy_admin_improve_docx: has_original_file=%s item_ids_source=%s item_ids=%s "
-                "session_token_present=%s session_token_preview=%s temp_upload_found=%s",
-                bool(original_file),
-                "form" if item_ids_raw else "session",
-                item_ids,
-                bool(_dbg_token),
-                (_dbg_token[:12] if _dbg_token else None),
-                _dbg_token_found,
-            )
 
             # Defensive: одноразовое использование session-токена. Очищаем
             # сразу после чтения — даже если этот конкретный запрос его не
@@ -2588,11 +2508,6 @@ def _generate_odt(text):
     """
     import re
     import io
-    try:
-        from flask import current_app
-        current_app.logger.info("[DEBUG-EXPORT-SPACING] %s received text repr: %r", "_generate_odt", text[:300])
-    except Exception:
-        pass
     from odf.opendocument import OpenDocumentText
     from odf.text import P
     from odf.style import Style, ParagraphProperties, TextProperties
@@ -2927,11 +2842,6 @@ def _generate_pdf(text):
     """
     import re
     import io
-    try:
-        from flask import current_app
-        current_app.logger.info("[DEBUG-EXPORT-SPACING] %s received text repr: %r", "_generate_pdf", text[:300])
-    except Exception:
-        pass
     from reportlab.pdfgen import canvas as pdf_canvas
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfbase import pdfmetrics
@@ -3179,11 +3089,6 @@ def _generate_rtf(text):
     исходную последовательность символов.
     """
     import re
-    try:
-        from flask import current_app
-        current_app.logger.info("[DEBUG-EXPORT-SPACING] %s received text repr: %r", "_generate_rtf", text[:300])
-    except Exception:
-        pass
 
     def _escape_rtf(s):
         # Экранировать RTF-спецсимволы, затем не-ASCII через \uN? escape.
