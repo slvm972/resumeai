@@ -756,10 +756,7 @@ def _register_legacy_routes(app):
         if not user and not (admin_mode or is_admin):
             return jsonify({'success': False, 'error': 'Please log in first'}), 401
 
-        if user and not is_admin:
-            subscription = user.get_active_subscription()
-            if subscription and subscription.credits_remaining() <= 0:
-                return jsonify({'success': False, 'error': 'No credits remaining. Buy a credit pack to continue.'}), 403
+        # экспорт результата уже оплаченного улучшения не зависит от остатка кредитов: кредит списывается в /api/improve
 
         try:
             from app.missing_routes4 import _apply_improved_text_to_docx, _load_temp_upload
@@ -836,10 +833,7 @@ def _register_legacy_routes(app):
         if not user and not (admin_mode or is_admin):
             return jsonify({'success': False, 'error': 'Please log in first'}), 401
 
-        if user and not is_admin:
-            subscription = user.get_active_subscription()
-            if subscription and subscription.credits_remaining() <= 0:
-                return jsonify({'success': False, 'error': 'No credits remaining. Buy a credit pack to continue.'}), 403
+        # экспорт результата уже оплаченного улучшения не зависит от остатка кредитов: кредит списывается в /api/improve
 
         try:
             improved_text = request.form.get('improved_resume') or ''
@@ -870,10 +864,7 @@ def _register_legacy_routes(app):
         if not user and not (admin_mode or is_admin):
             return jsonify({'success': False, 'error': 'Please log in first'}), 401
 
-        if user and not is_admin:
-            subscription = user.get_active_subscription()
-            if subscription and subscription.credits_remaining() <= 0:
-                return jsonify({'success': False, 'error': 'No credits remaining. Buy a credit pack to continue.'}), 403
+        # экспорт результата уже оплаченного улучшения не зависит от остатка кредитов: кредит списывается в /api/improve
 
         try:
             improved_text = request.form.get('improved_resume') or ''
@@ -905,10 +896,7 @@ def _register_legacy_routes(app):
         if not user and not (admin_mode or is_admin):
             return jsonify({'success': False, 'error': 'Please log in first'}), 401
 
-        if user and not is_admin:
-            subscription = user.get_active_subscription()
-            if subscription and subscription.credits_remaining() <= 0:
-                return jsonify({'success': False, 'error': 'No credits remaining. Buy a credit pack to continue.'}), 403
+        # экспорт результата уже оплаченного улучшения не зависит от остатка кредитов: кредит списывается в /api/improve
 
         try:
             improved_text = request.form.get('improved_resume') or ''

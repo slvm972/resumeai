@@ -649,11 +649,12 @@ def test_12_pdf_route_returns_valid_pdf_when_credits_available(client_app):
     assert 'Software Engineer' in extracted
 
 
-def test_13_pdf_route_blocks_and_does_not_double_charge_when_credits_exhausted(client_app):
+def test_13_pdf_route_works_and_does_not_double_charge_when_credits_exhausted(client_app):
     """
-    Залогиненный пользователь с credits_remaining() == 0 -> 403, и credits_used
-    не меняется после запроса (прямая проверка "без повторного списания" —
-    списание кредита происходит только в /api/improve, не здесь).
+    Залогиненный пользователь с credits_remaining() == 0 -> 200 (экспорт
+    результата уже оплаченного улучшения не зависит от остатка кредитов), и
+    credits_used не меняется после запроса (прямая проверка "без повторного
+    списания" — списание кредита происходит только в /api/improve, не здесь).
     """
     app = client_app
     client = app.test_client()
@@ -669,8 +670,9 @@ def test_13_pdf_route_blocks_and_does_not_double_charge_when_credits_exhausted(c
 
     resp = client.post('/api/improve/pdf', data={'improved_resume': _PDF_TEST_TEXT})
 
-    assert resp.status_code == 403
-    assert resp.get_json()['error'] == 'No credits remaining. Buy a credit pack to continue.'
+    assert resp.status_code == 200
+    assert 'application/pdf' in resp.content_type
+    assert resp.data.startswith(b'%PDF')
 
     sub_after = user.get_active_subscription()
     assert sub_after.credits_used == credits_used_before

@@ -248,8 +248,10 @@ def test_improve_docx_gate_uses_unified_pool_not_plan_name(client_app):
     assert resp.status_code != 403, resp.get_json()
 
 
-def test_improve_docx_blocks_when_pool_exhausted(client_app):
-    """Regression guard: gate всё ещё блокирует, когда пул реально исчерпан."""
+def test_improve_docx_not_blocked_when_pool_exhausted(client_app):
+    """Экспорт результата уже оплаченного улучшения не зависит от остатка
+    кредитов: пул исчерпан -> /api/improve/docx всё равно отдаёт 200
+    (раньше здесь был 403 "No credits remaining")."""
     from unittest.mock import patch
 
     app = client_app
@@ -267,8 +269,8 @@ def test_improve_docx_blocks_when_pool_exhausted(client_app):
     assert sub.credits_remaining() == 0
 
     resp = client.post('/api/improve/docx', data={'improved_resume': '###ITEM_001###\ntext'})
-    assert resp.status_code == 403
-    assert resp.get_json()['error'] == 'No credits remaining. Buy a credit pack to continue.'
+    assert resp.status_code == 200
+    assert 'wordprocessingml' in resp.content_type
 
 
 def test_legacy_counters_still_increment_alongside_credits_used(client_app):
@@ -540,3 +542,92 @@ def test_admin_improve_docx_upload_still_sets_session_token(client_app):
     with client.session_transaction() as sess:
         assert 'original_docx_token' in sess
         assert sess['item_ids'] == _FAKE_IMPROVE_RESULT['item_ids']
+
+
+# ===========================================================================
+# Экспорт не зависит от остатка кредитов (docx / odt / pdf / rtf)
+# ===========================================================================
+# Контекст: /api/improve списывает последний кредит, после чего все четыре
+# маршрута экспорта отдавали 403 "No credits remaining" — пользователь не мог
+# скачать результат, за который уже заплатил. Блок проверки остатка удалён из
+# экспортов; кредит по-прежнему списывается только в /api/improve.
+
+_EXPORT_ENDPOINTS = [
+    ('/api/improve/docx', 'wordprocessingml'),
+    ('/api/improve/odt', 'opendocument.text'),
+    ('/api/improve/pdf', 'application/pdf'),
+    ('/api/improve/rtf', 'rtf'),
+]
+_EXPORT_TEXT = '###ITEM_001###\nJohn Doe\n\n###ITEM_002###\nSoftware Engineer'
+
+
+@pytest.mark.parametrize('url,ctype', _EXPORT_ENDPOINTS)
+def test_export_returns_200_with_zero_credits(client_app, url, ctype):
+    """credits_remaining()==0 -> каждый из четырёх экспортов отдаёт 200,
+    credits_used не меняется."""
+    from app import db
+
+    app = client_app
+    client = app.test_client()
+    user = _register_and_login(app, client, 'zero-credit-export-%s@example.com' % url.rsplit('/', 1)[1])
+
+    sub = user.get_active_subscription()
+    sub.credits_used = sub.credits_granted
+    db.session.commit()
+    assert sub.credits_remaining() == 0
+    used_before = sub.credits_used
+
+    resp = client.post(url, data={'improved_resume': _EXPORT_TEXT})
+
+    assert resp.status_code == 200, (url, resp.get_json(silent=True))
+    assert ctype in resp.content_type
+    assert resp.data
+    assert user.get_active_subscription().credits_used == used_before
+
+
+@pytest.mark.parametrize('url,ctype', _EXPORT_ENDPOINTS)
+def test_export_still_requires_login_401(client_app, url, ctype):
+    """Без входа (и не admin/ADMIN_MODE) экспорт по-прежнему даёт 401."""
+    client = client_app.test_client()
+    resp = client.post(url, data={'improved_resume': _EXPORT_TEXT})
+    assert resp.status_code == 401
+    assert resp.get_json()['success'] is False
+
+
+def test_improve_still_debits_blocks_at_empty_pool_and_export_survives(client_app):
+    """Регрессия на исходный баг целиком: ровно 1 кредит -> /api/improve
+    списывает его (credits_used 0->1), все четыре экспорта после этого
+    отдают 200, а повторный /api/improve по-прежнему 403, без списания."""
+    from unittest.mock import patch
+    from app import db
+
+    app = client_app
+    client = app.test_client()
+    user = _register_and_login(app, client, 'one-credit-flow-test@example.com')
+
+    sub = user.get_active_subscription()
+    sub.credits_granted = 1
+    db.session.commit()
+    assert sub.credits_remaining() == 1
+
+    with patch(
+        'app.missing_routes4._run_improve_pipeline',
+        return_value=_FAKE_IMPROVE_RESULT,
+    ):
+        resp = client.post('/api/improve', json={'resume_text': 'A' * 30})
+        assert resp.status_code == 200, resp.get_json()
+
+        sub = user.get_active_subscription()
+        assert sub.credits_used == 1
+        assert sub.credits_remaining() == 0
+
+        for url, ctype in _EXPORT_ENDPOINTS:
+            r = client.post(url, data={'improved_resume': _EXPORT_TEXT})
+            assert r.status_code == 200, (url, r.get_json(silent=True))
+            assert ctype in r.content_type
+
+        resp = client.post('/api/improve', json={'resume_text': 'A' * 30})
+        assert resp.status_code == 403
+        assert resp.get_json()['error'] == 'No credits remaining. Buy a credit pack to continue.'
+
+    assert user.get_active_subscription().credits_used == 1
