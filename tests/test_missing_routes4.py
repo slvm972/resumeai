@@ -1574,6 +1574,127 @@ def test_RULE16_keep_tense_and_form_in_both_editor_prompts_not_in_summary():
     assert marker not in mr._build_summary_repositioning_prompt(3, "English")
 
 
+def test_CREATIVE_CAP_creative_block_limited_by_rules_10_14_15_16():
+    """Закрывающая фраза CREATIVE MODE ("never overrides Rules 10, 14, 15
+    and 16": творческая переформулировка не отменяет сохранение времени,
+    формы предложения, дефисов и конечной пунктуации) присутствует в обеих
+    функциях-промптах редактора только при creativity_mode="creative";
+    при "precise", без аргумента и в _build_summary_repositioning_prompt
+    её нет."""
+    marker = "never overrides Rules 10, 14, 15 and 16"
+    for fn in (mr._build_standard_system_prompt, mr._build_plain_relaxed_system_prompt):
+        creative = fn(3, "English", creativity_mode="creative")
+        assert marker in creative, f"{fn.__name__}: фраза отсутствует в creative"
+        assert creative.index("16. KEEP TENSE AND FORM") < creative.index(marker)
+        assert creative.count(marker) == 1
+        assert marker not in fn(3, "English", creativity_mode="precise"), f"{fn.__name__}: фраза в precise"
+        assert marker not in fn(3, "English"), f"{fn.__name__}: фраза без аргумента"
+
+    assert marker not in mr._build_summary_repositioning_prompt(3, "English")
+
+
+# ===========================================================================
+# БЛОК: нормализация символов и конечной точки (NORM1-8)
+# ===========================================================================
+# Контекст: модель подставляет вместо "-" неразрывный дефис U+2011 и в
+# creative добавляет точку в конце строки без точки. Лечится детерминированно
+# в _normalize_chars_and_final_dot(), вызванной в _restore_and_validate()
+# сразу после _restore_text (и для attempt_1, и для retry).
+
+NB_HYPHEN = chr(0x2011)
+HYPHEN_U2010 = chr(0x2010)
+
+
+def test_NORM1_nb_hyphen_replaced_when_original_has_none():
+    out = mr._normalize_chars_and_final_dot(
+        "Customer-focused agent, 7-9 shops",
+        "Customer" + NB_HYPHEN + "focused agent, 7" + NB_HYPHEN + "9 shops")
+    assert out == "Customer-focused agent, 7-9 shops"
+    assert NB_HYPHEN not in out
+    out2 = mr._normalize_chars_and_final_dot("range 7-9", "range 7" + HYPHEN_U2010 + "9")
+    assert out2 == "range 7-9"
+
+
+def test_NORM2_nb_hyphen_kept_when_original_contains_it():
+    orig = "Range 7" + NB_HYPHEN + "9 shops"
+    improved = "Covered range 7" + NB_HYPHEN + "9 shops"
+    assert mr._normalize_chars_and_final_dot(orig, improved) == improved
+
+
+def test_NORM3_added_final_dot_removed_when_original_has_none():
+    assert mr._normalize_chars_and_final_dot(
+        "Managed a team of 5", "Directed a team of 5.") == "Directed a team of 5"
+    # хвостовые пробелы сохраняются, точка удаляется
+    assert mr._normalize_chars_and_final_dot(
+        "Managed a team", "Directed a team. ") == "Directed a team "
+    # китайская точка
+    assert mr._normalize_chars_and_final_dot(
+        "管理团队", "带领团队" + chr(0x3002)) == "带领团队"
+
+
+def test_NORM4_final_dot_kept_when_original_ends_with_dot():
+    assert mr._normalize_chars_and_final_dot(
+        "Managed a team.", "Directed a team.") == "Directed a team."
+    # и обратно точка НЕ добавляется
+    assert mr._normalize_chars_and_final_dot(
+        "Managed a team.", "Directed a team") == "Directed a team"
+    assert mr._normalize_chars_and_final_dot(
+        "Managed a team", "Directed a team") == "Directed a team"
+
+
+def test_NORM5_original_ending_with_q_excl_ellipsis_not_touched():
+    for end in ("?", "!", chr(0x2026)):
+        orig = "Why we won" + end
+        improved = "Why we won again."
+        assert mr._normalize_chars_and_final_dot(orig, improved) == improved, end
+    assert mr._normalize_chars_and_final_dot("Why?", "Why not.") == "Why not."
+
+
+def test_NORM6_three_dot_ellipsis_in_improved_not_truncated():
+    improved = "Directed a team..."
+    assert mr._normalize_chars_and_final_dot("Managed a team", improved) == improved
+    improved2 = "Directed a team.."
+    assert mr._normalize_chars_and_final_dot("Managed a team", improved2) == improved2
+
+
+def test_NORM7_hebrew_and_russian_pass_unchanged():
+    for text in ("ניהל צוות מהנדסים", "Руководил командой из 5 человек"):
+        assert mr._normalize_chars_and_final_dot(text, text) == text
+    he_o, he_i = "ניהל צוות", "הוביל וניהל צוות מקצועי"
+    ru_o, ru_i = "Вёл переписку", "Организовал деловую переписку"
+    assert mr._normalize_chars_and_final_dot(he_o, he_i) == he_i
+    assert mr._normalize_chars_and_final_dot(ru_o, ru_i) == ru_i
+    # пустые/None-значения не падают
+    assert mr._normalize_chars_and_final_dot("x", "") == ""
+    assert mr._normalize_chars_and_final_dot(None, "Text") == "Text"
+
+
+def test_NORM8_pipeline_block_has_no_nb_hyphen_and_no_added_dot():
+    """_run_improve_pipeline с замоканным Groq: блок, который модель вернула
+    с U+2011 и добавленной точкой, попадает в итог уже нормализованным."""
+    from docx import Document
+    from unittest.mock import patch
+
+    doc = Document()
+    doc.add_paragraph("John Smith")
+    doc.add_paragraph("john@example.com")
+    doc.add_paragraph("Developed backend systems for 7-9 projects")
+    buf = io.BytesIO(); doc.save(buf)
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        return _FakeGroqResp(
+            "###ITEM_003###\nEngineered backend systems for 7" + NB_HYPHEN + "9 projects.\n\n")
+
+    with patch("requests.post", side_effect=fake_post):
+        result = mr._run_improve_pipeline(buf.getvalue(), "norm8.docx", None, "fake-key")
+
+    assert result["success"]
+    final = result["display_text"]
+    assert NB_HYPHEN not in final, repr(final)
+    assert "Engineered backend systems for 7-9 projects" in final, repr(final)
+    assert "projects." not in final, repr(final)
+
+
 # ===========================================================================
 # Откат строк с выдуманной деталью (_rollback_invented_lines)
 # ===========================================================================

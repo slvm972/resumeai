@@ -1029,6 +1029,13 @@ def _build_standard_system_prompt(n, detected_lang, creativity_mode="precise"):
         f"to sound more impressive — a strong verb on its own is enough; "
         f"a fabricated metric or result violates Rule 10 above "
         f"regardless of how plausible it sounds.\n"
+        f"CREATIVE MODE never overrides Rules 10, 14, 15 and 16: a creative "
+        f"rewrite is still a sentence led by a verb, in the same tense and "
+        f"person as the original; never a title, a self-description, a "
+        f"noun phrase or a gerund fragment, and never present tense for a "
+        f"finished job. Keep ordinary characters: never replace a hyphen "
+        f"\"-\" with a non-breaking hyphen or other lookalike, and do not "
+        f"add or remove final punctuation.\n"
         if creativity_mode == "creative" else ""
     )
     return (
@@ -1190,6 +1197,13 @@ def _build_plain_relaxed_system_prompt(n, detected_lang, creativity_mode="precis
         f"to sound more impressive — a strong verb on its own is enough; "
         f"a fabricated metric or result violates Rule 10 above "
         f"regardless of how plausible it sounds.\n"
+        f"CREATIVE MODE never overrides Rules 10, 14, 15 and 16: a creative "
+        f"rewrite is still a sentence led by a verb, in the same tense and "
+        f"person as the original; never a title, a self-description, a "
+        f"noun phrase or a gerund fragment, and never present tense for a "
+        f"finished job. Keep ordinary characters: never replace a hyphen "
+        f"\"-\" with a non-breaking hyphen or other lookalike, and do not "
+        f"add or remove final punctuation.\n"
         if creativity_mode == "creative" else ""
     )
     return (
@@ -1670,6 +1684,48 @@ def _rollback_invented_lines(restored_list, orig_items, findings):
     return result
 
 
+_FINAL_PUNCT_CHARS = ".!?\u2026\u3002\uff01\uff1f"   # . ! ? … 。 ！ ？
+_LOOKALIKE_HYPHENS = ("\u2010", "\u2011")            # hyphen, non-breaking hyphen
+
+
+def _normalize_chars_and_final_dot(orig_text, improved_text):
+    """
+    Детерминированная нормализация текста блока после ответа LLM
+    (чистая функция: без сети и состояния). Шаг 1 из 2 цикла нормализации.
+
+    a) U+2010 / U+2011 в improved_text заменяются на обычный "-", но
+       только для того символа, которого нет в orig_text (если оригинал
+       сам содержит такой символ — не трогаем).
+    b) Если orig_text (после rstrip) не заканчивается на . ! ? … 。 ！ ？,
+       а improved_text (после rstrip) заканчивается на ОДНУ "." или "。"
+       (и не на ".." — так многоточие "..." не обрезается), эта одна
+       точка удаляется. Хвостовые пробелы improved_text сохраняются.
+       Если оригинал заканчивался на точку — ничего не меняем. Точки
+       обратно НЕ добавляются.
+    c) Всё остальное возвращается без изменений.
+    """
+    if not improved_text:
+        return improved_text
+    orig = orig_text or ""
+    result = improved_text
+
+    # a) lookalike-дефисы
+    for ch in _LOOKALIKE_HYPHENS:
+        if ch in result and ch not in orig:
+            result = result.replace(ch, "-")
+
+    # b) добавленная моделью точка в конце строки
+    orig_stripped = orig.rstrip()
+    if orig_stripped and not orig_stripped.endswith(tuple(_FINAL_PUNCT_CHARS)):
+        imp_stripped = result.rstrip()
+        if (imp_stripped.endswith((".", "\u3002"))
+                and not imp_stripped.endswith("..")):
+            tail = result[len(imp_stripped):]
+            result = imp_stripped[:-1] + tail
+
+    return result
+
+
 def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_key, creativity_mode="precise"):
     """
     Общий защищённый pipeline улучшения резюме:
@@ -2026,6 +2082,7 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
                 continue
 
             improved = _restore_text(parsed[iid], store)
+            improved = _normalize_chars_and_final_dot(orig_text, improved)  # детерминированная нормализация символов/точки
             improved = _sanitize_awkward_phrasing(improved)  # Cycle B2: детерминированная пост-обработка
 
             # Fact Validation
