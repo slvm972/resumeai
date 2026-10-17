@@ -99,6 +99,7 @@ class ProductionConfig(Config):
 
 class TestingConfig(Config):
     TESTING = True
+    FLASK_ENV = 'testing'
     SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
 
 
