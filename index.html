@@ -446,16 +446,6 @@
         <span id="btnLabel">⚡ Analyze Resume</span>
       </button>
 
-      <!-- Optional job description -->
-      <div style="margin-top:.75rem">
-        <button onclick="toggleJD()" id="jdToggle" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:.45rem .9rem;font-size:.8rem;cursor:pointer;width:100%">
-          + Add Job Description (optional — for targeted analysis)
-        </button>
-        <div id="jdBox" style="display:none;margin-top:.6rem">
-          <textarea id="jobDesc" rows="5" placeholder="Paste the job description here to get keyword matching and targeted recommendations…" style="width:100%;padding:.75rem 1rem;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.85rem;resize:vertical;box-sizing:border-box"></textarea>
-        </div>
-      </div>
-
       <!-- Loader -->
       <div class="loader" id="loader">
         <div class="spinner"></div>
@@ -467,7 +457,7 @@
 
       <!-- Credits exhausted — paywall banner (shown on 403 from /api/analyze) -->
       <div id="creditsExhaustedBanner" style="display:none;margin-top:1rem;background:linear-gradient(135deg,rgba(59,130,246,.15),rgba(6,182,212,.15));border:1px solid rgba(59,130,246,.3);border-radius:10px;padding:.85rem 1rem;font-size:.85rem;color:#93c5fd;line-height:1.5">
-        🔒 <strong>Free limit reached</strong> — You've used your free credit. Buy a credit pack to keep analyzing.
+        🔒 <strong>Free limit reached</strong> — You've used your free credits. Buy a credit pack to keep analyzing.
         <a href="#" onclick="scrollToPricing();return false;" style="color:#60a5fa;text-decoration:underline;margin-left:.3rem">Buy Credits →</a>
       </div>
 
@@ -510,25 +500,6 @@
           <div class="subscore-card">
             <div class="subscore-val" id="cntVal">—</div>
             <div class="subscore-name">Content</div>
-          </div>
-        </div>
-
-        <!-- Job match (shown only when job description provided) -->
-        <div id="jobMatchSection" style="display:none;margin-bottom:1rem">
-          <div style="background:linear-gradient(135deg,rgba(16,185,129,.1),rgba(6,182,212,.1));border:1px solid rgba(16,185,129,.3);border-radius:10px;padding:1rem">
-            <h4 style="font-size:.9rem;margin-bottom:.6rem">🎯 Job Match Score</h4>
-            <div style="display:flex;align-items:center;gap:1rem;margin-bottom:.6rem">
-              <div style="font-size:2rem;font-weight:700;color:#10b981" id="jobMatchScore">—</div>
-              <div style="font-size:.8rem;color:var(--muted)" id="jobMatchLabel"></div>
-            </div>
-            <div>
-              <div style="font-size:.8rem;color:var(--muted);margin-bottom:.35rem">✅ Keywords found:</div>
-              <div id="matchedKeywords" class="tag-list"></div>
-            </div>
-            <div style="margin-top:.6rem">
-              <div style="font-size:.8rem;color:var(--muted);margin-bottom:.35rem">❌ Missing keywords:</div>
-              <div id="missingKeywords" class="tag-list"></div>
-            </div>
           </div>
         </div>
 
@@ -790,9 +761,9 @@
   <div class="features-grid">
     <div class="feature-card" onclick="openFeat('ats')"><div class="feat-icon">🎯</div><h3>ATS Optimization</h3><p>Ensure your resume passes Applicant Tracking Systems with keyword optimization and formatting recommendations.</p></div>
     <div class="feature-card" onclick="openFeat('insights')"><div class="feat-icon">💡</div><h3>Expert Insights</h3><p>Get detailed feedback on content, structure, and presentation based on successful resume patterns.</p></div>
-    <div class="feature-card" onclick="openFeat('instant')"><div class="feat-icon">⚡</div><h3>Instant Results</h3><p>Receive comprehensive analysis in under 30 seconds. No waiting, just actionable improvements.</p></div>
+    <div class="feature-card" onclick="openFeat('instant')"><div class="feat-icon">⚡</div><h3>Instant Results</h3><p>Receive comprehensive analysis usually within a minute. No waiting, just actionable improvements.</p></div>
     <div class="feature-card" onclick="openFeat('scoring')"><div class="feat-icon">📊</div><h3>Scoring System</h3><p>Understand where you stand with detailed scoring across content, formatting, keywords, and impact.</p></div>
-    <div class="feature-card" onclick="openFeat('private')"><div class="feat-icon">🔒</div><h3>100% Private</h3><p>Your resume data is encrypted and never shared. Files are deleted after analysis automatically.</p></div>
+    <div class="feature-card" onclick="openFeat('private')"><div class="feat-icon">🔒</div><h3>100% Private</h3><p>Your resume travels over an encrypted HTTPS connection and is processed by our AI provider (Groq) only to produce your result. We never sell your data.</p></div>
     <div class="feature-card" onclick="openFeat('format')"><div class="feat-icon">🎨</div><h3>Format Guide</h3><p>Learn best practices for resume formatting, layout, fonts, and visual hierarchy.</p></div>
     <div class="feature-card" onclick="openFeat('languages')"><div class="feat-icon">🌍</div><h3>Multilingual Support</h3><p>Upload your resume in any of 97 supported languages — analysis and rewrites come back in that same language, including full RTL support for Hebrew and Arabic.</p></div>
   </div>
@@ -807,7 +778,7 @@
     <p>Three simple steps to a better resume</p>
   </div>
   <div class="steps">
-    <div class="step"><div class="step-num">1</div><h3>Upload Resume</h3><p>Upload your resume in PDF, DOC, or DOCX format. We support all major file types.</p></div>
+    <div class="step"><div class="step-num">1</div><h3>Upload Resume</h3><p>Upload your resume as PDF, DOCX, ODT or TXT.</p></div>
     <div class="step"><div class="step-num">2</div><h3>AI Analysis</h3><p>Our intelligent AI analyzes your resume against industry standards and hiring patterns.</p></div>
     <div class="step"><div class="step-num">3</div><h3>Get Results</h3><p>Receive detailed feedback, scores, and actionable improvement suggestions instantly.</p></div>
   </div>
@@ -864,6 +835,7 @@
         <li>No subscription, no auto-renewal</li>
       </ul>
       <a href="https://mostovoy-ai.lemonsqueezy.com/checkout/buy/5cea1ea6-7ae8-447d-953e-9f41366a205e" class="btn-plan btn-plan-primary">Buy Credits</a>
+      <p style="margin-top:.75rem;font-size:.72rem;color:var(--muted);text-align:center">Use the same email at checkout as in your ResumeAI account so the credits are added to it.</p>
     </div>
   </div>
 </section>
@@ -962,14 +934,6 @@
     errorBox.classList.remove('active');
   }
 
-  function toggleJD() {
-    const box = document.getElementById('jdBox');
-    const btn = document.getElementById('jdToggle');
-    const open = box.style.display === 'none';
-    box.style.display = open ? 'block' : 'none';
-    btn.textContent = open ? '− Hide Job Description' : '+ Add Job Description (optional — for targeted analysis)';
-  }
-
   /* ─ Гостевая демо-заглушка ───────────────────────────────────────────
      Незалогиненный посетитель не может вызывать /api/analyze (401 на
      бэкенде), поэтому вместо реального запроса показываем фиксированный
@@ -1027,8 +991,6 @@
 
     const formData = new FormData();
     formData.append('file', selectedFile);
-    const jobDesc = document.getElementById('jobDesc').value.trim();
-    if (jobDesc) formData.append('job_description', jobDesc);
 
     try {
       const res = await fetch(BACKEND_URL, { method: 'POST', body: formData });
@@ -1041,11 +1003,10 @@
       if (!res.ok) throw new Error(`Server error ${res.status}: ${await res.text()}`);
       const data = await res.json();
       lastResumeText = data.resume_text || null;
-      lastJobDesc = jobDesc || null;
       lastOriginalFormat = data.original_format || 'txt';  // сохраняем формат
       renderResult(data);
     } catch (err) {
-      showError('Cannot reach server. Make sure app.py is running. ' + err.message);
+      showError('Cannot reach the server. Please try again in a minute. ' + err.message);
     } finally {
       setLoading(false);
     }
@@ -1128,21 +1089,6 @@
       document.getElementById('improveListLocked').style.display = allImprovements.length > 3 ? 'block' : 'none';
       document.getElementById('improveBtnWrap').style.display = 'none';
       document.getElementById('improveBtnLocked').style.display = 'block';
-    }
-
-    // job match section
-    if (d.job_match) {
-      const jm = d.job_match;
-      document.getElementById('jobMatchSection').style.display = 'block';
-      document.getElementById('jobMatchScore').textContent = jm.score + '%';
-      document.getElementById('jobMatchLabel').textContent = jm.score >= 80 ? 'Excellent match!' : jm.score >= 60 ? 'Good match — a few gaps to fill' : 'Low match — resume needs targeted updates';
-      document.getElementById('jobMatchLabel').style.color = jm.score >= 80 ? '#10b981' : jm.score >= 60 ? '#f59e0b' : '#ef4444';
-      const mk = document.getElementById('matchedKeywords');
-      mk.innerHTML = (jm.matched || []).map(k => `<span class="tag tag-green">${k}</span>`).join('');
-      const msk = document.getElementById('missingKeywords');
-      msk.innerHTML = (jm.missing || []).map(k => `<span class="tag" style="background:rgba(239,68,68,.1);color:#f87171;border:1px solid rgba(239,68,68,.2)">${k}</span>`).join('');
-    } else {
-      document.getElementById('jobMatchSection').style.display = 'none';
     }
 
     // save to history (пропускаем для гостевого демо — это не реальный анализ)
@@ -1296,17 +1242,17 @@
     ats: {
       icon: '🎯', title: 'Applicant Tracking Systems (ATS) Optimization',
       desc: 'Most companies use Applicant Tracking Systems to filter resumes before a human ever reads them. Our AI checks your resume against the exact criteria these systems use.',
-      items: ['Keyword density and placement analysis', 'Detection of ATS-unfriendly formatting (tables, columns, images)', 'Job-description keyword matching', 'Section header recognition (Experience, Education, Skills)', 'File format compatibility check']
+      items: ['Keyword density and placement analysis', 'Detection of ATS-unfriendly formatting (tables, columns, images)', 'Section header recognition (Experience, Education, Skills)', 'File format compatibility check']
     },
     insights: {
       icon: '💡', title: 'Expert Insights',
-      desc: 'Our AI is trained on thousands of successful resumes across all industries. It gives you the same feedback a professional recruiter or career coach would.',
+      desc: 'Our AI evaluates your resume against common recruiting and ATS best practices and suggests concrete improvements.',
       items: ['Industry-specific language and tone assessment', 'Impact statement quality (weak vs strong action verbs)', 'Quantifiable achievement detection', 'Gap analysis — missing sections or information', 'Tailored recommendations per job level']
     },
     instant: {
       icon: '⚡', title: 'Instant Results',
-      desc: 'No waiting days for a career coach appointment. Upload your resume and receive a complete, detailed analysis in under 30 seconds.',
-      items: ['Full analysis delivered in < 30 seconds', 'Available 24/7, any time zone', 'No sign-up required for basic analysis', 'Re-analyze after edits as many times as you like', 'Results saved to your personal history']
+      desc: 'No waiting days for a career coach appointment. Upload your resume and receive a complete, detailed analysis usually within a minute.',
+      items: ['Full analysis delivered usually within a minute', 'Available 24/7, any time zone', 'Free account with 2 starter credits', 'Re-analyze after edits as many times as you like', 'Recent results are kept in this browser only (not synced between devices)']
     },
     scoring: {
       icon: '📊', title: 'Scoring System',
@@ -1316,7 +1262,7 @@
     private: {
       icon: '🔒', title: '100% Private',
       desc: 'Your resume contains sensitive personal information. We take privacy seriously and never store or share your documents.',
-      items: ['Uploaded files deleted immediately after analysis', 'No data sold to third parties, ever', 'Analyses stored only in your own browser (localStorage)', 'No account required for one-time analysis', 'HTTPS encrypted connection']
+      items: ['Uploaded files are processed in memory; for your download the original may be kept temporarily on the server and is then removed automatically', 'We never sell your data', 'Analyses stored only in your own browser (localStorage)', 'Sign up free and get 2 credits to try the service', 'HTTPS encrypted connection']
     },
     format: {
       icon: '🎨', title: 'Format Guide',
@@ -1424,7 +1370,6 @@
 <script>
   let lastAnalysisData = null;
   let lastResumeText = null;
-  let lastJobDesc = null;
   let lastOriginalFormat = 'txt';   // формат загруженного файла (из /api/analyze)
   let lastImprovedFormat = 'txt';   // формат для скачивания (обновляется после improve)
   let lastItemIds = null;
@@ -1827,7 +1772,7 @@
   const infoContent = {
     about: `<h3>About ResumeAI</h3>
       <p>ResumeAI is an AI-powered resume analysis tool designed to help job seekers get more interviews. We use advanced language models to evaluate your resume against industry standards and ATS requirements.</p>
-      <p style="margin-top:.75rem">This project is currently in <strong>beta</strong>. We're continuously improving our analysis engine based on real recruiter feedback.</p>`,
+      <p style="margin-top:.75rem">This project is currently in <strong>beta</strong>. We're continuously improving our analysis engine.</p>`,
     contact: `<h3>Contact Us</h3>
       <p>Have a question or feedback? We'd love to hear from you.</p>
       <ul>
@@ -1839,8 +1784,9 @@
       <p>Last updated: January 2026</p>
       <ul>
         <li>We process your resume solely to generate analysis results.</li>
+        <li>Your resume text is sent to our AI provider (Groq) to generate the analysis and rewrite.</li>
         <li>Your resume content is not stored permanently on our servers.</li>
-        <li>We do not sell or share your data with third parties.</li>
+        <li>We do not sell your data.</li>
         <li>Payments are processed by Lemon Squeezy — we never see your card details.</li>
         <li>We use session tokens stored in your browser (localStorage) to maintain login state.</li>
       </ul>`,
@@ -1848,7 +1794,7 @@
       <p>Last updated: January 2026</p>
       <ul>
         <li>ResumeAI is a digital service — no physical goods are delivered.</li>
-        <li>You must be 18 or older to purchase a subscription.</li>
+        <li>You must be 18 or older to purchase credits.</li>
         <li>Results are AI-generated and provided for informational purposes only.</li>
         <li>We reserve the right to refuse service for misuse or abuse.</li>
         <li>Refund requests are handled through Lemon Squeezy's refund policy.</li>
