@@ -1759,6 +1759,25 @@ def _looks_past_cyr(w):
     return len(w) >= 5 and w.endswith("в")
 
 
+_PAST_EN_IRREGULAR = {
+    "was", "were", "led", "built", "ran", "wrote", "took", "made", "taught",
+    "kept", "sold", "set", "got", "gave", "did", "had", "held", "met", "paid",
+    "put", "read", "saw", "sent", "spent", "stood", "thought", "told",
+    "understood", "won", "drove", "grew", "began", "brought", "bought",
+    "chose", "found", "oversaw", "undertook", "rebuilt", "overcame", "cut",
+    "spoke", "drew", "rose", "dealt", "fed", "left", "lost", "became",
+}
+
+
+def _looks_past_en(w):
+    """Слово (нижний регистр, без знаков) похоже на глагол прошедшего
+    времени EN: окончание 'ed' при длине 4+ или неправильная форма из набора."""
+    w = w.lower().strip(".,;:!?\"'()[]")
+    if len(w) >= 4 and w.endswith("ed"):
+        return True
+    return w in _PAST_EN_IRREGULAR
+
+
 def _check_form_violation(orig_text, improved_text):
     """
     Детерминированная проверка ФОРМЫ переписанной строки (Rule 16 как код,
@@ -1770,11 +1789,11 @@ def _check_form_violation(orig_text, improved_text):
     оригиналом). Иврит, арабский, китайский и пр. не проверяются.
       gerund_opener        EN: первое слово improved на 'ing' (>4 букв)
       self_description     EN: professional/specialist/expert/... среди первых
-                           двух слов; RU/UK: первое слово — специалист/эксперт/фахівець...
+                           трёх слов; RU/UK: первое слово — специалист/эксперт/фахівець...
       present_first_person RU/UK: первое слово на 'ю'/'юсь' (4+ букв)
       adjective_opener     RU/UK: первое слово начинается с ответственн-/відповідальн-
-      tense_changed        RU/UK: оригинал начинался с глагола в прошедшем времени, а среди
-                           первых двух слов improved прошедшего времени нет
+      tense_changed        RU/UK и EN: оригинал начинался с глагола в прошедшем времени, а
+                           среди первых двух слов improved прошедшего времени нет
     """
     o_words = _form_first_line_words(orig_text)
     i_words = _form_first_line_words(improved_text)
@@ -1790,9 +1809,14 @@ def _check_form_violation(orig_text, improved_text):
             return w.endswith("ing") and len(w) > 4
         if _is_gerund(i_first) and not _is_gerund(o_first):
             return "gerund_opener"
-        for w in i_words[:2]:
-            if w in _FORM_SELF_DESC_EN and w not in o_words[:2]:
+        for w in i_words[:3]:
+            if w in _FORM_SELF_DESC_EN and w not in o_words[:3]:
                 return "self_description"
+        # з) смена прошедшего времени (EN): оригинал начинался с глагола в
+        # прошедшем, а среди первых двух слов improved прошедшего нет
+        # ("I help customers...", "Teacher responsible for...").
+        if _looks_past_en(o_first) and not any(_looks_past_en(w) for w in i_words[:2]):
+            return "tense_changed"
         return None
 
     if i_script == "cyrillic":

@@ -1927,6 +1927,17 @@ _FORM_VIOLATIONS = [
     # правило е: существительное вместо глагола прошедшего времени
     ("Вела документацию", "Ведение документации", "tense_changed"),
     ("Відповідала за облік", "Ведення обліку", "tense_changed"),
+    # EN: самоописание в третьем слове (окно правила б — три слова)
+    ("Responsible for answering employee questions about computers",
+     "IT support professional answering employee computer questions",
+     "self_description"),
+    # EN: оригинал в прошедшем, стала должность-существительное / первое лицо
+    ("Was in charge of teaching a class of children aged 7-9",
+     "Teacher responsible for a class of children aged 7-9",
+     "tense_changed"),
+    ("Was responsible for helping customers find products",
+     "I help customers find products.",
+     "tense_changed"),
 ]
 
 
@@ -1956,6 +1967,14 @@ def test_FORM1b_vedu_present_tense_detected_as_tense_changed(orig):
     ("Вела документацию", "Успешно вела документацию"),           # прошедшее во 2-м слове
     ("Відповідав за облік", "Відповідав за ведення обліку"),      # укр. мужское прошедшее на -в
     ("Отвечала за ведение", "Обеспечивала ведение"),              # другой глагол прошедшего
+    # EN: прошедшее время сохранено / правило з не применимо
+    ("Worked at the cash register", "Operated the cash register"),
+    ("Took part in organising school events", "Assisted in organizing school events"),
+    ("Was involved in fixing problems", "Supported troubleshooting of problems"),
+    ("Led team", "Directed team"),
+    ("Managed a team", "Successfully led a team"),               # 'led' во 2-м слове
+    ("Responsible for answering questions", "Responsible for fielding inquiries"),  # orig не в прошедшем
+    ("Helped students", "Oversaw students"),                      # 'oversaw' в наборе
     ("ניהל צוות מהנדסים", "הוביל וניהל צוות מהנדסים מקצועי"),     # иврит не проверяется
 ])
 def test_FORM2_non_violations_return_none(orig, improved):
