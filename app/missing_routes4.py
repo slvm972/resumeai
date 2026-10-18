@@ -727,6 +727,18 @@ def _classify_item(text, idx, total_items):
             if all_short and all_capitalized:
                 return "freeze"
 
+        # Список навыков из трёх и более коротких частей через запятую БЕЗ
+        # требования заглавных ("Customer service, cash handling, teamwork"):
+        # в списке нечего улучшать, а модель превращает его в придуманные
+        # утверждения ("Provided ..., handled ..."). Не замораживаем, если
+        # внутри точка/';' или первое слово похоже на глагол прошедшего
+        # времени ("Worked with clients, vendors, partners").
+        if len(parts) >= 3 and "." not in t and ";" not in t:
+            if all(len(p.split()) <= 4 for p in parts):
+                first_word = t.split()[0].lower().rstrip(",.;:!?")
+                if not (_looks_past_en(first_word) or _looks_past_cyr(first_word)):
+                    return "freeze"
+
     # Контактный блок (email + телефон/URL в одной строке) — структурное поле,
     # как и раздел языков, не должно переписываться в prose.
     if _RE_EMAIL.search(t) and (_RE_PHONE.search(t) or _RE_URL.search(t)):
@@ -1706,6 +1718,8 @@ _FORM_LEADING_MARKERS_RE = re.compile(r"^(?:[\s\u2022\u00b7*\-\u2013\u2014]+|\d+
 _FORM_SELF_DESC_EN = {
     "professional", "specialist", "expert", "enthusiast", "educator",
     "individual", "professionals", "specialists", "experts",
+    "teacher", "technician", "coordinator", "consultant",
+    "teachers", "technicians", "coordinators", "consultants",
 }
 _FORM_SELF_DESC_RU_ROOTS = (
     "специалист", "профессионал", "эксперт",
@@ -1788,8 +1802,8 @@ def _check_form_violation(orig_text, improved_text):
     засчитывается лишь если оригинал начинался иначе (сравнение с
     оригиналом). Иврит, арабский, китайский и пр. не проверяются.
       gerund_opener        EN: первое слово improved на 'ing' (>4 букв)
-      self_description     EN: professional/specialist/expert/... среди первых
-                           трёх слов; RU/UK: первое слово — специалист/эксперт/фахівець...
+      self_description     EN: professional/specialist/expert/teacher/... среди первых
+                           пяти слов; RU/UK: первое слово — специалист/эксперт/фахівець...
       present_first_person RU/UK: первое слово на 'ю'/'юсь' (4+ букв)
       adjective_opener     RU/UK: первое слово начинается с ответственн-/відповідальн-
       tense_changed        RU/UK и EN: оригинал начинался с глагола в прошедшем времени, а
@@ -1809,8 +1823,8 @@ def _check_form_violation(orig_text, improved_text):
             return w.endswith("ing") and len(w) > 4
         if _is_gerund(i_first) and not _is_gerund(o_first):
             return "gerund_opener"
-        for w in i_words[:3]:
-            if w in _FORM_SELF_DESC_EN and w not in o_words[:3]:
+        for w in i_words[:5]:
+            if w in _FORM_SELF_DESC_EN and w not in o_words[:5]:
                 return "self_description"
         # з) смена прошедшего времени (EN): оригинал начинался с глагола в
         # прошедшем, а среди первых двух слов improved прошедшего нет

@@ -1932,12 +1932,18 @@ _FORM_VIOLATIONS = [
      "IT support professional answering employee computer questions",
      "self_description"),
     # EN: оригинал в прошедшем, стала должность-существительное / первое лицо
+    # после добавления 'teacher' в набор самоописаний (цикл А) причина —
+    # self_description (правило б идёт раньше з); до этого было tense_changed
     ("Was in charge of teaching a class of children aged 7-9",
      "Teacher responsible for a class of children aged 7-9",
-     "tense_changed"),
+     "self_description"),
     ("Was responsible for helping customers find products",
      "I help customers find products.",
      "tense_changed"),
+    # EN: слово-самоописание в четвёртом слове (окно правила б — пять слов)
+    ("Responsible for answering employee questions about computers",
+     "Employee computer support specialist answering questions about computers",
+     "self_description"),
 ]
 
 
@@ -1975,6 +1981,8 @@ def test_FORM1b_vedu_present_tense_detected_as_tense_changed(orig):
     ("Managed a team", "Successfully led a team"),               # 'led' во 2-м слове
     ("Responsible for answering questions", "Responsible for fielding inquiries"),  # orig не в прошедшем
     ("Helped students", "Oversaw students"),                      # 'oversaw' в наборе
+    ("Ran professional development workshops", "Led professional development workshops"),  # слово есть в orig
+    ("Developed lesson plans", "Prepared lesson plans"),
     ("ניהל צוות מהנדסים", "הוביל וניהל צוות מהנדסים מקצועי"),     # иврит не проверяется
 ])
 def test_FORM2_non_violations_return_none(orig, improved):
@@ -2029,3 +2037,70 @@ def test_FORM5_pipeline_rejects_self_description_block_and_keeps_original():
     assert qr["summary"]["rejected_form"] == 1
     assert qr["summary"]["accepted"] == 0
     assert all(c["id"] != "003" for c in qr["changes"])
+
+
+
+# ===========================================================================
+# БЛОК: списки навыков замораживаются (LIST1-LIST3)
+# ===========================================================================
+# Контекст: строки-перечисления ("Customer service, cash handling, teamwork")
+# модель превращала в придуманные утверждения ("Provided ..., handled ...").
+# _classify_item замораживает перечисления из 3+ коротких частей через запятую
+# без требования заглавных, если нет глагола-маркера, точки/';' и первое слово
+# не похоже на глагол прошедшего времени.
+
+@pytest.mark.parametrize("text", [
+    "Customer service, cash handling, teamwork",
+    "Classroom management, lesson planning, communication",
+    "MS Office, 1С, делопроизводство",
+    "Категории B, C, E, знание города, ответственность",
+])
+def test_LIST1_skill_lists_frozen(text):
+    assert mr._classify_item(text, 5, 30) == "freeze", text
+
+
+@pytest.mark.parametrize("text", [
+    "Worked with clients, vendors, partners",                       # первое слово в прошедшем
+    "Reduced churn from 18% to 6.5%, increased NPS, and expanded team headcount",  # ENUM3
+    "Led 5 projects",
+    "Managed a team of 5 engineers, designed REST API architecture",
+    "Customer service. Cash handling, teamwork, sales",              # точка внутри
+])
+def test_LIST2_real_sentences_not_frozen(text):
+    assert mr._classify_item(text, 5, 30) == "improve", text
+
+
+def test_LIST3_pipeline_keeps_skill_list_and_does_not_send_it_to_model():
+    """_run_improve_pipeline с замоканным Groq: строка-список остаётся
+    оригиналом (freeze/kept_original) и не уходит в модель открытым текстом."""
+    from docx import Document
+    from unittest.mock import patch
+
+    line = "Customer service, cash handling, teamwork"
+    doc = Document()
+    doc.add_paragraph("John Smith")
+    doc.add_paragraph("john@example.com")
+    doc.add_paragraph(line)
+    doc.add_paragraph("Worked at the cash register for two years")
+    buf = io.BytesIO(); doc.save(buf)
+
+    sent = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        sent.append(" ".join(m["content"] for m in json["messages"]))
+        return _FakeGroqResp(
+            "###ITEM_003###\nProvided customer service, handled cash transactions, "
+            "and contributed to teamwork\n\n"
+            "###ITEM_004###\nOperated the cash register for two years\n\n")
+
+    with patch("requests.post", side_effect=fake_post):
+        result = mr._run_improve_pipeline(buf.getvalue(), "list3.docx", None, "fake-key")
+
+    assert result["success"]
+    assert sent, "модель не вызывалась"
+    assert all("cash handling" not in m and "Customer service" not in m for m in sent)
+    assert line in result["display_text"]
+    assert "Provided customer service" not in result["display_text"]
+
+    blocks = [b for b in result["quality_report"]["blocks"] if b["id"] == "003"]
+    assert blocks and all(b["strategy"] == "freeze" and b["decision"] == "kept_original" for b in blocks)
