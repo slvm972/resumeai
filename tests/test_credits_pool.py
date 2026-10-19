@@ -631,3 +631,203 @@ def test_improve_still_debits_blocks_at_empty_pool_and_export_survives(client_ap
         assert resp.get_json()['error'] == 'No credits remaining. Buy a credit pack to continue.'
 
     assert user.get_active_subscription().credits_used == 1
+
+
+# ===========================================================================
+# Платёж до регистрации: unclaimed-платёж начисляется при регистрации
+# ===========================================================================
+# Контекст: если email заказа не совпал с аккаунтом (или пользователь ещё не
+# зарегистрирован), вебхук раньше создавал Payment без кредитов, и при
+# регистрации их никто не начислял. Теперь вебхук пишет status
+# 'completed_unclaimed', а AuthService.register начисляет +10 / +5 за каждый
+# такой платёж в той же транзакции.
+
+_WH_SECRET = 'test-webhook-secret'
+_WH_COUNTER = {'n': 0}
+
+
+def _post_ls_webhook(app, client, email, total=999):
+    """Подписанный оплаченный order_created (подпись — как в существующих тестах)."""
+    import hmac
+    import hashlib
+    import json as json_lib
+
+    app.config['LEMONSQUEEZY_WEBHOOK_SECRET'] = _WH_SECRET
+    _WH_COUNTER['n'] += 1
+    order_id = 'order-claim-%03d' % _WH_COUNTER['n']
+    payload = {'data': {'attributes': {
+        'identifier': order_id, 'user_email': email,
+        'status': 'paid', 'total': total, 'currency': 'usd',
+    }}}
+    raw = json_lib.dumps(payload).encode('utf-8')
+    sig = hmac.new(_WH_SECRET.encode('utf-8'), raw, hashlib.sha256).hexdigest()
+    resp = client.post('/webhooks/lemonsqueezy', data=raw, content_type='application/json',
+                       headers={'X-Signature': sig, 'X-Event-Name': 'order_created'})
+    assert resp.status_code == 200
+    return order_id
+
+
+def _add_payment(email, status='completed_unclaimed', provider='lemonsqueezy',
+                 description='Lemon Squeezy order (unmatched user)', user_id=None):
+    from app import db
+    from app.models.payment import Payment
+
+    _WH_COUNTER['n'] += 1
+    p = Payment(user_id=user_id, payer_email=email, amount=9.99, currency='usd',
+                status=status, provider=provider,
+                external_id='manual-claim-%03d' % _WH_COUNTER['n'], description=description)
+    db.session.add(p)
+    db.session.commit()
+    return p
+
+
+def _get_payment(external_id):
+    from app.models.payment import Payment
+    return Payment.query.filter_by(external_id=external_id).first()
+
+
+def test_CLAIM1_webhook_unknown_email_saves_unclaimed_and_changes_no_credits(client_app):
+    from app.services.auth_service import AuthService
+
+    app = client_app
+    client = app.test_client()
+    other = AuthService.register('claim1-other@example.com', 'somepassword123')['user']
+    before = other.get_active_subscription().credits_granted
+
+    order = _post_ls_webhook(app, client, 'claim1-nobody@example.com')
+
+    p = _get_payment(order)
+    assert p.status == 'completed_unclaimed'
+    assert p.user_id is None
+    assert p.payer_email == 'claim1-nobody@example.com'
+    assert p.description == 'Lemon Squeezy order (unclaimed, waiting for registration)'
+    assert other.get_active_subscription().credits_granted == before == 2
+
+
+def test_CLAIM2_register_claims_unclaimed_payment(client_app):
+    from app.services.auth_service import AuthService
+
+    app = client_app
+    client = app.test_client()
+    order = _post_ls_webhook(app, client, 'claim2-buyer@example.com')
+
+    result = AuthService.register('claim2-buyer@example.com', 'somepassword123')
+    assert result['success']
+    user = result['user']
+    sub = user.get_active_subscription()
+    assert sub.credits_granted == 2 + 10
+    assert sub.improvement_credits == 5
+    assert sub.credits_remaining() == 12
+
+    p = _get_payment(order)
+    assert p.user_id == user.id
+    assert p.status == 'completed'
+    assert p.description.endswith('(claimed at registration)')
+
+
+@pytest.mark.parametrize('url', ['/auth/register', '/api/user/register'])
+def test_CLAIM3_both_http_register_paths_claim_payment(client_app, url):
+    from app.models.user import User
+
+    app = client_app
+    client = app.test_client()
+    email = 'claim3-%s@example.com' % url.strip('/').replace('/', '-')
+    order = _post_ls_webhook(app, client, email)
+
+    resp = client.post(url, json={'email': email, 'password': 'somepassword123'})
+    assert resp.status_code == 201, resp.get_json()
+
+    user = User.query.filter_by(email=email).first()
+    sub = user.get_active_subscription()
+    assert sub.credits_granted == 12
+    assert sub.improvement_credits == 5
+    p = _get_payment(order)
+    assert p.user_id == user.id and p.status == 'completed'
+
+
+def test_CLAIM4_legacy_unmatched_completed_payment_is_claimed(client_app):
+    """Старая запись (status 'completed', user_id None, '(unmatched user)')."""
+    from app.services.auth_service import AuthService
+
+    p = _add_payment('claim4-legacy@example.com', status='completed',
+                     description='Lemon Squeezy order (unmatched user)')
+    user = AuthService.register('claim4-legacy@example.com', 'somepassword123')['user']
+    sub = user.get_active_subscription()
+    assert sub.credits_granted == 12 and sub.improvement_credits == 5
+    from app import db
+    db.session.refresh(p)
+    assert p.user_id == user.id and p.status == 'completed'
+    assert p.description.endswith('(claimed at registration)')
+
+
+def test_CLAIM5_two_unpaid_payments_give_plus_20(client_app):
+    from app.services.auth_service import AuthService
+
+    app = client_app
+    client = app.test_client()
+    _post_ls_webhook(app, client, 'claim5-two@example.com')
+    _post_ls_webhook(app, client, 'claim5-two@example.com')
+
+    user = AuthService.register('claim5-two@example.com', 'somepassword123')['user']
+    sub = user.get_active_subscription()
+    assert sub.credits_granted == 2 + 20
+    assert sub.improvement_credits == 10
+
+
+def test_CLAIM6_other_email_refunded_other_provider_not_claimed_case_insensitive_is(client_app):
+    from app import db
+    from app.services.auth_service import AuthService
+
+    other = _add_payment('claim6-someone-else@example.com')
+    refunded = _add_payment('claim6-me@example.com', status='refunded')
+    stripe = _add_payment('claim6-me@example.com', provider='stripe')
+    mixed = _add_payment('  Claim6-ME@Example.com ', status='completed_unclaimed')
+
+    user = AuthService.register('claim6-me@example.com', 'somepassword123')['user']
+    sub = user.get_active_subscription()
+    assert sub.credits_granted == 2 + 10          # только mixed (регистр/пробелы не мешают)
+    assert sub.improvement_credits == 5
+
+    for p in (other, refunded, stripe, mixed):
+        db.session.refresh(p)
+    assert other.user_id is None and other.status == 'completed_unclaimed'
+    assert refunded.user_id is None and refunded.status == 'refunded'
+    assert stripe.user_id is None
+    assert mixed.user_id == user.id and mixed.status == 'completed'
+
+
+def test_CLAIM7_payment_cannot_be_claimed_twice(client_app):
+    from app.services.auth_service import AuthService
+
+    app = client_app
+    client = app.test_client()
+    order = _post_ls_webhook(app, client, 'claim7-once@example.com')
+
+    first = AuthService.register('claim7-once@example.com', 'somepassword123')
+    assert first['success']
+    sub = first['user'].get_active_subscription()
+    assert sub.credits_granted == 12
+
+    again = AuthService.register('claim7-once@example.com', 'somepassword123')
+    assert again['success'] is False
+    assert again['error'] == 'Email already registered'
+    assert first['user'].get_active_subscription().credits_granted == 12
+    assert _get_payment(order).user_id == first['user'].id
+
+
+def test_CLAIM8_known_user_webhook_unchanged_and_plain_register_gives_two(client_app):
+    from app.services.auth_service import AuthService
+
+    app = client_app
+    client = app.test_client()
+
+    plain = AuthService.register('claim8-plain@example.com', 'somepassword123')['user']
+    sub = plain.get_active_subscription()
+    assert sub.credits_granted == 2 and sub.improvement_credits == 0
+
+    order = _post_ls_webhook(app, client, 'claim8-plain@example.com')
+    p = _get_payment(order)
+    assert p.status == 'completed' and p.user_id == plain.id
+    assert p.description == 'Lemon Squeezy order'
+    sub = plain.get_active_subscription()
+    assert sub.credits_granted == 12 and sub.improvement_credits == 5

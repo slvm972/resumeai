@@ -101,15 +101,18 @@ def lemonsqueezy_webhook():
                 "Lemon Squeezy payment for unknown user: %s, order %s",
                 user_email, external_id
             )
+            # Платёж запоминается как "unclaimed": кредиты начислит
+            # AuthService.register, когда пользователь с этим email
+            # зарегистрируется (сопоставление по payer_email).
             payment = Payment(
                 user_id=None,
                 payer_email=user_email,
                 amount=amount,
                 currency=attributes.get('currency', 'usd'),
-                status='completed',
+                status='completed_unclaimed',
                 provider='lemonsqueezy',
                 external_id=external_id,
-                description='Lemon Squeezy order (unmatched user)',
+                description='Lemon Squeezy order (unclaimed, waiting for registration)',
             )
 
         db.session.add(payment)

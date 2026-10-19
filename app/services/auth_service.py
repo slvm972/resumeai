@@ -39,7 +39,37 @@ class AuthService:
                 credits_used=0,
             )
             db.session.add(subscription)
+
+            # Оплаченные, но не привязанные к аккаунту платежи Lemon Squeezy
+            # (вебхук пришёл раньше регистрации, либо email заказа не совпал
+            # с аккаунтом на момент оплаты): зачисляем в ЭТОЙ ЖЕ транзакции,
+            # до commit. Любая ошибка ниже откатывает всю регистрацию.
+            # Сравнение email — в нижнем регистре, без пробелов по краям.
+            from app.models.payment import Payment
+            email_norm = (email or '').strip().lower()
+            pending = Payment.query.filter(
+                Payment.provider == 'lemonsqueezy',
+                Payment.user_id.is_(None),
+                Payment.status.in_(('completed', 'completed_unclaimed')),
+                db.func.lower(db.func.trim(Payment.payer_email)) == email_norm,
+            ).all()
+            claimed_ids = []
+            for payment in pending:
+                subscription.credits_granted += 10
+                subscription.improvement_credits = (subscription.improvement_credits or 0) + 5
+                payment.user_id = user.id
+                payment.status = 'completed'
+                payment.description = (payment.description or '') + ' (claimed at registration)'
+                claimed_ids.append(payment.id)
+
             db.session.commit()
+
+            if claimed_ids:
+                # В лог — только число и id платежей, без email.
+                logger.info(
+                    "Registration claimed %d pending payment(s): ids=%s",
+                    len(claimed_ids), claimed_ids,
+                )
 
             logger.info(f"New user registered: {email}")
             return {'success': True, 'user': user}
