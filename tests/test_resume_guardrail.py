@@ -349,8 +349,10 @@ def test_03k_model_constants_match_confirmed_pipeline_models():
     """GROQ_GUARDRAIL_MODEL / GROQ_GUARDRAIL_FALLBACK_MODEL — подтверждены
     консультационной сессией по актуальному коду основного пайплайна
     (закрывает открытый вопрос из Этапа 1 про расхождение с overview.md)."""
+    # Значения по умолчанию; реальные имена берутся из настроек GROQ_MODEL_JUDGE /
+    # GROQ_MODEL_FALLBACK (config.py) - см. tests/test_model_config.py.
     assert grd.GROQ_GUARDRAIL_MODEL == "openai/gpt-oss-120b"
-    assert grd.GROQ_GUARDRAIL_FALLBACK_MODEL == "openai/gpt-oss-20b"
+    assert grd.GROQ_GUARDRAIL_FALLBACK_MODEL == "qwen/qwen3.8-27b"
 
 
 def test_03l_model_constant_is_actually_used_in_request(monkeypatch):

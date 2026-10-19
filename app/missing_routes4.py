@@ -2,6 +2,8 @@
 import os, re, uuid, time, tempfile
 import langid
 
+from app.services.groq_params import groq_model, post_groq, message_text
+
 # ---------------------------------------------------------------------------
 # Токен-маркеры — UUID-based, LLM не может "исправить" их
 # ---------------------------------------------------------------------------
@@ -2100,28 +2102,20 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
         group_temperature = _select_batch_temperature(block_type_for_group, "attempt_1", creativity_mode)
 
         group_payload = {
-            "model": "openai/gpt-oss-120b",
+            "model": groq_model("GROQ_MODEL_EDITOR"),
             "messages": [
                 {"role": "system", "content": group_system_prompt},
                 {"role": "user",   "content": group_user_prompt},
             ],
             "temperature": group_temperature,
-            "max_tokens": 4000,
+            "max_tokens": 6000,   # запас на рассуждение "думающих" моделей
         }
 
-        group_resp = req_lib.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json=group_payload, timeout=90,
-        )
+        group_resp = post_groq(req_lib.post, "https://api.groq.com/openai/v1/chat/completions", {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, group_payload, 90)
 
         if group_resp.status_code == 429:
-            group_payload["model"] = "openai/gpt-oss-20b"
-            group_resp = req_lib.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json=group_payload, timeout=90,
-            )
+            group_payload["model"] = groq_model("GROQ_MODEL_FALLBACK")
+            group_resp = post_groq(req_lib.post, "https://api.groq.com/openai/v1/chat/completions", {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, group_payload, 90)
 
         if group_resp.status_code == 429:
             # Оба варианта модели упёрлись в rate limit — ждём столько,
@@ -2130,17 +2124,22 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
             err_msg = group_resp.json().get("error", {}).get("message", "")
             wait_s = _extract_retry_after_seconds(err_msg)
             time.sleep(wait_s)
-            group_resp = req_lib.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json=group_payload, timeout=90,
-            )
+            group_resp = post_groq(req_lib.post, "https://api.groq.com/openai/v1/chat/completions", {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, group_payload, 90)
 
         if group_resp.status_code != 200:
             err = group_resp.json().get("error", {}).get("message", "Groq API error")
             return None, 0, err
 
-        group_raw = group_resp.json()["choices"][0]["message"]["content"]
+        group_raw = message_text(group_resp)   # без <think>...</think>
+        if not group_raw and group_payload["model"] != groq_model("GROQ_MODEL_FALLBACK"):
+            # Пустой ответ (рассуждение съело лимит токенов): один раз на
+            # запасную модель, как при 429.
+            group_payload["model"] = groq_model("GROQ_MODEL_FALLBACK")
+            group_resp = post_groq(req_lib.post, "https://api.groq.com/openai/v1/chat/completions", {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, group_payload, 90)
+            if group_resp.status_code == 200:
+                group_raw = message_text(group_resp)
+        if not group_raw:
+            return None, 0, "Empty response from the AI model. Please try again."
         group_tokens = group_resp.json().get("usage", {}).get("total_tokens", 0)
         return group_raw, group_tokens, None
 
@@ -2335,31 +2334,29 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
         attempt_2_temperature = _select_batch_temperature(attempt_2_block_type, "attempt_2", creativity_mode)
 
         retry_payload = {
-            "model": "openai/gpt-oss-120b",
+            "model": groq_model("GROQ_MODEL_EDITOR"),
             "messages": [
                 {"role": "system", "content": retry_system},
                 {"role": "user", "content": retry_user},
             ],
             "temperature": attempt_2_temperature,
-            "max_tokens": 4000,
+            "max_tokens": 6000,   # запас на рассуждение "думающих" моделей
         }
 
-        resp2 = req_lib.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json=retry_payload, timeout=90,
-        )
+        resp2 = post_groq(req_lib.post, "https://api.groq.com/openai/v1/chat/completions", {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, retry_payload, 90)
 
         if resp2.status_code == 429:
-            retry_payload["model"] = "openai/gpt-oss-20b"
-            resp2 = req_lib.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json=retry_payload, timeout=90,
-            )
+            retry_payload["model"] = groq_model("GROQ_MODEL_FALLBACK")
+            resp2 = post_groq(req_lib.post, "https://api.groq.com/openai/v1/chat/completions", {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, retry_payload, 90)
 
-        if resp2.status_code == 200:
-            raw_response_2 = resp2.json()["choices"][0]["message"]["content"]
+        raw_response_2 = message_text(resp2) if resp2.status_code == 200 else ""   # без <think>
+        if (resp2.status_code == 200 and not raw_response_2
+                and retry_payload["model"] != groq_model("GROQ_MODEL_FALLBACK")):
+            # Пустой ответ: один раз на запасную модель, как при 429.
+            retry_payload["model"] = groq_model("GROQ_MODEL_FALLBACK")
+            resp2 = post_groq(req_lib.post, "https://api.groq.com/openai/v1/chat/completions", {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, retry_payload, 90)
+            raw_response_2 = message_text(resp2) if resp2.status_code == 200 else ""
+        if raw_response_2:
             tokens_total += resp2.json().get("usage", {}).get("total_tokens", 0)
             parsed_2 = _parse_ai_response(raw_response_2)
             # Один вызов — используем один и тот же результат и для отчёта,

@@ -9,6 +9,8 @@ import re
 import time
 import langid
 
+from app.services.groq_params import groq_model, post_groq, message_text
+
 def _detect_language(text):
     """
     Определяет язык текста.
@@ -49,7 +51,7 @@ def _detect_language(text):
 logger = logging.getLogger(__name__)
 
 GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions'
-GROQ_MODEL = 'openai/gpt-oss-20b'
+# Имена моделей - в настройках (config.py: GROQ_MODEL_ANALYSIS / GROQ_MODEL_EDITOR), см. groq_params.py.
 
 
 def _extract_retry_after_seconds(error_message, default=2.0, cap=12.0):
@@ -111,23 +113,20 @@ Return ONLY this JSON structure (no other text):
 Base scores on actual resume quality. Be honest and constructive."""
 
     try:
-        response = requests.post(
-            GROQ_API_URL,
-            headers={
-                'Authorization': f'Bearer {api_key}',
-                'Content-Type': 'application/json',
-            },
-            json={
-                'model': GROQ_MODEL,
-                'messages': [
-                    {'role': 'system', 'content': system_prompt},
-                    {'role': 'user', 'content': user_prompt},
-                ],
-                'temperature': 0.3,
-                'max_tokens': 1500,
-            },
-            timeout=60,
-        )
+        groq_headers = {
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json',
+        }
+        groq_payload = {
+            'model': groq_model('GROQ_MODEL_ANALYSIS'),
+            'messages': [
+                {'role': 'system', 'content': system_prompt},
+                {'role': 'user', 'content': user_prompt},
+            ],
+            'temperature': 0.3,
+            'max_tokens': 3000,   # запас на рассуждение "думающих" моделей
+        }
+        response = post_groq(requests.post, GROQ_API_URL, groq_headers, groq_payload, 60)
 
         if response.status_code == 429:
             # Groq подсказывает точное время ожидания в тексте ошибки —
@@ -135,31 +134,18 @@ Base scores on actual resume quality. Be honest and constructive."""
             err_msg = response.json().get('error', {}).get('message', '')
             wait_s = _extract_retry_after_seconds(err_msg)
             time.sleep(wait_s)
-            response = requests.post(
-                GROQ_API_URL,
-                headers={
-                    'Authorization': f'Bearer {api_key}',
-                    'Content-Type': 'application/json',
-                },
-                json={
-                    'model': GROQ_MODEL,
-                    'messages': [
-                        {'role': 'system', 'content': system_prompt},
-                        {'role': 'user', 'content': user_prompt},
-                    ],
-                    'temperature': 0.3,
-                    'max_tokens': 1500,
-                },
-                timeout=60,
-            )
+            response = post_groq(requests.post, GROQ_API_URL, groq_headers, groq_payload, 60)
 
         if response.status_code != 200:
             error = response.json().get('error', {}).get('message', f'API error {response.status_code}')
             return {'success': False, 'error': error}
 
         data = response.json()
-        text = data['choices'][0]['message']['content'].strip()
+        text = message_text(response)   # без <think>...</think>
         tokens = data.get('usage', {}).get('total_tokens', 0)
+        if not text:
+            logger.warning("Groq returned empty content for analysis")
+            return {'success': False, 'error': 'Empty response from the AI model. Please try again.'}
 
         # Очистить от markdown
         text = re.sub(r'```json\s*', '', text)
@@ -206,26 +192,31 @@ def _call_groq_text(prompt):
         return {'success': False, 'error': 'GROQ_API_KEY not configured'}
 
     try:
-        response = requests.post(
+        groq_payload = {
+            'model': groq_model('GROQ_MODEL_EDITOR'),
+            'messages': [{'role': 'user', 'content': prompt}],
+            'temperature': 0.5,
+            'max_tokens': 6000,   # запас на рассуждение "думающих" моделей
+        }
+        response = post_groq(
+            requests.post,
             GROQ_API_URL,
-            headers={
+            {
                 'Authorization': f'Bearer {api_key}',
                 'Content-Type': 'application/json',
             },
-            json={
-                'model': GROQ_MODEL,
-                'messages': [{'role': 'user', 'content': prompt}],
-                'temperature': 0.5,
-                'max_tokens': 3000,
-            },
-            timeout=60,
+            groq_payload,
+            60,
         )
 
         if response.status_code == 200:
             data = response.json()
+            text = message_text(response)   # без <think>...</think>
+            if not text:
+                return {'success': False, 'error': 'Empty response from the AI model. Please try again.'}
             return {
                 'success': True,
-                'text': data['choices'][0]['message']['content'],
+                'text': text,
                 'tokens': data.get('usage', {}).get('total_tokens', 0),
             }
 

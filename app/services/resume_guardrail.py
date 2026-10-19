@@ -69,6 +69,8 @@ import time
 
 import requests
 
+from app.services.groq_params import DEFAULT_MODELS, groq_model, post_groq, message_text
+
 logger = logging.getLogger(__name__)
 
 
@@ -80,12 +82,14 @@ GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 # Открытый вопрос из Этапа 1 (расхождение с overview.md) закрыт —
 # подтверждено консультационной сессией по актуальному коду пайплайна.
-GROQ_GUARDRAIL_MODEL = "openai/gpt-oss-120b"
+# Значение по умолчанию; реальное имя берётся из настройки GROQ_MODEL_JUDGE (config.py).
+GROQ_GUARDRAIL_MODEL = DEFAULT_MODELS["GROQ_MODEL_JUDGE"]
 
 # Fallback-модель — используется на 429 (см. трёхступенчатый паттерн
 # ретрая в GroqGuardrailProvider.check(): primary -> 429 -> fallback
 # без ожидания -> 429 -> fallback после sleep(Retry-After)).
-GROQ_GUARDRAIL_FALLBACK_MODEL = "openai/gpt-oss-20b"
+# Значение по умолчанию; реальное имя берётся из настройки GROQ_MODEL_FALLBACK (config.py).
+GROQ_GUARDRAIL_FALLBACK_MODEL = DEFAULT_MODELS["GROQ_MODEL_FALLBACK"]
 
 GROQ_TIMEOUT_SECONDS = 60
 
@@ -285,13 +289,13 @@ class GroqGuardrailProvider(GuardrailProvider):
         )
 
         payload = {
-            "model": GROQ_GUARDRAIL_MODEL,
+            "model": groq_model("GROQ_MODEL_JUDGE"),
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": 0.0,
-            "max_tokens": 1500,
+            "max_tokens": 3000,   # запас на рассуждение "думающих" моделей
         }
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -300,18 +304,14 @@ class GroqGuardrailProvider(GuardrailProvider):
 
         try:
             # Шаг 1: primary модель.
-            response = requests.post(
-                GROQ_API_URL, headers=headers, json=payload, timeout=GROQ_TIMEOUT_SECONDS
-            )
+            response = post_groq(requests.post, GROQ_API_URL, headers, payload, GROQ_TIMEOUT_SECONDS)
 
             if response.status_code == 429:
                 # Шаг 2: первый 429 -> переключиться на fallback-модель,
                 # повторить БЕЗ ожидания (трёхступенчатый паттерн
                 # реального пайплайна).
-                payload["model"] = GROQ_GUARDRAIL_FALLBACK_MODEL
-                response = requests.post(
-                    GROQ_API_URL, headers=headers, json=payload, timeout=GROQ_TIMEOUT_SECONDS
-                )
+                payload["model"] = groq_model("GROQ_MODEL_FALLBACK")
+                response = post_groq(requests.post, GROQ_API_URL, headers, payload, GROQ_TIMEOUT_SECONDS)
 
                 if response.status_code == 429:
                     # Шаг 3: 429 снова (уже на fallback-модели) -> ждём
@@ -320,9 +320,7 @@ class GroqGuardrailProvider(GuardrailProvider):
                     err_msg = response.json().get("error", {}).get("message", "")
                     wait_s = _extract_retry_after_seconds(err_msg)
                     time.sleep(wait_s)
-                    response = requests.post(
-                        GROQ_API_URL, headers=headers, json=payload, timeout=GROQ_TIMEOUT_SECONDS
-                    )
+                    response = post_groq(requests.post, GROQ_API_URL, headers, payload, GROQ_TIMEOUT_SECONDS)
 
             if response.status_code != 200:
                 error = response.json().get("error", {}).get(
@@ -337,8 +335,24 @@ class GroqGuardrailProvider(GuardrailProvider):
                 }
 
             data = response.json()
-            text = data["choices"][0]["message"]["content"].strip()
+            text = message_text(response)   # без <think>...</think>
+            if not text and payload["model"] != groq_model("GROQ_MODEL_FALLBACK"):
+                # Пустой ответ (рассуждение съело лимит токенов): один раз на
+                # запасную модель, как при 429.
+                payload["model"] = groq_model("GROQ_MODEL_FALLBACK")
+                response = post_groq(requests.post, GROQ_API_URL, headers, payload, GROQ_TIMEOUT_SECONDS)
+                if response.status_code == 200:
+                    data = response.json()
+                    text = message_text(response)
             tokens = data.get("usage", {}).get("total_tokens", 0)
+            if not text:
+                return {
+                    "success": False,
+                    "pass": None,
+                    "findings": [],
+                    "tokens_used": tokens,
+                    "error": "Empty response from Groq judge model",
+                }
 
             # Снять markdown-обёртку ```json ... ``` при её наличии.
             text = re.sub(r"```json\s*", "", text)

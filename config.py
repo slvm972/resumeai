@@ -32,6 +32,14 @@ class Config:
     GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
     GUARDRAIL_ENABLED = os.environ.get('GUARDRAIL_ENABLED', 'false').lower() == 'true'
 
+    # Модели Groq - настройки (меняются переменными окружения без правки кода).
+    # ANALYSIS - анализ резюме; EDITOR - улучшение (и его retry); FALLBACK -
+    # запасная модель (429 или пустой ответ); JUDGE - судья Guardrail.
+    GROQ_MODEL_ANALYSIS = os.environ.get('GROQ_MODEL_ANALYSIS', 'openai/gpt-oss-120b')
+    GROQ_MODEL_EDITOR = os.environ.get('GROQ_MODEL_EDITOR', 'openai/gpt-oss-120b')
+    GROQ_MODEL_FALLBACK = os.environ.get('GROQ_MODEL_FALLBACK', 'qwen/qwen3.8-27b')
+    GROQ_MODEL_JUDGE = os.environ.get('GROQ_MODEL_JUDGE', 'openai/gpt-oss-120b')
+
     # Google Gemini API
     GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
 
