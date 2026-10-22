@@ -290,6 +290,36 @@ def _admin_mode_enabled(app):
     return app.config.get('ADMIN_MODE', False)
 
 
+def _creative_quality_report(result):
+    """
+    quality_report совместимой формы для creative-результата. Фронтенд читает
+    quality_report.changes (original_text / improved_text); пары берутся из CHANGELOG,
+    построенного кодом: «было» → «стало», + «добавлено», - «удалено».
+    summary.accepted >= 1: результат принят (acceptable), иначе до этого места не дошли бы.
+    """
+    import re as _re
+    changes = []
+    for line in (result.get('changelog') or '').split('\n'):
+        line = line.strip()
+        m = _re.match(r"^\u00ab(.*)\u00bb \u2192 \u00ab(.*)\u00bb$", line)
+        if m:
+            changes.append({'original_text': m.group(1), 'improved_text': m.group(2)})
+            continue
+        m = _re.match(r"^\+ \u00ab(.*)\u00bb$", line)
+        if m:
+            changes.append({'original_text': '', 'improved_text': m.group(1)})
+            continue
+        m = _re.match(r"^- \u00ab(.*)\u00bb$", line)
+        if m:
+            changes.append({'original_text': m.group(1), 'improved_text': ''})
+    return {
+        'engine': 'creative_v2',
+        'summary': {'accepted': max(len(changes), 1), 'kept_original': 0, 'rejected_facts': 0,
+                    'needs_retry': 0, 'avg_similarity': None},
+        'changes': changes,
+    }
+
+
 def _register_legacy_routes(app):
     """Совместимые маршруты для старого index.html."""
 
@@ -701,6 +731,64 @@ def _register_legacy_routes(app):
             if not original_bytes and not resume_text_fallback:
                 return jsonify({'success': False, 'error': 'resume_text is required'}), 400
 
+            # --- Creative v2: только для creative + флаг CREATIVE_V2_ENABLED + (.docx или текст из JSON) ---
+            creative_tried = False
+            creative_result = None
+            creative_status = None
+            creative_source_ok = (
+                (original_bytes is not None and (filename or '').lower().endswith('.docx'))
+                or (original_bytes is None and bool(resume_text_fallback))
+            )
+            if creativity_mode == 'creative' and creative_source_ok:
+                try:
+                    from app.creative_bridge import is_creative_v2_enabled, creative_improve
+                    if is_creative_v2_enabled(current_app.config):
+                        creative_result = creative_improve(
+                            original_bytes, filename, resume_text_fallback, current_app.config)
+                        creative_tried = bool(creative_result.get('attempted'))
+                        creative_status = creative_result.get('status') if creative_tried else None
+                except Exception:
+                    creative_tried = True
+                    creative_result = None
+                    creative_status = 'error'
+
+            if creative_result and creative_result.get('acceptable'):
+                if user and not is_admin and subscription:
+                    subscription.improvement_used += 1
+                    subscription.credits_used += 1
+                    db.session.commit()
+                # результат creative не связан с исходным файлом: старые токены не должны пережить запрос
+                session.pop('original_docx_token', None)
+                session.pop('item_ids', None)
+                app.logger.info("improve engine=creative_v2 status=%s rounds=%s calls=%s",
+                                creative_result.get('status'), creative_result.get('rounds'),
+                                creative_result.get('calls'))
+                return jsonify({
+                    'success': True,
+                    'improved_resume': creative_result['improved_resume'],
+                    'display_text': creative_result['display_text'],
+                    'original_format': original_format,
+                    'original_language': creative_result.get('detected_language', 'en'),
+                    'item_ids': [],
+                    'quality_report': _creative_quality_report(creative_result),
+                    'has_original_docx': False,
+                    'creativity_mode': 'creative',
+                    'guardrail_report': None,
+                    'guardrail_rejected': False,
+                    'engine': 'creative_v2',
+                    'changelog': creative_result.get('changelog') or '',
+                    'derived': creative_result.get('derived') or '',
+                    'creative_status': creative_result.get('status'),
+                    'creative_rounds': creative_result.get('rounds', 0),
+                })
+
+            if creative_tried:
+                # creative пробовался и не принят: точный путь, creative_fallback в ответе
+                creativity_mode = 'precise'
+                app.logger.info("improve engine=precise creative_fallback=1 status=%s rounds=%s calls=%s",
+                                creative_status,
+                                (creative_result or {}).get('rounds'), (creative_result or {}).get('calls'))
+
             api_key = current_app.config.get('GROQ_API_KEY')
             result = _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_key, creativity_mode)
 
@@ -728,7 +816,7 @@ def _register_legacy_routes(app):
                 session['original_docx_token'] = _save_temp_upload(original_bytes)
                 session['item_ids'] = result['item_ids']
 
-            return jsonify({
+            response_body = {
                 'success': True,
                 'improved_resume': result['improved_resume'],
                 'display_text': result['display_text'],
@@ -740,7 +828,12 @@ def _register_legacy_routes(app):
                 'creativity_mode': result.get('creativity_mode', 'precise'),
                 'guardrail_report': result.get('guardrail_report'),
                 'guardrail_rejected': result.get('guardrail_rejected', False),
-            })
+            }
+            if creative_tried:
+                response_body['engine'] = 'precise'
+                response_body['creative_fallback'] = True
+                response_body['creative_status'] = creative_status or 'error'
+            return jsonify(response_body)
         except Exception as e:
             import traceback
             app.logger.error("legacy_improve failed: %s\n%s", e, traceback.format_exc())
@@ -763,6 +856,7 @@ def _register_legacy_routes(app):
             from docx import Document
             from docx.shared import Pt
             import io, json as json_lib
+            import re as re_lib
 
             original_file = request.files.get('original_file')
             improved_text = request.form.get('improved_resume') or ''
@@ -793,20 +887,23 @@ def _register_legacy_routes(app):
             session.pop('original_docx_token', None)
             session.pop('item_ids', None)
 
-            if original_file:
+            # Текст без меток ###ITEM_NNN### (creative-режим) к оригинальному файлу не применяется:
+            # _apply_improved_text_to_docx вернул бы исходник без изменений -> простой текстовый DOCX.
+            has_markers = bool(re_lib.search(r"###ITEM_\d+###", improved_text))
+
+            if original_file and has_markers:
                 buf = _apply_improved_text_to_docx(original_file.read(), improved_text, item_ids)
                 return send_file(buf, as_attachment=True, download_name='improved_resume.docx',
                     mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
 
             token = _dbg_token
-            file_bytes = _load_temp_upload(token)
+            file_bytes = _load_temp_upload(token) if has_markers else None
             if file_bytes:
                 buf = _apply_improved_text_to_docx(file_bytes, improved_text, item_ids)
                 return send_file(buf, as_attachment=True, download_name='improved_resume.docx',
                     mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
 
             # Fallback — простой текстовый DOCX
-            import re as re_lib
             doc = Document()
             doc.styles['Normal'].font.size = Pt(11)
             clean = re_lib.sub(r"###ITEM_\d+###", "", improved_text)

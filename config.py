@@ -82,6 +82,9 @@ class Config:
 
     # Admin
     ADMIN_MODE = os.environ.get('ADMIN_MODE', 'false').lower() == 'true'
+    # Creative v2 (улучшение резюме): по умолчанию выключен
+    CREATIVE_V2_ENABLED = os.environ.get('CREATIVE_V2_ENABLED', 'false').lower() == 'true'
+    CREATIVE_MAX_SECONDS = int(os.environ.get('CREATIVE_MAX_SECONDS', 60))
     ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL', 'admin@resumeai.com')
     ADMIN_PASSWORD_HASH = os.environ.get('ADMIN_PASSWORD_HASH')  # bcrypt-хеш, не сам пароль
 
