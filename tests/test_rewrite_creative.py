@@ -621,6 +621,28 @@ _EQ_CASES = {
 }
 
 
+def _proto_cleaned(changelog):
+    """Результат прототипа с той же очисткой цитат, что в v2.3 (других отличий быть не должно)."""
+    import re
+    clean = crc._clean_quote
+    out = []
+    for line in changelog.split("\n"):
+        m = re.match(r"^\u00ab(.*)\u00bb \u2192 \u00ab(.*)\u00bb$", line)
+        if m:
+            o, n = clean(m.group(1)), clean(m.group(2))
+            if o != n:
+                out.append("\u00ab%s\u00bb \u2192 \u00ab%s\u00bb" % (o, n))
+            continue
+        m = re.match(r"^([+-]) \u00ab(.*)\u00bb$", line)
+        if m:
+            q = clean(m.group(2))
+            if q:
+                out.append("%s \u00ab%s\u00bb" % (m.group(1), q))
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
 @pytest.mark.parametrize("case", sorted(_EQ_CASES))
 def test_90_equivalent_to_prototype(case):
     if proto is None:
@@ -631,8 +653,12 @@ def test_90_equivalent_to_prototype(case):
     assert post_new == post_old
     assert crc.det_issues(source, post_new) == proto.det_issues(source, post_old)
     main = crc.split_sections(post_new)[0]
-    assert crc.build_changelog(source, main) == proto.build_changelog(source, main)
-    assert crc.assemble_final(source, post_new) == proto.assemble_final(source, post_old)
+    # v2.3: build_changelog отличается от прототипа ТОЛЬКО очисткой цитат (маркер списка в начале,
+    # висящая точка в конце, одинаковые «было» и «стало» не выводятся)
+    assert crc.build_changelog(source, main) == _proto_cleaned(proto.build_changelog(source, main))
+    final_new, raw_new = crc.assemble_final(source, post_new)
+    final_old, raw_old = proto.assemble_final(source, post_old)
+    assert raw_new == raw_old and crc.split_sections(final_new)[:2] == crc.split_sections(final_old)[:2]
     assert crc.check_output(source, post_new) == proto.check_output(source, post_old)
 
 
@@ -806,3 +832,127 @@ def test_114_key_not_in_any_result_field(monkeypatch):
         r = _run(monkeypatch, sc)
         assert _KEY not in json.dumps(r, ensure_ascii=False)
     assert crc.creative_rewrite.__defaults__[0] == crc.DEFAULT_MODEL == "openai/gpt-oss-120b"
+
+
+# ===========================================================================
+# Шаг 2в: OVERSTATED_ROLE без существительных, CHANGELOG навыков и цитат
+# ===========================================================================
+
+def _types(source, output):
+    return [i["type"] for i in crc.det_issues(source, output)]
+
+
+def test_120_noun_in_source_does_not_hide_ownership_verb_ru():
+    src = "Помогала руководителю отдела с документами"
+    out = "Осуществляла обработку входящих звонков"
+    issues = [i for i in crc.det_issues(src, out) if i["type"] == "OVERSTATED_ROLE"]
+    assert len(issues) == 1 and "Осуществляла" in issues[0]["quote"]
+
+
+def test_121_noun_in_both_texts_gives_no_issue():
+    src = "Помогала руководителю отдела"
+    out = "Ассистировала руководителю отдела; готовила руководству отчёты"
+    assert "OVERSTATED_ROLE" not in _types(src, out)
+    assert "OVERSTATED_ROLE" not in _types("Допомагала керівнику", "Допомагала керівнику та керівництву")
+
+
+def test_122_ownership_verb_in_source_still_skips_check():
+    assert "OVERSTATED_ROLE" not in _types("Руководил отделом", "Осуществляла обработку звонков")
+    assert "OVERSTATED_ROLE" not in _types("Помогала руководителю. Управляла складом", "Осуществляла обработку")
+
+
+def test_123_uk_noun_does_not_hide_verb():
+    assert "OVERSTATED_ROLE" in _types("Допомагала керівнику відділу", "Керувала відділом")
+    assert "OVERSTATED_ROLE" in _types("Звітувала керівництву", "Забезпечувала роботу відділу")
+
+
+def test_124_en_nouns_by_word_boundaries():
+    issues = [i for i in crc.det_issues("Reported to the director", "Directed a team")
+              if i["type"] == "OVERSTATED_ROLE"]
+    assert len(issues) == 1 and "Directed" in issues[0]["quote"]
+    assert "OVERSTATED_ROLE" not in _types("Directed a team", "Directed a team of 5")        # глагол в source
+    assert "OVERSTATED_ROLE" in _types("Worked for the controller", "Controlled the budget")
+    for noun in ("directors", "directorship", "controllers"):
+        assert "OVERSTATED_ROLE" in _types("Met with the %s" % noun, "Managed a team")
+        assert "OVERSTATED_ROLE" not in _types("Met with the %s" % noun, "Met with the %s" % noun)
+
+
+def test_125_strip_role_nouns_keeps_offsets():
+    text = "Помогала руководителю и directed"
+    stripped = crc._strip_role_nouns(text)
+    assert len(stripped) == len(text) and "руководител" not in stripped and "directed" in stripped
+
+
+_W1_SRC = "Анна Иванова\nНавыки\nMS Office, 1С, делопроизводство\nОпыт работы\nПомогала руководителю"
+
+
+def test_130_skills_reformatted_gives_one_line_not_pairs():
+    out = ("Анна Иванова\nНавыки\n- Офисные программы: MS Office, 1С\n- Делопроизводство\n"
+           "Опыт работы\nПомогала руководителю")
+    cl = crc.build_changelog(_W1_SRC, out)
+    assert cl == "Изменения\nНавыки: переформатированы, состав не изменён"
+    assert "\u00abMS Office, 1С, делопроизводство\u00bb" not in cl
+
+
+def test_131_skill_lost_keeps_line_by_line_diff():
+    out = "Анна Иванова\nНавыки\n- MS Office\n- 1С\nОпыт работы\nПомогала руководителю"
+    cl = crc.build_changelog(_W1_SRC, out)
+    assert "переформатированы" not in cl and "MS Office, 1С, делопроизводство" in cl
+
+
+def test_132_new_skill_is_listed_and_goes_to_plus_lines():
+    out = ("Анна Иванова\nНавыки\n- MS Office, 1С\n- Делопроизводство\n- Excel\n"
+           "Опыт работы\nПомогала руководителю")
+    cl = crc.build_changelog(_W1_SRC, out)
+    lines = cl.split("\n")
+    assert lines[1] == "Навыки: переформатированы. Добавлено: Excel"
+    assert "+ \u00abExcel\u00bb" in lines and "Добавлено:" in lines
+    assert "\u00abMS Office, 1С, делопроизводство\u00bb" not in cl
+
+
+def test_133_unchanged_skills_and_labels_ru_uk_en():
+    same = "Анна\nНавыки\nMS Office, 1С\nОпыт работы\nРаботала"
+    assert crc.build_changelog(same, same) == ""                  # ничего не изменилось - строк нет
+    only_other = crc.build_changelog(same, same.replace("Работала", "Трудилась"))
+    assert "Навыки" not in only_other.replace("Изменения", "") and "Трудилась" in only_other
+    uk = crc.build_changelog("Іван\nНавички\nExcel, Word\nДосвід\nПрацював",
+                             "Іван\nНавички\n- Word\n- Excel\nДосвід\nПрацював")
+    assert uk == "Зміни\nНавички: переформатовано, склад не змінено"
+    en = crc.build_changelog("Tom\nSkills\nPython, SQL\nExperience\nWorked",
+                             "Tom\nSkills\n- Python\n- SQL\nExperience\nWorked")
+    assert en == "Changes\nSkills: reformatted, no items changed"
+
+
+def test_134_quote_markers_and_trailing_dot_are_removed():
+    cl = crc.build_changelog("Tom\nLine A\nLine B", "Tom\n- Line A2.\n\u2022 Line B2.")
+    assert "\u00abLine A\u00bb \u2192 \u00abLine A2\u00bb" in cl
+    assert "\u00abLine B\u00bb \u2192 \u00abLine B2\u00bb" in cl
+    cl = crc.build_changelog("Tom\n- Old line\nKeep", "Tom\nKeep\n* New line.")
+    assert "+ \u00abNew line\u00bb" in cl and "- \u00abOld line\u00bb" in cl
+    assert "\u00ab- " not in cl and "\u00ab\u2022" not in cl and ".\u00bb" not in cl
+
+
+def test_135_pair_equal_after_cleaning_is_not_printed():
+    assert crc.build_changelog("Tom\nManaged team", "Tom\n- Managed team.") == ""
+    cl = crc.build_changelog("Tom\nManaged team\nHelped", "Tom\nManaged team.\nAssisted")
+    assert "Managed team" not in cl and "\u00abHelped\u00bb \u2192 \u00abAssisted\u00bb" in cl
+
+
+def test_136_skill_iteration_refactor_keeps_skill_items_behaviour():
+    src = "Skills\nPython, SQL; Docker\n- Git\n\nExperience\nWorked\nSkills\nExcel"
+    assert crc.skill_items(src) == ["Python", "SQL", "Docker", "Git", "Excel"]
+    assert [l for l, flag in crc._iter_skill_lines(src) if flag] == ["Python, SQL; Docker", "- Git", "Excel"]
+
+
+def test_137_quality_report_parser_tolerates_skills_line():
+    from app import _creative_quality_report                 # чистая функция, побочных эффектов нет
+    cl = ("Изменения\nНавыки: переформатированы. Добавлено: Excel\nПереписано:\n"
+          "\u00abHelped\u00bb \u2192 \u00abAssisted\u00bb\nДобавлено:\n+ \u00abExcel\u00bb\n"
+          "Удалено:\n- \u00abOld\u00bb")
+    qr = _creative_quality_report({"changelog": cl})
+    assert qr["changes"] == [{"original_text": "Helped", "improved_text": "Assisted"},
+                             {"original_text": "", "improved_text": "Excel"},
+                             {"original_text": "Old", "improved_text": ""}]
+    assert qr["summary"]["accepted"] == 3
+    only_skills = _creative_quality_report({"changelog": "Изменения\nНавыки: переформатированы, состав не изменён"})
+    assert only_skills["changes"] == [] and only_skills["summary"]["accepted"] == 1

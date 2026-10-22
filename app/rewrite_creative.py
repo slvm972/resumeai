@@ -746,29 +746,41 @@ def _split_skill_line(line):
     return items
 
 
-def skill_items(source):
+def _iter_skill_lines(text):
     """
-    Пункты раздела навыков источника. Раздел: строка-заголовок (Skills, Навыки, ...)
-    и текст ниже до пустой строки или до следующего заголовка раздела (пустые строки
-    сразу после заголовка пропускаются). Нет раздела - пустой список.
+    Строки текста с признаком "это пункт раздела навыков". Раздел: строка-заголовок
+    (Skills, Навыки, ...) и текст ниже до пустой строки или до следующего заголовка раздела
+    (пустые строки сразу после заголовка пропускаются). Заголовки в пункты не входят.
     """
-    items, seen = [], set()
     in_section = started = False
-    for line in (source or "").split("\n"):
+    for line in (text or "").split("\n"):
         h = _norm_heading(line)
         if h in _SKILLS_HEADINGS:
             in_section, started = True, False
+            yield line, False
             continue
         if not in_section:
+            yield line, False
             continue
         if h in _SECTION_END_HEADINGS:
             in_section = False
+            yield line, False
             continue
         if not line.strip():
             if started:
                 in_section = False
+            yield line, False
             continue
         started = True
+        yield line, True
+
+
+def skill_items(source):
+    """Пункты раздела навыков (см. _iter_skill_lines). Нет раздела - пустой список."""
+    items, seen = [], set()
+    for line, is_item in _iter_skill_lines(source):
+        if not is_item:
+            continue
         for it in _split_skill_line(line):
             key = _norm_item(it)
             if key and key not in seen:
@@ -797,6 +809,19 @@ def lost_item_issues(source, main):
             for it in items if not _item_kept(it, main_norm)]
 
 
+# v2.3: существительные, однокоренные с глаголами владения (руководитель, керівник, director),
+# глаголами не являются. Перед проверкой OVERSTATED_ROLE они затираются пробелами той же длины
+# (позиции для _snippet сохраняются). "directed" не затрагивается: EN - по границам слов.
+_ROLE_NOUN_RE = re.compile(
+    r"\b(?:руководител|руководств|руководящ|керівник|керівництв)\w*"
+    r"|\b(?:directors?|directorship|controllers?)\b",
+    re.I)
+
+
+def _strip_role_nouns(text):
+    return _ROLE_NOUN_RE.sub(lambda m: " " * len(m.group(0)), text or "")
+
+
 def det_issues(source, output):
     """
     Жёсткие проверки в коде, замечания в формате судьи ({"type","quote","reason"}),
@@ -819,9 +844,9 @@ def det_issues(source, output):
                            "reason": "Evaluative wording '%s' is not in the source" % m.group(0)})
             break
 
-    if not _OWN_RE.search(src):
+    if not _OWN_RE.search(_strip_role_nouns(src)):
         seen = set()
-        for m in _OWN_RE.finditer(main):
+        for m in _OWN_RE.finditer(_strip_role_nouns(main)):
             word = m.group(0).lower()
             if word in seen:
                 continue
@@ -867,9 +892,15 @@ def build_repair_message(issues):
 # ---- v2.2: CHANGELOG строится кодом ---------------------------------------
 
 _CHANGELOG_LABELS = {
-    "en": {"changes": "Changes", "rewritten": "Rewritten", "added": "Added", "removed": "Removed"},
-    "ru": {"changes": "Изменения", "rewritten": "Переписано", "added": "Добавлено", "removed": "Удалено"},
-    "uk": {"changes": "Зміни", "rewritten": "Переписано", "added": "Додано", "removed": "Видалено"},
+    "en": {"changes": "Changes", "rewritten": "Rewritten", "added": "Added", "removed": "Removed",
+           "skills_same": "Skills: reformatted, no items changed",
+           "skills_added": "Skills: reformatted. Added: "},
+    "ru": {"changes": "Изменения", "rewritten": "Переписано", "added": "Добавлено", "removed": "Удалено",
+           "skills_same": "Навыки: переформатированы, состав не изменён",
+           "skills_added": "Навыки: переформатированы. Добавлено: "},
+    "uk": {"changes": "Зміни", "rewritten": "Переписано", "added": "Додано", "removed": "Видалено",
+           "skills_same": "Навички: переформатовано, склад не змінено",
+           "skills_added": "Навички: переформатовано. Додано: "},
 }
 
 
@@ -904,15 +935,49 @@ def _pair_replaced(old, new):
     return pairs, removed, added
 
 
+def _clean_quote(line):
+    """Цитата для CHANGELOG: без маркера списка в начале и висящей точки в конце."""
+    line = _LIST_MARKER_RE.sub("", line.strip(), count=1).strip()
+    if line.endswith("."):
+        line = line[:-1].rstrip()
+    return line
+
+
+def _split_skill_lines(text):
+    """(прочие непустые строки, непустые строки-пункты раздела навыков) - порядок сохранён."""
+    other, skills = [], []
+    for line, is_item in _iter_skill_lines(text):
+        if line.strip():
+            (skills if is_item else other).append(line.strip())
+    return other, skills
+
+
 def build_changelog(source, output_main):
     """
     Отличия результата от исходника, посчитанные кодом (difflib по строкам).
     Заменённая строка: «было» → «стало»; добавленная: + «текст»; удалённая: - «текст».
-    Одинаковые строки не включаются. Подписи: ru/uk по языку резюме, иначе en.
-    Нет отличий - пустая строка.
+    Одинаковые строки не включаются; маркер списка и висящая точка в цитатах убираются, пара
+    с одинаковыми «было» и «стало» не выводится. Раздел навыков, у которого сохранились все
+    пункты источника, не разбирается построчно: одна строка "Навыки: переформатированы..."
+    (+ список новых пунктов). Подписи: ru/uk по языку резюме, иначе en. Нет отличий - "".
     """
     labels = _CHANGELOG_LABELS.get(detect_lang(source), _CHANGELOG_LABELS["en"])
     a, b = _content_lines(source), _content_lines(output_main)
+
+    skills_line, new_items = "", []
+    src_items = skill_items(source)
+    if src_items:
+        out_items = skill_items(output_main)
+        out_norm = {_norm_item(x) for x in out_items}
+        if all(_norm_item(x) in out_norm for x in src_items):
+            a, a_skills = _split_skill_lines(source)
+            b, b_skills = _split_skill_lines(output_main)
+            if [_line_key(x) for x in a_skills] != [_line_key(x) for x in b_skills]:
+                src_norm = {_norm_item(x) for x in src_items}
+                new_items = [x for x in out_items if _norm_item(x) not in src_norm]
+                skills_line = (labels["skills_added"] + ", ".join(new_items)) if new_items \
+                    else labels["skills_same"]
+
     sm = difflib.SequenceMatcher(None, [_line_key(x) for x in a], [_line_key(x) for x in b],
                                  autojunk=False)
     rewritten, added, removed = [], [], []
@@ -928,9 +993,17 @@ def build_changelog(source, output_main):
             rewritten.extend(pairs)
             removed.extend(rem)
             added.extend(add)
-    if not (rewritten or added or removed):
+    added.extend(new_items)
+
+    rewritten = [(_clean_quote(o), _clean_quote(n)) for o, n in rewritten]
+    rewritten = [(o, n) for o, n in rewritten if o != n]
+    added = [t for t in (_clean_quote(x) for x in added) if t]
+    removed = [t for t in (_clean_quote(x) for x in removed) if t]
+    if not (skills_line or rewritten or added or removed):
         return ""
     out = [labels["changes"]]
+    if skills_line:
+        out.append(skills_line)
     if rewritten:
         out.append(labels["rewritten"] + ":")
         out.extend("\u00ab%s\u00bb \u2192 \u00ab%s\u00bb" % (o, n) for o, n in rewritten)
