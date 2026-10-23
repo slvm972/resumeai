@@ -342,3 +342,78 @@ def test_08_no_dead_llama_models_in_app_code():
                     if 'llama-3.3-70b-versatile' in line or 'llama-3.1-8b-instant' in line:
                         offenders.append('%s:%d' % (path, n))
     assert not offenders, offenders
+
+
+# ---------------------------------------------------------------------------
+# E1: настройки Creative v2 в config.py (CREATIVE_V2_ENABLED, CREATIVE_MAX_SECONDS)
+# config.py читает окружение при импорте, поэтому тесты перезагружают модуль
+# при заданных переменных и после каждого теста возвращают окружение и модуль.
+# ---------------------------------------------------------------------------
+import importlib
+
+import config as config_module
+
+_CREATIVE_ENV_KEYS = ('CREATIVE_V2_ENABLED', 'CREATIVE_MAX_SECONDS')
+
+
+@pytest.fixture
+def load_config(monkeypatch):
+    """load_config(**env) -> перезагруженный config.Config. Ключи со значением None удаляются из окружения."""
+    for key in _CREATIVE_ENV_KEYS:
+        monkeypatch.delenv(key, raising=False)
+
+    def _load(**env):
+        for key, value in env.items():
+            if value is None:
+                monkeypatch.delenv(key, raising=False)
+            else:
+                monkeypatch.setenv(key, value)
+        return importlib.reload(config_module).Config
+
+    yield _load
+    monkeypatch.undo()                 # сначала вернуть окружение,
+    importlib.reload(config_module)    # потом перезагрузить config с исходным окружением
+
+
+def _as_cfg(config_cls):
+    """Мост читает настройки через cfg.get(...), как у app.config (словарь).
+    У самого класса Config метода get нет, поэтому берём словарь из его атрибутов."""
+    keys = ('CREATIVE_V2_ENABLED', 'CREATIVE_MAX_SECONDS', 'GROQ_API_KEY',
+            'GROQ_MODEL_EDITOR', 'GROQ_MODEL_JUDGE')
+    return {k: getattr(config_cls, k) for k in keys}
+
+
+def test_creative_v2_enabled_default_is_false(load_config):
+    assert load_config().CREATIVE_V2_ENABLED is False
+
+
+@pytest.mark.parametrize('raw, expected', [
+    ('true', True), ('True', True),
+    ('false', False), ('0', False), ('', False),
+])
+def test_creative_v2_enabled_parsing(load_config, raw, expected):
+    assert load_config(CREATIVE_V2_ENABLED=raw).CREATIVE_V2_ENABLED is expected
+
+
+def test_creative_max_seconds_default_is_60(load_config):
+    value = load_config().CREATIVE_MAX_SECONDS
+    assert value == 60 and isinstance(value, int)
+
+
+def test_creative_max_seconds_is_int_from_string(load_config):
+    value = load_config(CREATIVE_MAX_SECONDS='70').CREATIVE_MAX_SECONDS
+    assert value == 70 and isinstance(value, int)
+
+
+def test_config_has_every_key_read_by_creative_bridge(load_config):
+    """Охранный тест: все ключи, которые app/creative_bridge.py читает через cfg.get, есть у Config."""
+    cls = load_config()
+    for key in ('CREATIVE_V2_ENABLED', 'CREATIVE_MAX_SECONDS', 'GROQ_API_KEY',
+                'GROQ_MODEL_EDITOR', 'GROQ_MODEL_JUDGE'):
+        assert hasattr(cls, key), 'в Config нет %s' % key
+
+
+def test_bridge_flag_follows_config_env(load_config):
+    from app.creative_bridge import is_creative_v2_enabled
+    assert is_creative_v2_enabled(_as_cfg(load_config())) is False
+    assert is_creative_v2_enabled(_as_cfg(load_config(CREATIVE_V2_ENABLED='true'))) is True

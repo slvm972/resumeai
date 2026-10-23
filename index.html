@@ -551,7 +551,7 @@
                 <input type="radio" name="creativityMode" value="creative" onchange="updateCreativityModeStyle()" style="margin:0">
                 <strong>Creative</strong>
               </span>
-              <span style="color:var(--muted);font-size:.72rem">Bolder wording — review the change report before sending</span>
+              <span style="color:var(--muted);font-size:.72rem">New wording and summary - takes up to a minute. Original file layout is not kept; check the change report</span>
             </label>
           </div>
           <button id="improveBtn" class="btn-primary" style="width:100%" onclick="improveResume()">
@@ -1344,6 +1344,7 @@
     <h3>✨ Improved Resume</h3>
     <p style="color:var(--muted);font-size:.85rem">AI-rewritten version based on your analysis results</p>
     <div id="improvingSpinner" style="display:none">⏳ Rewriting your resume… this may take 15–20 seconds</div>
+    <div id="creativeNotice" style="display:none;margin:.75rem 0;padding:.6rem .75rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--muted);font-size:.75rem;line-height:1.5"></div>
     <div id="improvedText" style="display:none"></div>
     <div id="improveActions" style="display:none;gap:.75rem;flex-wrap:wrap">
       <button class="btn-primary" onclick="copyImproved()" style="flex:1">📋 Copy to Clipboard</button>
@@ -1373,6 +1374,7 @@
   let lastOriginalFormat = 'txt';   // формат загруженного файла (из /api/analyze)
   let lastImprovedFormat = 'txt';   // формат для скачивания (обновляется после improve)
   let lastItemIds = null;
+  let lastEngine = null;        // data.engine ('creative_v2' | 'precise' | null) - пока только запись
   let lastImprovedRaw = null;   // сырой текст с ###ITEM_NNN### маркерами — нужен только для /api/improve/docx
   let lastChanges = [];         // quality_report.changes — для отчёта "было → стало"
 
@@ -1395,11 +1397,16 @@
     document.getElementById('improveActions').style.display = 'none';
     document.getElementById('changesReport').style.display = 'none';
     document.getElementById('improveModalMsg').style.display = 'none';
+    document.getElementById('creativeNotice').style.display = 'none';
+    document.getElementById('creativeNotice').textContent = '';
 
     try {
       let res;
       const selectedCreativityMode =
         (document.querySelector('input[name="creativityMode"]:checked') || {}).value || 'precise';
+      document.getElementById('improvingSpinner').textContent = selectedCreativityMode === 'creative'
+        ? '⏳ Rewriting your resume in Creative mode… this can take up to a minute'
+        : '⏳ Rewriting your resume… this may take 15–20 seconds';
       // Предпочитаем отправку РЕАЛЬНОГО файла (как уже делает admin.html) —
       // тогда /api/improve извлекает items через _extract_structured()
       // (гранулярность ячеек), той же функцией, что использует downloadImproved()
@@ -1431,8 +1438,21 @@
       const data = await res.json();
       document.getElementById('improvingSpinner').style.display = 'none';
       if (data.improved_resume) {
-        lastItemIds = data.item_ids || null;
+        lastItemIds = (data.item_ids && data.item_ids.length) ? data.item_ids : null;   // [] -> null
+        lastEngine = data.engine || null;
         lastImprovedRaw = data.improved_resume;
+        const noticeEl = document.getElementById('creativeNotice');
+        if (data.engine === 'creative_v2') {
+          noticeEl.textContent = 'Creative result: new text built only from facts in your resume. ' +
+            'The layout of the original file is not preserved. Please review the changes below before sending.';
+          noticeEl.style.display = 'block';
+        } else if (data.engine === 'precise' && data.creative_fallback) {
+          noticeEl.textContent = 'Creative mode could not produce a result that passed our safety checks, ' +
+            'so Precise edits are shown instead.';
+          noticeEl.style.display = 'block';
+        } else {
+          noticeEl.style.display = 'none';
+        }
         document.getElementById('improvedText').textContent = data.display_text || data.improved_resume;
         document.getElementById('improvedText').style.display = 'block';
         document.getElementById('improveActions').style.display = 'flex';
@@ -1446,14 +1466,21 @@
           lastChanges.forEach(c => {
             const item = document.createElement('div');
             item.style.cssText = 'background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:.75rem;font-size:.85rem';
-            const oldLine = document.createElement('div');
-            oldLine.style.cssText = 'color:#f87171;text-decoration:line-through;margin-bottom:.3rem';
-            oldLine.textContent = c.original_text;   // textContent — безопасно от HTML-инъекций
-            const newLine = document.createElement('div');
-            newLine.style.cssText = 'color:#34d399';
-            newLine.textContent = c.improved_text;   // textContent — безопасно от HTML-инъекций
-            item.appendChild(oldLine);
-            item.appendChild(newLine);
+            const oldText = c.original_text || '';
+            const newText = c.improved_text || '';
+            if (!oldText && !newText) return;        // пустая запись - нечего показывать
+            if (oldText) {                           // пустой original_text (добавленная строка) - без зачёркнутой строки
+              const oldLine = document.createElement('div');
+              oldLine.style.cssText = 'color:#f87171;text-decoration:line-through' + (newText ? ';margin-bottom:.3rem' : '');
+              oldLine.textContent = oldText;         // textContent — безопасно от HTML-инъекций
+              item.appendChild(oldLine);
+            }
+            if (newText) {                           // пустой improved_text (удалённая строка) - только старая строка
+              const newLine = document.createElement('div');
+              newLine.style.cssText = 'color:#34d399';
+              newLine.textContent = (oldText ? '' : '+ ') + newText;   // textContent — безопасно от HTML-инъекций
+              item.appendChild(newLine);
+            }
             changesList.appendChild(item);
           });
           document.getElementById('changesReport').style.display = 'block';
@@ -1611,8 +1638,17 @@
       '',
     ];
     lastChanges.forEach((c, i) => {
-      lines.push(`${i + 1}. BEFORE: ${c.original_text}`);
-      lines.push(`   AFTER:  ${c.improved_text}`);
+      const oldText = c.original_text || '';
+      const newText = c.improved_text || '';
+      if (!oldText && !newText) return;
+      if (!oldText) {
+        lines.push(`${i + 1}. ADDED:  ${newText}`);
+      } else if (!newText) {
+        lines.push(`${i + 1}. REMOVED: ${oldText}`);
+      } else {
+        lines.push(`${i + 1}. BEFORE: ${oldText}`);
+        lines.push(`   AFTER:  ${newText}`);
+      }
       lines.push('');
     });
     lines.push('Numbers, dates, company names, contacts and certifications');
