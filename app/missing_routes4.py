@@ -2610,7 +2610,7 @@ def register_missing_routes(app, _extract_text_from_request, _get_current_user):
             # Fallback — простой текстовый DOCX
             doc = Document()
             doc.styles["Normal"].font.size = Pt(11)
-            clean = re.sub(r"###ITEM_\d+###", "", improved_text)
+            clean = re.sub(r"###ITEM_\d+(?::\w+)?###", "", improved_text)
             for line in clean.split(chr(10)):
                 line = line.strip().lstrip("#").replace("**", "").replace("*", "").strip()
                 doc.add_paragraph(line if line else "")

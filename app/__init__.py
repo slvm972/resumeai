@@ -8,6 +8,10 @@ from config import config
 import logging
 import os
 
+# Метка блока в тексте improve: ###ITEM_001### или с типом ###ITEM_001:HEADING###
+# (формат пайплайна, missing_routes4: ###ITEM_{id}:{TYPE}###).
+_ITEM_MARKER_PATTERN = r"###ITEM_\d+(?::\w+)?###"
+
 db = SQLAlchemy()
 jwt = JWTManager()
 mail = Mail()
@@ -889,7 +893,7 @@ def _register_legacy_routes(app):
 
             # Текст без меток ###ITEM_NNN### (creative-режим) к оригинальному файлу не применяется:
             # _apply_improved_text_to_docx вернул бы исходник без изменений -> простой текстовый DOCX.
-            has_markers = bool(re_lib.search(r"###ITEM_\d+###", improved_text))
+            has_markers = bool(re_lib.search(_ITEM_MARKER_PATTERN, improved_text))
 
             if original_file and has_markers:
                 buf = _apply_improved_text_to_docx(original_file.read(), improved_text, item_ids)
@@ -906,7 +910,7 @@ def _register_legacy_routes(app):
             # Fallback — простой текстовый DOCX
             doc = Document()
             doc.styles['Normal'].font.size = Pt(11)
-            clean = re_lib.sub(r"###ITEM_\d+###", "", improved_text)
+            clean = re_lib.sub(_ITEM_MARKER_PATTERN, "", improved_text)
             for line in clean.split(chr(10)):
                 line = line.strip().lstrip('#').replace('**', '').replace('*', '').strip()
                 doc.add_paragraph(line if line else '')
