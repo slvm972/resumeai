@@ -417,3 +417,32 @@ def test_bridge_flag_follows_config_env(load_config):
     from app.creative_bridge import is_creative_v2_enabled
     assert is_creative_v2_enabled(_as_cfg(load_config())) is False
     assert is_creative_v2_enabled(_as_cfg(load_config(CREATIVE_V2_ENABLED='true'))) is True
+
+
+# ---------------------------------------------------------------------------
+# Второй тарифный пакет: LEMONSQUEEZY_VARIANT_PLANS (сырая JSON-строка; разбор в app/utils/plans.py)
+# ---------------------------------------------------------------------------
+
+def test_config_has_lemonsqueezy_variant_plans_default_empty(load_config):
+    cls = load_config(LEMONSQUEEZY_VARIANT_PLANS=None)
+    assert hasattr(cls, 'LEMONSQUEEZY_VARIANT_PLANS')
+    assert cls.LEMONSQUEEZY_VARIANT_PLANS == ''
+
+
+def test_lemonsqueezy_variant_plans_is_read_from_env_as_raw_string(load_config):
+    raw = '{"123456":"credits30"}'
+    assert load_config(LEMONSQUEEZY_VARIANT_PLANS=raw).LEMONSQUEEZY_VARIANT_PLANS == raw
+
+
+def test_lemonsqueezy_variant_plans_config_value_parses_via_plans_module(load_config):
+    from app.utils.plans import parse_variant_map
+    assert parse_variant_map(load_config(LEMONSQUEEZY_VARIANT_PLANS=None).LEMONSQUEEZY_VARIANT_PLANS) == {}
+    cls = load_config(LEMONSQUEEZY_VARIANT_PLANS='{"123456":"credits30"}')
+    assert parse_variant_map(cls.LEMONSQUEEZY_VARIANT_PLANS) == {'123456': 'credits30'}
+
+
+def test_webhook_reads_the_same_config_key():
+    """Охранный тест: webhooks.py читает ровно тот ключ, который есть в Config."""
+    with open(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'app', 'routes', 'webhooks.py'),
+              encoding='utf-8') as f:
+        assert "LEMONSQUEEZY_VARIANT_PLANS" in f.read()

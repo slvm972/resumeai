@@ -46,6 +46,7 @@ class AuthService:
             # до commit. Любая ошибка ниже откатывает всю регистрацию.
             # Сравнение email — в нижнем регистре, без пробелов по краям.
             from app.models.payment import Payment
+            from app.utils.plans import credits_for_plan
             email_norm = (email or '').strip().lower()
             pending = Payment.query.filter(
                 Payment.provider == 'lemonsqueezy',
@@ -55,8 +56,11 @@ class AuthService:
             ).all()
             claimed_ids = []
             for payment in pending:
-                subscription.credits_granted += 10
-                subscription.improvement_credits = (subscription.improvement_credits or 0) + 5
+                # Число кредитов определяет купленный пакет (plan_name NULL = старый
+                # платёж = 10; неизвестное имя = 0, но платёж всё равно привязывается).
+                credits = credits_for_plan(payment.plan_name)
+                subscription.credits_granted += credits
+                subscription.improvement_credits = (subscription.improvement_credits or 0) + credits // 2
                 payment.user_id = user.id
                 payment.status = 'completed'
                 payment.description = (payment.description or '') + ' (claimed at registration)'

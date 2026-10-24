@@ -9,6 +9,7 @@ from flask import Blueprint, request, current_app
 from app import db
 from app.models.user import User
 from app.models.payment import Payment
+from app.utils.plans import credits_for_plan, parse_variant_map, plan_for_order
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,20 @@ def lemonsqueezy_webhook():
         )
         return '', 400
 
+    # --- 5a. Какой пакет куплен (variant_id по карте из конфига, затем точная сумма) ---
+    # None = пакет не определён: платёж записывается, кредиты НЕ начисляются
+    # (plan_name='unknown' -> credits_for_plan даёт 0 и при регистрации).
+    variant_map = parse_variant_map(current_app.config.get('LEMONSQUEEZY_VARIANT_PLANS', ''))
+    plan = plan_for_order(attributes, amount, variant_map)
+    credits = credits_for_plan(plan) if plan is not None else 0
+    plan_name = plan if plan is not None else 'unknown'
+    order_description = 'Lemon Squeezy order'
+    unclaimed_description = 'Lemon Squeezy order (unclaimed, waiting for registration)'
+    if plan is None:
+        note = ' - unknown plan: credits NOT applied, needs manual review'
+        order_description += note
+        unclaimed_description += note
+
     try:
         # --- 6. Идемпотентность ---
         existing = Payment.query.filter_by(external_id=external_id).first()
@@ -73,11 +88,18 @@ def lemonsqueezy_webhook():
         # --- 7 / 8. Найти пользователя, создать Payment ---
         user = User.query.filter_by(email=user_email).first()
 
+        if plan is None:
+            # Без email: только id заказа и сумма.
+            logger.error(
+                "Lemon Squeezy webhook: unknown plan, credits NOT applied "
+                "(order %s, amount %s)", external_id, amount
+            )
+
         if user:
             subscription = user.get_active_subscription()
             if subscription:
-                subscription.improvement_credits += 5   # legacy-статистика, читается /subscription/current
-                subscription.credits_granted += 10       # новый единый пул — реальный источник доступа
+                subscription.improvement_credits += credits // 2   # legacy-статистика, читается /subscription/current
+                subscription.credits_granted += credits            # новый единый пул — реальный источник доступа
             else:
                 # Защитный случай — не должен происходить в норме
                 # (подписка создаётся при регистрации), но не роняем вебхук.
@@ -94,7 +116,8 @@ def lemonsqueezy_webhook():
                 status='completed',
                 provider='lemonsqueezy',
                 external_id=external_id,
-                description='Lemon Squeezy order',
+                plan_name=plan_name,
+                description=order_description,
             )
         else:
             logger.warning(
@@ -112,7 +135,8 @@ def lemonsqueezy_webhook():
                 status='completed_unclaimed',
                 provider='lemonsqueezy',
                 external_id=external_id,
-                description='Lemon Squeezy order (unclaimed, waiting for registration)',
+                plan_name=plan_name,
+                description=unclaimed_description,
             )
 
         db.session.add(payment)

@@ -90,6 +90,7 @@ class Config:
 
     # Lemon Squeezy
     LEMONSQUEEZY_WEBHOOK_SECRET = os.environ.get('LEMONSQUEEZY_WEBHOOK_SECRET')
+    LEMONSQUEEZY_VARIANT_PLANS = os.environ.get('LEMONSQUEEZY_VARIANT_PLANS', '')  # JSON {"variant_id":"credits30"}; разбор в app/utils/plans.py
 
     # CORS
     ALLOWED_ORIGINS = os.environ.get(
