@@ -84,6 +84,7 @@ h1{font-size:1.75rem;font-weight:700;margin-bottom:.35rem}
     <div class="stat-card"><div class="stat-label">Average Score</div><div class="stat-val" id="statAvg" style="color:var(--accent2)">—</div></div>
     <div class="stat-card"><div class="stat-label">Best Score</div><div class="stat-val" id="statBest" style="color:var(--success)">—</div></div>
     <div class="stat-card"><div class="stat-label">This Month</div><div class="stat-val" id="statMonth" style="color:var(--warning)">0</div></div>
+    <div class="stat-card"><div class="stat-label">Credits left</div><div class="stat-val" id="statCredits" style="color:var(--accent)">—</div><a href="/#pricing" class="btn-secondary" style="font-size:.75rem;padding:.3rem .8rem;margin-top:.6rem">Buy credits</a></div>
   </div>
 
   <div class="actions-grid">
@@ -112,12 +113,27 @@ h1{font-size:1.75rem;font-weight:700;margin-bottom:.35rem}
 </main>
 
 <script>
-// ─ Auth ─
-const session = JSON.parse(localStorage.getItem('rai_session') || 'null');
-if (!session) { window.location.href = '/login.html'; }
-document.getElementById('userChip').textContent = session ? session.name.split(' ')[0] : '';
-document.getElementById('greeting').textContent = 'Welcome back, ' + (session ? session.name.split(' ')[0] : '') + '! 👋';
-function doLogout(){ localStorage.removeItem('rai_session'); window.location.href = '/'; }
+// ─ Auth: настоящий вход на сервере (GET /api/user/me), не localStorage ─
+async function requireLogin() {
+  try {
+    const r = await fetch('/api/user/me', { credentials: 'same-origin' });
+    const d = r.ok ? await r.json() : null;
+    if (d && d.success && d.user) return d;
+  } catch (e) {}
+  window.location.href = '/login.html';
+  return null;
+}
+async function doLogout() {
+  try { await fetch('/api/user/logout', { method: 'POST', credentials: 'same-origin' }); } catch (e) {}
+  localStorage.removeItem('rai_session');   // устаревший ключ старой фиктивной авторизации
+  window.location.href = '/';
+}
+function mk(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
 
 // ─ History ─
 function getHistory(){ return JSON.parse(localStorage.getItem('rai_history') || '[]'); }
@@ -125,36 +141,57 @@ function gradeInfo(s){ if(s>=80) return ['Excellent','g-excellent']; if(s>=65) r
 function scoreColor(s){ if(s>=80) return 'var(--success)'; if(s>=65) return 'var(--warning)'; return 'var(--danger)'; }
 function fmtDate(iso){ return new Date(iso).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}); }
 
-const history = getHistory();
-// stats
-document.getElementById('statTotal').textContent = history.length;
-if (history.length) {
-  const avg = Math.round(history.reduce((a,h)=>a+(h.score||0),0)/history.length);
-  const best = Math.max(...history.map(h=>h.score||0));
-  document.getElementById('statAvg').textContent = avg;
-  document.getElementById('statBest').textContent = best;
-  const now = new Date(); const thisMonth = history.filter(h=>{ const d=new Date(h.date); return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear(); });
-  document.getElementById('statMonth').textContent = thisMonth.length;
+function renderDashboard() {
+  const history = getHistory();
+  // stats
+  document.getElementById('statTotal').textContent = history.length;
+  if (history.length) {
+    const avg = Math.round(history.reduce((a,h)=>a+(h.score||0),0)/history.length);
+    const best = Math.max(...history.map(h=>h.score||0));
+    document.getElementById('statAvg').textContent = avg;
+    document.getElementById('statBest').textContent = best;
+    const now = new Date(); const thisMonth = history.filter(h=>{ const d=new Date(h.date); return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear(); });
+    document.getElementById('statMonth').textContent = thisMonth.length;
+  }
+
+  // recent list (значения из localStorage — только через textContent)
+  const list = document.getElementById('recentList');
+  const recent = history.slice(0, 5);
+  if (!recent.length) {
+    list.innerHTML = '<div class="empty"><p>No analyses yet.</p><a href="/" class="btn-primary">Analyze Your First Resume</a></div>';
+  } else {
+    recent.forEach(h => {
+      const [grade, cls] = gradeInfo(h.score||0);
+      const row = mk('div', 'table-row');
+      const first = mk('div');
+      first.appendChild(mk('div', 'file-name', String(h.filename||'Resume')));
+      first.appendChild(mk('div', 'file-date', fmtDate(h.date)));
+      const score = mk('div', 'score-badge', String(h.score||'—'));
+      score.style.color = scoreColor(h.score||0);
+      const date = mk('span', '', fmtDate(h.date));
+      date.style.fontSize = '.78rem';
+      date.style.color = 'var(--muted)';
+      row.appendChild(first);
+      row.appendChild(score);
+      row.appendChild(mk('span', 'grade-tag ' + cls, grade));
+      row.appendChild(date);
+      list.appendChild(row);
+    });
+  }
 }
 
-// recent list
-const list = document.getElementById('recentList');
-const recent = history.slice(0, 5);
-if (!recent.length) {
-  list.innerHTML = '<div class="empty"><p>No analyses yet.</p><a href="/" class="btn-primary">Analyze Your First Resume</a></div>';
-} else {
-  recent.forEach(h => {
-    const [grade, cls] = gradeInfo(h.score||0);
-    const row = document.createElement('div');
-    row.className = 'table-row';
-    row.innerHTML = `
-      <div><div class="file-name">${h.filename||'Resume'}</div><div class="file-date">${fmtDate(h.date)}</div></div>
-      <div class="score-badge" style="color:${scoreColor(h.score||0)}">${h.score||'—'}</div>
-      <span class="grade-tag ${cls}">${grade}</span>
-      <span style="font-size:.78rem;color:var(--muted)">${fmtDate(h.date)}</span>`;
-    list.appendChild(row);
-  });
-}
+(async function init() {
+  const me = await requireLogin();
+  if (!me) return;
+  const first = String(me.user.name || '').split(' ')[0];
+  document.getElementById('userChip').textContent = first;
+  document.getElementById('greeting').textContent = 'Welcome back, ' + first + '! 👋';
+  // Остаток кредитов: у admin (id null) и без подписки — прочерк
+  const sub = me.subscription;
+  const credits = (me.user.id !== null && me.user.id !== undefined && sub && typeof sub.credits_remaining === 'number') ? sub.credits_remaining : null;
+  document.getElementById('statCredits').textContent = credits === null ? '—' : String(credits);
+  renderDashboard();
+})();
 </script>
 </body>
 </html>

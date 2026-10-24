@@ -31,12 +31,6 @@ main{flex:1;display:flex;align-items:center;justify-content:center;padding:2rem}
 .foot a{color:var(--accent);text-decoration:none}
 .back{display:flex;align-items:center;gap:.4rem;margin-top:1.5rem;justify-content:center;color:var(--muted);text-decoration:none;font-size:.85rem;transition:color .2s}
 .back:hover{color:var(--text)}
-.btn-google{display:flex;align-items:center;justify-content:center;gap:.65rem;width:100%;padding:.75rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.875rem;font-weight:600;cursor:pointer;font-family:inherit;transition:border-color .2s;margin-bottom:.6rem}
-.btn-google:hover{border-color:#4285F4}
-.btn-github{display:flex;align-items:center;justify-content:center;gap:.65rem;width:100%;padding:.75rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.875rem;font-weight:600;cursor:pointer;font-family:inherit;transition:border-color .2s;margin-bottom:.6rem}
-.btn-github:hover{border-color:#aaa}
-.divider-row{display:flex;align-items:center;gap:.75rem;margin:.75rem 0;color:var(--muted);font-size:.8rem}
-.divider-row::before,.divider-row::after{content:'';flex:1;height:1px;background:var(--border)}
 /* ── Password show/hide toggle ── */
 .pwd-wrap{position:relative}
 .pwd-wrap input{width:100%;padding-right:2.6rem}
@@ -58,16 +52,6 @@ main{flex:1;display:flex;align-items:center;justify-content:center;padding:2rem}
       <button class="tab" id="tabReg" onclick="switchTab('reg')">Sign Up</button>
     </div>
 
-    <button class="btn-google" onclick="socialLogin('google')">
-      <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-      Continue with Google
-    </button>
-    <button class="btn-github" onclick="socialLogin('github')">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-      Continue with GitHub
-    </button>
-    <div class="divider-row">or use email</div>
-
     <div id="errBox" class="err"></div>
     <div id="sucBox" class="suc"></div>
 
@@ -87,12 +71,11 @@ main{flex:1;display:flex;align-items:center;justify-content:center;padding:2rem}
 
     <!-- REGISTER FORM -->
     <div id="formReg" style="display:none">
-      <div class="group"><label>Full Name</label><input type="text" id="rName" placeholder="John Doe"/></div>
       <div class="group"><label>Email</label><input type="email" id="rEmail" placeholder="you@example.com"/></div>
       <div class="group">
         <label>Password</label>
         <div class="pwd-wrap">
-          <input type="password" id="rPass" placeholder="min. 6 characters"/>
+          <input type="password" id="rPass" placeholder="min. 8 characters"/>
           <button type="button" class="pwd-toggle" onclick="togglePasswordVisibility('rPass', this)" aria-label="Show password">👁</button>
         </div>
       </div>
@@ -114,18 +97,18 @@ function togglePasswordVisibility(inputId, btn) {
   btn.setAttribute('aria-label', showing ? 'Hide password' : 'Show password');
 }
 
-const Auth = {
-  getUsers()    { return JSON.parse(localStorage.getItem('rai_users')   || '{}'); },
-  saveUsers(u)  { localStorage.setItem('rai_users', JSON.stringify(u)); },
-  setSession(s) { localStorage.setItem('rai_session', JSON.stringify(s)); },
-  isLoggedIn()  { return !!localStorage.getItem('rai_session'); }
-};
+// Устаревшие ключи старой фиктивной авторизации (пароли открытым текстом): всегда удаляем.
+localStorage.removeItem('rai_users');
+localStorage.removeItem('rai_session');
 
-function socialLogin(provider) {
-  showErr('Social login coming soon. Please use email & password.');
-}
+const MIN_PASSWORD = 8;   // как app/utils/validators.py (validate_password)
+let busy = false;
 
-if (Auth.isLoggedIn()) window.location.href = '/dashboard.html';
+// Уже вошёл на сервере (настоящий пользователь, не синтетический admin с id null) -> в кабинет
+fetch('/api/user/me', { credentials: 'same-origin' })
+  .then(r => r.ok ? r.json() : null)
+  .then(d => { if (d && d.success && d.user && d.user.id !== null && d.user.id !== undefined) window.location.href = '/dashboard.html'; })
+  .catch(() => {});
 
 function switchTab(t) {
   document.getElementById('formLogin').style.display = t==='login' ? 'block' : 'none';
@@ -138,29 +121,49 @@ function showErr(m){ const e=document.getElementById('errBox'); e.textContent=m;
 function showSuc(m){ const e=document.getElementById('sucBox'); e.textContent=m; e.style.display='block'; document.getElementById('errBox').style.display='none'; }
 function clearMsg(){ document.getElementById('errBox').style.display='none'; document.getElementById('sucBox').style.display='none'; }
 
-function doRegister() {
-  const name  = document.getElementById('rName').value.trim();
-  const email = document.getElementById('rEmail').value.trim().toLowerCase();
-  const pass  = document.getElementById('rPass').value;
-  if (!name||!email||!pass) { showErr('Please fill in all fields.'); return; }
-  if (pass.length < 6) { showErr('Password must be at least 6 characters.'); return; }
-  const users = Auth.getUsers();
-  if (users[email]) { showErr('This email is already registered.'); return; }
-  users[email] = { name, pass };
-  Auth.saveUsers(users);
-  showSuc('Account created! Signing you in…');
-  setTimeout(() => { Auth.setSession({ email, name }); window.location.href = '/dashboard.html'; }, 1000);
+async function postJson(path, payload) {
+  const r = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify(payload)
+  });
+  let data = {};
+  try { data = await r.json(); } catch (e) {}
+  return { ok: r.ok, data };
 }
 
-function doLogin() {
+async function doRegister() {
+  if (busy) return;
+  const email = document.getElementById('rEmail').value.trim().toLowerCase();
+  const pass  = document.getElementById('rPass').value;
+  if (!email || !pass) { showErr('Please fill in all fields.'); return; }
+  if (pass.length < MIN_PASSWORD) { showErr('Password must be at least ' + MIN_PASSWORD + ' characters.'); return; }
+  busy = true;
+  try {
+    const { ok, data } = await postJson('/api/user/register', { email, password: pass });
+    if (!ok || !data.success) { showErr(data.error || 'Registration failed. Please try again.'); return; }
+    showSuc('Account created! Signing you in…');
+    setTimeout(() => { window.location.href = '/dashboard.html'; }, 800);
+  } catch (e) {
+    showErr('Network error. Please try again.');
+  } finally { busy = false; }
+}
+
+async function doLogin() {
+  if (busy) return;
   const email = document.getElementById('lEmail').value.trim().toLowerCase();
   const pass  = document.getElementById('lPass').value;
-  if (!email||!pass) { showErr('Enter email and password.'); return; }
-  const users = Auth.getUsers();
-  if (!users[email] || users[email].pass !== pass) { showErr('Wrong email or password.'); return; }
-  Auth.setSession({ email, name: users[email].name });
-  showSuc('Welcome back, ' + users[email].name + '!');
-  setTimeout(() => { window.location.href = '/dashboard.html'; }, 700);
+  if (!email || !pass) { showErr('Enter email and password.'); return; }
+  busy = true;
+  try {
+    const { ok, data } = await postJson('/api/user/login', { email, password: pass });
+    if (!ok || !data.success) { showErr(data.error || 'Login failed. Please try again.'); return; }
+    showSuc('Welcome back!');
+    setTimeout(() => { window.location.href = '/dashboard.html'; }, 600);
+  } catch (e) {
+    showErr('Network error. Please try again.');
+  } finally { busy = false; }
 }
 
 // Enter key support

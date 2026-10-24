@@ -109,10 +109,27 @@ main{max-width:1100px;margin:0 auto;padding:2.5rem 2rem}
 </main>
 
 <script>
-const session = JSON.parse(localStorage.getItem('rai_session') || 'null');
-if (!session) { window.location.href = '/login.html'; }
-document.getElementById('userChip').textContent = session ? session.name.split(' ')[0] : '';
-function doLogout(){ localStorage.removeItem('rai_session'); window.location.href = '/'; }
+// ─ Auth: настоящий вход на сервере (GET /api/user/me), не localStorage ─
+async function requireLogin() {
+  try {
+    const r = await fetch('/api/user/me', { credentials: 'same-origin' });
+    const d = r.ok ? await r.json() : null;
+    if (d && d.success && d.user) return d;
+  } catch (e) {}
+  window.location.href = '/login.html';
+  return null;
+}
+async function doLogout() {
+  try { await fetch('/api/user/logout', { method: 'POST', credentials: 'same-origin' }); } catch (e) {}
+  localStorage.removeItem('rai_session');   // устаревший ключ старой фиктивной авторизации
+  window.location.href = '/';
+}
+function mk(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
 
 function getHistory(){ return JSON.parse(localStorage.getItem('rai_history') || '[]'); }
 function gradeInfo(s){ if(s>=80) return ['Excellent','g-excellent']; if(s>=65) return ['Good','g-good']; if(s>=50) return ['Fair','g-fair']; return ['Poor','g-poor']; }
@@ -151,37 +168,70 @@ function renderList(){
   container.innerHTML = '';
 
   if (!h.length) {
-    container.innerHTML = '<div class="empty"><p>' + (getHistory().length ? 'No results match your filters.' : 'No analyses yet.') + '</p><a href="/" class="btn-primary">Analyze Your First Resume</a></div>';
+    const empty = mk('div', 'empty');
+    empty.appendChild(mk('p', '', getHistory().length ? 'No results match your filters.' : 'No analyses yet.'));
+    const link = mk('a', 'btn-primary', 'Analyze Your First Resume');
+    link.href = '/';
+    empty.appendChild(link);
+    container.appendChild(empty);
     return;
   }
 
-  h.forEach((item, idx) => {
+  const asList = v => Array.isArray(v) ? v : [];
+  const subItem = (label, val) => {
+    const d = mk('div', 'sub-item');
+    d.appendChild(document.createTextNode(label + ': '));
+    d.appendChild(mk('span', '', String(val||'—')));
+    return d;
+  };
+  const tagRow = (items, cls) => {
+    const row = mk('div', 'tag-row');
+    row.style.marginBottom = '.5rem';
+    items.forEach(t => row.appendChild(mk('span', 'tag ' + cls, String(t))));
+    return row;
+  };
+
+  // значения из localStorage выводятся только через textContent / createTextNode
+  h.forEach((item) => {
     const [grade, cls] = gradeInfo(item.score||0);
-    const div = document.createElement('div');
-    div.className = 'hist-item';
+    const div = mk('div', 'hist-item');
 
-    const strengths = (item.strengths||[]).map(s=>`<span class="tag t-green">${s}</span>`).join('');
-    const keywords  = (item.keywords||[]).map(k=>`<span class="tag t-blue">${k}</span>`).join('');
-    const improvements = (item.improvements||[]).map(i=>`<li>${i}</li>`).join('');
+    const top = mk('div', 'hist-top');
+    const left = mk('div');
+    const title = mk('div', 'hist-title', '📄 ' + String(item.filename||'Resume') + ' ');
+    title.appendChild(mk('span', 'grade-tag ' + cls, grade));
+    left.appendChild(title);
+    left.appendChild(mk('div', 'hist-date', fmtDate(item.date)));
+    const big = mk('div', 'score-big');
+    big.style.color = scoreColor(item.score||0);
+    big.appendChild(document.createTextNode(String(item.score||'—')));
+    const small = mk('small', '', '/100');
+    small.style.fontSize = '.9rem';
+    big.appendChild(small);
+    top.appendChild(left);
+    top.appendChild(big);
+    div.appendChild(top);
 
-    div.innerHTML = `
-      <div class="hist-top">
-        <div>
-          <div class="hist-title">📄 ${item.filename||'Resume'} <span class="grade-tag ${cls}">${grade}</span></div>
-          <div class="hist-date">${fmtDate(item.date)}</div>
-        </div>
-        <div class="score-big" style="color:${scoreColor(item.score||0)}">${item.score||'—'}<small style="font-size:.9rem">/100</small></div>
-      </div>
-      <div class="subscores">
-        <div class="sub-item">ATS: <span>${item.ats_score||'—'}</span></div>
-        <div class="sub-item">Formatting: <span>${item.formatting_score||'—'}</span></div>
-        <div class="sub-item">Content: <span>${item.content_score||'—'}</span></div>
-      </div>
-      ${item.summary ? `<div class="hist-summary">${item.summary}</div>` : ''}
-      ${strengths ? `<div class="tag-row" style="margin-bottom:.5rem">${strengths}</div>` : ''}
-      ${keywords  ? `<div class="tag-row" style="margin-bottom:.5rem">${keywords}</div>`  : ''}
-      ${improvements ? `<button class="expand-btn" onclick="toggleDetails(this)">▸ Show improvements</button><div class="details"><ul class="improve-list">${improvements}</ul></div>` : ''}
-    `;
+    const subs = mk('div', 'subscores');
+    subs.appendChild(subItem('ATS', item.ats_score));
+    subs.appendChild(subItem('Formatting', item.formatting_score));
+    subs.appendChild(subItem('Content', item.content_score));
+    div.appendChild(subs);
+
+    if (item.summary) div.appendChild(mk('div', 'hist-summary', String(item.summary)));
+    const strengths = asList(item.strengths), keywords = asList(item.keywords), improvements = asList(item.improvements);
+    if (strengths.length) div.appendChild(tagRow(strengths, 't-green'));
+    if (keywords.length) div.appendChild(tagRow(keywords, 't-blue'));
+    if (improvements.length) {
+      const btn = mk('button', 'expand-btn', '▸ Show improvements');
+      btn.addEventListener('click', () => toggleDetails(btn));
+      const details = mk('div', 'details');
+      const ul = mk('ul', 'improve-list');
+      improvements.forEach(i => ul.appendChild(mk('li', '', String(i))));
+      details.appendChild(ul);
+      div.appendChild(btn);
+      div.appendChild(details);
+    }
     container.appendChild(div);
   });
 }
@@ -192,7 +242,12 @@ function toggleDetails(btn){
   btn.textContent = d.classList.contains('open') ? '▾ Hide improvements' : '▸ Show improvements';
 }
 
-renderList();
+(async function init() {
+  const me = await requireLogin();
+  if (!me) return;
+  document.getElementById('userChip').textContent = String(me.user.name || '').split(' ')[0];
+  renderList();
+})();
 </script>
 </body>
 </html>
