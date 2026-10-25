@@ -9,8 +9,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# bcrypt учитывает только первые 72 байта; более длинный пароль не даёт защиты, а нагрузку создаёт.
-MAX_PASSWORD_LENGTH = 128
+# bcrypt учитывает только первые 72 БАЙТА (UTF-8): bcrypt 4.x молча обрезает пароль,
+# bcrypt 5.x падает с ValueError. Поэтому лимит считается в байтах, а не в символах.
+MAX_PASSWORD_BYTES = 72
 
 class AuthService:
 
@@ -27,9 +28,9 @@ class AuthService:
         valid, msg = validate_password(password if isinstance(password, str) else '')
         if not valid:
             return {'success': False, 'error': msg}
-        if len(password) > MAX_PASSWORD_LENGTH:
+        if len(password.encode('utf-8')) > MAX_PASSWORD_BYTES:
             return {'success': False,
-                    'error': 'Password must be at most %d characters' % MAX_PASSWORD_LENGTH}
+                    'error': 'Password is too long (maximum %d bytes; letters outside the English alphabet take 2 bytes each)' % MAX_PASSWORD_BYTES}
 
         if User.query.filter_by(email=email.lower()).first():
             return {'success': False, 'error': 'Email already registered'}
@@ -106,7 +107,15 @@ class AuthService:
         """Войти в систему."""
         user = User.query.filter_by(email=email.lower()).first()
 
-        if not user or not user.check_password(password):
+        if not user:
+            return {'success': False, 'error': 'Invalid email or password'}
+
+        # bcrypt 5.x бросает ValueError на пароле длиннее 72 байт: это просто неверный пароль, а не ошибка 500.
+        try:
+            password_ok = user.check_password(password)
+        except ValueError:
+            password_ok = False
+        if not password_ok:
             return {'success': False, 'error': 'Invalid email or password'}
 
         if not user.is_active:

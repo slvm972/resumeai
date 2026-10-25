@@ -19,6 +19,8 @@ os.environ.setdefault('GROQ_API_KEY', 'test-groq-key-not-used-mocked-out')
 from app import create_app
 
 _WEAK_MSG = 'Password must be at least 8 characters'
+_TOO_LONG_MSG = ('Password is too long (maximum 72 bytes; '
+                 'letters outside the English alphabet take 2 bytes each)')
 _GOOD_PASSWORD = 'a-long-enough-password'
 _COUNTER = {'n': 0}
 
@@ -65,15 +67,92 @@ def test_password_of_8_chars_accepted(app_ctx):
     assert _user(email) is not None
 
 
-def test_password_of_129_chars_rejected_and_128_accepted(app_ctx):
-    email = _email('long')
-    resp = _register(app_ctx, email, 'x' * 129)
+def _login(app, email, password):
+    return app.test_client().post('/api/user/login', json={'email': email, 'password': password})
+
+
+def test_password_of_exactly_72_bytes_accepted_and_login_works(app_ctx):
+    email, password = _email('b72'), 'a' * 72
+    assert len(password.encode('utf-8')) == 72
+    assert _register(app_ctx, email, password).status_code == 201
+    assert _login(app_ctx, email, password).status_code == 200
+
+
+def test_password_of_73_bytes_rejected_with_new_message(app_ctx):
+    email = _email('b73')
+    resp = _register(app_ctx, email, 'a' * 73)
     data = resp.get_json()
     assert resp.status_code == 400 and data['success'] is False
-    assert '128' in data['error']
+    assert data['error'] == _TOO_LONG_MSG
     assert _user(email) is None
-    ok = _register(app_ctx, _email('long128'), 'x' * 128)
-    assert ok.status_code == 201
+
+
+def test_36_cyrillic_letters_72_bytes_accepted(app_ctx):
+    email, password = _email('cyr36'), 'я' * 36
+    assert len(password) == 36 and len(password.encode('utf-8')) == 72
+    assert _register(app_ctx, email, password).status_code == 201
+    assert _login(app_ctx, email, password).status_code == 200
+
+
+def test_37_cyrillic_letters_74_bytes_rejected(app_ctx):
+    email, password = _email('cyr37'), 'я' * 37
+    assert len(password.encode('utf-8')) == 74
+    resp = _register(app_ctx, email, password)
+    assert resp.status_code == 400 and resp.get_json()['error'] == _TOO_LONG_MSG
+    assert _user(email) is None
+
+
+def test_old_character_limit_constant_is_gone():
+    import app.services.auth_service as svc
+    assert not hasattr(svc, 'MAX_PASSWORD_LENGTH') and svc.MAX_PASSWORD_BYTES == 72
+
+
+def test_login_with_100_char_password_is_plain_401_not_500(app_ctx):
+    email = _email('login100')
+    assert _register(app_ctx, email, _GOOD_PASSWORD).status_code == 201
+    resp = _login(app_ctx, email, 'x' * 100)
+    data = resp.get_json()
+    assert resp.status_code == 401 and data['success'] is False
+    assert data['error'] == 'Invalid email or password'
+
+
+def test_login_value_error_from_bcrypt_is_treated_as_wrong_password(app_ctx, monkeypatch):
+    """Не зависит от версии bcrypt: ValueError (как у bcrypt 5.x) симулируется подменой checkpw."""
+    import app.models.user as user_module
+    email = _email('valerr')
+    assert _register(app_ctx, email, _GOOD_PASSWORD).status_code == 201
+
+    def _raise(*args, **kwargs):
+        raise ValueError('password cannot be longer than 72 bytes, truncate manually if necessary')
+
+    monkeypatch.setattr(user_module.bcrypt, 'checkpw', _raise)
+    resp = _login(app_ctx, email, _GOOD_PASSWORD)
+    data = resp.get_json()
+    assert resp.status_code == 401 and data['success'] is False
+    assert data['error'] == 'Invalid email or password'
+
+
+def test_login_other_errors_from_bcrypt_are_not_swallowed(app_ctx, monkeypatch):
+    """Перехватывается только ValueError: любая другая ошибка по-прежнему видна."""
+    import app.models.user as user_module
+    from app.services.auth_service import AuthService
+    email = _email('othererr')
+    assert _register(app_ctx, email, _GOOD_PASSWORD).status_code == 201
+
+    def _raise(*args, **kwargs):
+        raise RuntimeError('boom')
+
+    monkeypatch.setattr(user_module.bcrypt, 'checkpw', _raise)
+    with pytest.raises(RuntimeError):
+        AuthService.login(email, _GOOD_PASSWORD)
+
+
+def test_login_unknown_email_and_normal_login_unchanged(app_ctx):
+    email = _email('plain')
+    assert _register(app_ctx, email, _GOOD_PASSWORD).status_code == 201
+    assert _login(app_ctx, email, _GOOD_PASSWORD).status_code == 200
+    nobody = _login(app_ctx, 'nobody-regval@example.com', _GOOD_PASSWORD)
+    assert nobody.status_code == 401 and nobody.get_json()['error'] == 'Invalid email or password'
 
 
 @pytest.mark.parametrize('bad', [None, '', 12345678, ['12345678'], {'p': 1}])
