@@ -628,7 +628,7 @@
       <div class="form-group">
         <label>Password</label>
         <div class="pwd-wrap">
-          <input type="password" id="regPassword" placeholder="min. 6 characters" />
+          <input type="password" id="regPassword" placeholder="min. 8 characters" />
           <button type="button" class="pwd-toggle" onclick="togglePasswordVisibility('regPassword', this)" aria-label="Show password">👁</button>
         </div>
       </div>
@@ -1170,7 +1170,7 @@
     const email = document.getElementById('regEmail').value.trim().toLowerCase();
     const pass  = document.getElementById('regPassword').value;
     if (!name || !email || !pass) { showModalError('Please fill in all fields.'); return; }
-    if (pass.length < 6) { showModalError('Password must be at least 6 characters.'); return; }
+    if (pass.length < 8) { showModalError('Password must be at least 8 characters.'); return; }
     try {
       const res = await fetch('/api/user/register', {
         method: 'POST',
