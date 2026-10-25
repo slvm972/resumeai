@@ -3,16 +3,34 @@ from app import db
 from app.models.user import User
 from app.models.subscription import Subscription
 from app.services.jwt_service import JWTService
+from app.utils.validators import validate_email, validate_password
 from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)
+
+# bcrypt учитывает только первые 72 байта; более длинный пароль не даёт защиты, а нагрузку создаёт.
+MAX_PASSWORD_LENGTH = 128
 
 class AuthService:
 
     @staticmethod
     def register(email, password):
         """Зарегистрировать нового пользователя."""
+        # Проверки входа — в одном месте, чтобы защита действовала для ВСЕХ маршрутов
+        # (/api/user/register, /api/auth/register, /auth/register) и до обращения к БД.
+        email = email.strip().lower() if isinstance(email, str) else ''
+        if not validate_email(email):
+            return {'success': False, 'error': 'Invalid email format'}
+
+        # Пароль НЕ обрезаем и регистр не меняем: вход сверяет ровно то, что ввёл пользователь.
+        valid, msg = validate_password(password if isinstance(password, str) else '')
+        if not valid:
+            return {'success': False, 'error': msg}
+        if len(password) > MAX_PASSWORD_LENGTH:
+            return {'success': False,
+                    'error': 'Password must be at most %d characters' % MAX_PASSWORD_LENGTH}
+
         if User.query.filter_by(email=email.lower()).first():
             return {'success': False, 'error': 'Email already registered'}
 
