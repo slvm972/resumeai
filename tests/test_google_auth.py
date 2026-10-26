@@ -375,3 +375,109 @@ def test_all_error_redirects_use_only_fixed_codes(app_ctx):
     codes = {u.split('error=')[1] for u in seen}
     assert codes <= _ERROR_CODES and len(codes) == 5
     assert all(u.startswith('/login.html?error=') and '&' not in u for u in seen)
+
+
+# ---------------------------------------------------------------------------
+# Диагностика по шагам (без чувствительных данных) и очистка значений настроек
+# ---------------------------------------------------------------------------
+
+def _error_messages(caplog):
+    return [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+def _assert_nothing_sensitive(caplog, *extra):
+    for secret in (_CODE, _TOKEN, _CLIENT_SECRET) + extra:
+        assert secret not in caplog.text, secret
+
+
+def test_token_failure_logs_step_status_and_google_error_only(app_ctx, caplog):
+    caplog.set_level(logging.DEBUG)
+    client = app_ctx.test_client()
+    body = {'error': 'redirect_uri_mismatch', 'error_description': 'Bad Request',
+            'id_token': 'LEAKED-BODY-FIELD', 'access_token': _TOKEN}
+    resp, _, _ = _callback(client, _start(client), token=_Resp(400, body))
+    assert _loc(resp).endswith('error=google_failed')
+    msgs = _error_messages(caplog)
+    assert any('step=token' in m and 'status=400' in m and 'google_error=redirect_uri_mismatch' in m
+               and 'description=Bad Request' in m for m in msgs), msgs
+    _assert_nothing_sensitive(caplog, 'LEAKED-BODY-FIELD')
+
+
+def test_error_description_with_email_is_dropped(app_ctx, caplog):
+    caplog.set_level(logging.DEBUG)
+    client = app_ctx.test_client()
+    body = {'error': 'invalid_grant', 'error_description': 'problem for victim@example.com'}
+    _callback(client, _start(client), token=_Resp(400, body))
+    assert 'victim@example.com' not in caplog.text
+    assert any('google_error=invalid_grant' in m and 'description=-' in m for m in _error_messages(caplog))
+
+
+def test_token_response_without_access_token_logs_reason(app_ctx, caplog):
+    caplog.set_level(logging.DEBUG)
+    client = app_ctx.test_client()
+    _callback(client, _start(client), token=_Resp(200, {'token_type': 'Bearer'}))
+    assert any('step=token' in m and 'reason=no_access_token' in m for m in _error_messages(caplog))
+
+
+def test_userinfo_failure_logs_step_and_status(app_ctx, caplog):
+    caplog.set_level(logging.DEBUG)
+    client = app_ctx.test_client()
+    _callback(client, _start(client), userinfo_resp=_Resp(401, {'error': 'invalid_token'}))
+    assert any('step=userinfo' in m and 'status=401' in m and 'google_error=invalid_token' in m
+               for m in _error_messages(caplog))
+    _assert_nothing_sensitive(caplog)
+
+
+def test_network_error_logs_only_exception_class_name(app_ctx, caplog):
+    caplog.set_level(logging.DEBUG)
+    client = app_ctx.test_client()
+    exc = requests.ConnectionError('secret-host-detail https://oauth2.googleapis.com/token?code=' + _CODE)
+    _callback(client, _start(client), post_exc=exc)
+    assert any('step=network' in m and 'reason=ConnectionError' in m for m in _error_messages(caplog))
+    assert 'secret-host-detail' not in caplog.text
+    _assert_nothing_sensitive(caplog)
+
+
+def test_email_not_usable_logs_flags_but_not_the_email(app_ctx, caplog):
+    caplog.set_level(logging.DEBUG)
+    email = _email('flags')
+    client = app_ctx.test_client()
+    _callback(client, _start(client), userinfo={'email': email, 'email_verified': False})
+    assert any('reason=email_not_usable' in m and 'verified=False' in m and 'has_email=True' in m
+               for m in _error_messages(caplog))
+    assert email not in caplog.text
+
+
+def test_register_failure_logs_fixed_reason_without_email(app_ctx, caplog):
+    caplog.set_level(logging.DEBUG)
+    email = _email('regfail')
+    client = app_ctx.test_client()
+    state = _start(client)
+    with patch('app.services.auth_service.AuthService.register',
+               return_value={'success': False, 'error': 'Registration failed'}):
+        resp, _, _ = _callback(client, state, userinfo={'email': email, 'email_verified': True})
+    assert _loc(resp).endswith('error=google_failed') and not _logged_in(client)
+    assert any('step=register' in m and 'reason=Registration failed' in m for m in _error_messages(caplog))
+    assert email not in caplog.text
+
+
+def test_config_values_with_stray_whitespace_are_cleaned(app_ctx):
+    app_ctx.config['GOOGLE_CLIENT_ID'] = '  ' + _CLIENT_ID + '\n'
+    app_ctx.config['GOOGLE_CLIENT_SECRET'] = _CLIENT_SECRET + ' \n'
+    app_ctx.config['GOOGLE_REDIRECT_URI'] = ' ' + _REDIRECT + '\n'
+    client = app_ctx.test_client()
+    assert client.get('/api/auth/providers').get_json() == {'google': True}
+    resp = client.get('/auth/google/start')
+    q = {k: v[0] for k, v in parse_qs(urlparse(_loc(resp)).query).items()}
+    assert q['client_id'] == _CLIENT_ID and q['redirect_uri'] == _REDIRECT
+    with client.session_transaction() as sess:
+        state = sess['google_oauth']['state']
+    _, p, _ = _callback(client, state, userinfo={'email': _email('ws'), 'email_verified': True})
+    sent = p.call_args[1]['data']
+    assert sent['client_id'] == _CLIENT_ID and sent['client_secret'] == _CLIENT_SECRET
+    assert sent['redirect_uri'] == _REDIRECT
+
+
+def test_whitespace_only_config_value_counts_as_not_configured(app_ctx):
+    app_ctx.config['GOOGLE_CLIENT_SECRET'] = ' \n '
+    assert app_ctx.test_client().get('/api/auth/providers').get_json() == {'google': False}

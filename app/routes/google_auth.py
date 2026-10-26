@@ -13,6 +13,7 @@
 """
 import hmac
 import logging
+import re
 import secrets
 import time
 from datetime import datetime
@@ -33,9 +34,45 @@ _STATE_MAX_AGE_SECONDS = 600
 _HTTP_TIMEOUT = 10
 
 
+def _cfg(key):
+    """Значение настройки без пробелов и переводов строки по краям (частая ошибка при вставке в панель хостинга)."""
+    value = current_app.config.get(key)
+    return value.strip() if isinstance(value, str) else value
+
+
 def _is_configured():
-    cfg = current_app.config
-    return all(cfg.get(k) for k in ('GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI'))
+    return all(_cfg(k) for k in ('GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI'))
+
+
+def _google_error_fields(resp):
+    """
+    Из ответа Google берём только поля error / error_description (обрезаны, без '@' и без лишних символов).
+    Тело ответа целиком, токены и коды не логируются никогда.
+    """
+    try:
+        data = resp.json()
+    except ValueError:
+        return '-', '-'
+    if not isinstance(data, dict):
+        return '-', '-'
+    error = data.get('error')
+    error = error if isinstance(error, str) and re.fullmatch(r'[a-z_]{1,40}', error) else '-'
+    desc = data.get('error_description')
+    if isinstance(desc, str) and '@' not in desc:
+        desc = re.sub(r'[^A-Za-z0-9 .,:_/-]', '', desc)[:100].strip() or '-'
+    else:
+        desc = '-'
+    return error, desc
+
+
+def _log_step(step, reason, resp=None):
+    """Диагностика: шаг, причина, HTTP-статус и безопасные поля ошибки Google (без email, кодов и токенов)."""
+    if resp is not None:
+        error, desc = _google_error_fields(resp)
+        logger.error('Google OAuth failed: step=%s reason=%s status=%s google_error=%s description=%s',
+                     step, reason, resp.status_code, error, desc)
+    else:
+        logger.error('Google OAuth failed: step=%s reason=%s', step, reason)
 
 
 def _fail(code):
@@ -56,8 +93,8 @@ def google_start():
     state = secrets.token_urlsafe(32)
     session['google_oauth'] = {'state': state, 'ts': time.time()}
     params = {
-        'client_id': current_app.config['GOOGLE_CLIENT_ID'],
-        'redirect_uri': current_app.config['GOOGLE_REDIRECT_URI'],
+        'client_id': _cfg('GOOGLE_CLIENT_ID'),
+        'redirect_uri': _cfg('GOOGLE_REDIRECT_URI'),
         'response_type': 'code',
         'scope': 'openid email',          # минимальный набор: имя и фото не запрашиваем
         'state': state,
@@ -79,33 +116,42 @@ def _state_is_valid(stored, received):
 
 
 def _fetch_google_email(code):
-    """Вернуть (email, None) или (None, код_ошибки). Ничего из ответов Google не логируется."""
-    cfg = current_app.config
+    """Вернуть (email, None) или (None, код_ошибки). Ничего из ответов Google целиком не логируется."""
     try:
         token_resp = requests.post(_TOKEN_URL, data={
             'code': code,
-            'client_id': cfg['GOOGLE_CLIENT_ID'],
-            'client_secret': cfg['GOOGLE_CLIENT_SECRET'],
-            'redirect_uri': cfg['GOOGLE_REDIRECT_URI'],
+            'client_id': _cfg('GOOGLE_CLIENT_ID'),
+            'client_secret': _cfg('GOOGLE_CLIENT_SECRET'),
+            'redirect_uri': _cfg('GOOGLE_REDIRECT_URI'),
             'grant_type': 'authorization_code',
         }, timeout=_HTTP_TIMEOUT)
         if token_resp.status_code != 200:
+            _log_step('token', 'http_status', token_resp)
             return None, 'google_failed'
         access_token = (token_resp.json() or {}).get('access_token')
         if not access_token or not isinstance(access_token, str):
+            _log_step('token', 'no_access_token', token_resp)
             return None, 'google_failed'
 
         info_resp = requests.get(_USERINFO_URL, headers={'Authorization': 'Bearer ' + access_token},
                                  timeout=_HTTP_TIMEOUT)
         if info_resp.status_code != 200:
+            _log_step('userinfo', 'http_status', info_resp)
             return None, 'google_failed'
         info = info_resp.json() or {}
-    except (requests.RequestException, ValueError):
+    except requests.RequestException as exc:
+        # Только имя класса исключения: текст ошибки может содержать адреса и параметры запроса.
+        _log_step('network', type(exc).__name__)
+        return None, 'google_failed'
+    except ValueError:
+        _log_step('response', 'invalid_json')
         return None, 'google_failed'
 
     verified = info.get('email_verified')
     email = info.get('email')
     if not (verified is True or verified == 'true') or not isinstance(email, str) or not email.strip():
+        logger.error('Google OAuth failed: step=userinfo reason=email_not_usable verified=%s has_email=%s',
+                     verified is True or verified == 'true', isinstance(email, str) and bool(email.strip()))
         return None, 'google_email'
     return email.strip().lower(), None
 
@@ -137,6 +183,8 @@ def google_callback():
         # Через AuthService.register: те же 2 бесплатных кредита и зачисление ожидающих платежей по почте.
         result = AuthService.register(email, secrets.token_urlsafe(32))
         if not result.get('success'):
+            # error в AuthService.register - фиксированные тексты без email
+            logger.error('Google OAuth failed: step=register reason=%s', result.get('error'))
             return _fail('google_failed')
         user = result['user']
         user.is_email_verified = True
