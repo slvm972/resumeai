@@ -121,6 +121,15 @@ def create_app(config_name=None):
     def history_page_html():
         return send_from_directory(root_dir, 'history.html')
 
+    # Юридические страницы (ссылки в футере index.html и в настройках Google Cloud Console)
+    @app.route('/privacy.html')
+    def privacy_page():
+        return send_from_directory(root_dir, 'privacy.html')
+
+    @app.route('/terms.html')
+    def terms_page():
+        return send_from_directory(root_dir, 'terms.html')
+
     @app.route('/admin-login.html')
     def admin_login_page():
         # Старый admin использует этот файл
