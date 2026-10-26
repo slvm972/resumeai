@@ -1041,3 +1041,6 @@ def _register_blueprints(app):
     
     from app.routes.webhooks import webhooks_bp
     app.register_blueprint(webhooks_bp, url_prefix='/webhooks')
+
+    from app.routes.google_auth import google_auth_bp
+    app.register_blueprint(google_auth_bp)

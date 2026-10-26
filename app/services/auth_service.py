@@ -94,7 +94,7 @@ class AuthService:
                     len(claimed_ids), claimed_ids,
                 )
 
-            logger.info(f"New user registered: {email}")
+            logger.info("New user registered: id=%s", user.id)   # без email в логах
             return {'success': True, 'user': user}
 
         except Exception as e:

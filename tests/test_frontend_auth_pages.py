@@ -38,13 +38,13 @@ def _scripts(html):
 # login.html
 # ---------------------------------------------------------------------------
 
-def test_login_has_no_fake_auth_or_social_buttons():
+def test_login_has_no_fake_auth_or_github_buttons():
     html = _read('login.html')
     cleaned = html.replace("localStorage.removeItem('rai_users')", '').replace("localStorage.removeItem('rai_session')", '')
     for key in ('rai_users', 'rai_session'):
         assert key not in cleaned, key           # ключ допустим только внутри removeItem
-    for bad in ('socialLogin', 'btn-google', 'btn-github', 'Continue with Google', 'Continue with GitHub', 'divider-row'):
-        assert bad not in html, bad
+    for bad in ('socialLogin', 'btn-github', 'Continue with GitHub', 'GitHub', 'github'):
+        assert bad not in html, bad       # кнопка Google разрешена (см. тесты ниже), GitHub нет
     assert 'coming soon' not in html.lower()
 
 
@@ -166,3 +166,38 @@ def test_server_contract_wrong_password_returns_error_text(app_ctx):
     resp = app_ctx.test_client().post('/api/user/login', json={'email': email, 'password': 'wrong-password'})
     data = resp.get_json()
     assert resp.status_code == 401 and data['success'] is False and data['error']   # страница показывает data.error
+
+
+# ---------------------------------------------------------------------------
+# Кнопка «Continue with Google» (серверный OAuth) на login.html
+# ---------------------------------------------------------------------------
+
+def test_login_google_button_is_a_link_to_start_only_and_hidden_by_default():
+    html = _read('login.html')
+    assert 'Continue with Google' in html
+    hrefs = set(re.findall(r'href="(/auth/google/[^"]*)"', html))
+    assert hrefs == {'/auth/google/start'}, hrefs
+    tag = re.search(r'<a [^>]*id="googleBtn"[^>]*>', html).group(0)
+    assert 'display:none' in tag and 'href="/auth/google/start"' in tag
+    assert re.search(r'id="googleDivider"[^>]*display:none', html)
+    assert 'onclick' not in tag
+
+
+def test_login_shows_google_button_only_when_server_reports_it():
+    html = _read('login.html')
+    assert '/api/auth/providers' in html and 'd.google === true' in html
+
+
+def test_login_has_no_google_secrets_or_client_ids():
+    low = _read('login.html').lower()
+    for bad in ('client_secret', 'google_client_secret', 'client_id', 'googleusercontent', 'oauth2.googleapis.com'):
+        assert bad not in low, bad
+
+
+def test_login_error_codes_are_mapped_through_fixed_table():
+    html = _read('login.html')
+    for code in ('google_unavailable', 'google_denied', 'google_state', 'google_failed', 'google_email', 'google_disabled'):
+        assert code + ':' in html, code
+    assert 'hasOwnProperty.call(GOOGLE_ERRORS' in html       # значение параметра из адреса в разметку не попадает
+    assert 'e.textContent = GOOGLE_ERRORS[code]' in html
+    assert not re.search(r'\.innerHTML\s*=', html)

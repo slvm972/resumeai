@@ -92,6 +92,11 @@ class Config:
     LEMONSQUEEZY_WEBHOOK_SECRET = os.environ.get('LEMONSQUEEZY_WEBHOOK_SECRET')
     LEMONSQUEEZY_VARIANT_PLANS = os.environ.get('LEMONSQUEEZY_VARIANT_PLANS', '')  # JSON {"variant_id":"credits30"}; разбор в app/utils/plans.py
 
+    # Google OAuth 2.0 (вход через Google). Включено, только если заданы все три значения.
+    GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID')
+    GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET')   # секрет: не логировать, не отдавать клиенту
+    GOOGLE_REDIRECT_URI = os.environ.get('GOOGLE_REDIRECT_URI')     # https://<домен>/auth/google/callback
+
     # CORS
     ALLOWED_ORIGINS = os.environ.get(
         'ALLOWED_ORIGINS',

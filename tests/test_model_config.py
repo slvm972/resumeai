@@ -446,3 +446,31 @@ def test_webhook_reads_the_same_config_key():
     with open(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'app', 'routes', 'webhooks.py'),
               encoding='utf-8') as f:
         assert "LEMONSQUEEZY_VARIANT_PLANS" in f.read()
+
+
+# ---------------------------------------------------------------------------
+# Вход через Google: GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URI
+# ---------------------------------------------------------------------------
+
+_GOOGLE_KEYS = ('GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI')
+
+
+def test_config_has_google_oauth_keys_default_none(load_config):
+    cls = load_config(**{k: None for k in _GOOGLE_KEYS})
+    for key in _GOOGLE_KEYS:
+        assert hasattr(cls, key), key
+        assert getattr(cls, key) is None, key
+
+
+def test_google_oauth_keys_are_read_from_env(load_config):
+    cls = load_config(GOOGLE_CLIENT_ID='cid', GOOGLE_CLIENT_SECRET='sec', GOOGLE_REDIRECT_URI='https://x.test/cb')
+    assert (cls.GOOGLE_CLIENT_ID, cls.GOOGLE_CLIENT_SECRET, cls.GOOGLE_REDIRECT_URI) == ('cid', 'sec', 'https://x.test/cb')
+
+
+def test_google_auth_module_reads_the_same_config_keys():
+    """Охранный тест: google_auth.py использует ровно те ключи, которые есть в Config."""
+    with open(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'app', 'routes', 'google_auth.py'),
+              encoding='utf-8') as f:
+        source = f.read()
+    for key in _GOOGLE_KEYS:
+        assert key in source, key
