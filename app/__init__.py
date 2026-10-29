@@ -16,6 +16,15 @@ db = SQLAlchemy()
 jwt = JWTManager()
 mail = Mail()
 
+# Поддерживаемые форматы загрузки резюме. Всё остальное отклоняется ДО обращения к ИИ,
+# поэтому кредит не списывается и в ИИ не уходит мусор (например, сырая разметка RTF).
+_ALLOWED_UPLOAD_EXTENSIONS = ('.pdf', '.docx', '.odt', '.rtf', '.txt')
+_UNSUPPORTED_FILE_MESSAGE = 'Unsupported file type. Please upload PDF, DOCX, ODT, RTF or TXT.'
+
+
+def _is_supported_upload(filename):
+    return bool(filename) and filename.lower().endswith(_ALLOWED_UPLOAD_EXTENSIONS)
+
 
 def create_app(config_name=None):
     if config_name is None:
@@ -170,7 +179,9 @@ def _extract_text_from_request():
     # Попробовать загруженный файл
     file = request.files.get('file') or request.files.get('resume')
     if file:
-        filename = file.filename.lower()
+        filename = (file.filename or '').lower()
+        if not _is_supported_upload(filename):
+            raise ValueError(_UNSUPPORTED_FILE_MESSAGE)
 
         # DOCX файл
         if filename.endswith('.docx'):
@@ -262,12 +273,23 @@ def _extract_text_from_request():
             except Exception:
                 raise ValueError("Cannot read PDF. Please paste text manually.")
 
-        # Попробовать прочитать как текст
-        else:
+        # RTF файл (Rich Text Format): читаем текст через striprtf, служебные коды в ИИ не попадают
+        elif filename.endswith('.rtf'):
+            rtf_error = "Cannot read RTF file. Please check the file is not corrupted."
+            raw_rtf = file.read().decode('latin-1')            # RTF - 7-bit ASCII с escape-последовательностями
+            if not raw_rtf.lstrip().startswith('{\\rtf'):
+                raise ValueError(rtf_error)
             try:
-                return file.read().decode('utf-8', errors='ignore').strip()
+                from striprtf.striprtf import rtf_to_text
+                text = rtf_to_text(raw_rtf, errors='ignore').strip()
             except Exception:
-                raise ValueError("Unsupported file format")
+                raise ValueError(rtf_error)
+            if not text:
+                raise ValueError("The RTF file contains no readable text.")
+            return text
+
+        else:
+            raise ValueError(_UNSUPPORTED_FILE_MESSAGE)
 
     return ''
 

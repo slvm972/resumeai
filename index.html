@@ -434,10 +434,10 @@
     <!-- Right: upload card -->
     <div id="upload" class="upload-card">
       <h2>📄 Upload Your Resume</h2>
-      <p>Supports PDF, DOCX, ODT, TXT formats · Max 5 MB</p>
+      <p>Supports PDF, DOCX, ODT, RTF, TXT formats · Max 5 MB</p>
 
       <div class="drop-zone" id="dropZone">
-        <input type="file" id="fileInput" accept=".pdf,.docx,.odt,.txt" />
+        <input type="file" id="fileInput" accept=".pdf,.docx,.odt,.rtf,.txt" />
         <div class="drop-icon">📂</div>
         <div class="drop-text"><strong>Click to choose a file</strong><br>or drag & drop here</div>
         <div class="file-name" id="fileName"></div>
@@ -695,7 +695,7 @@
     <div class="feature-card">
       <div class="feat-icon">📄</div>
       <h3>Input Formats</h3>
-      <p>PDF, DOCX, ODT, TXT</p>
+      <p>PDF, DOCX, ODT, RTF, TXT</p>
     </div>
     <div class="feature-card">
       <div class="feat-icon">📥</div>
@@ -788,7 +788,7 @@
     <p>Three simple steps to a better resume</p>
   </div>
   <div class="steps">
-    <div class="step"><div class="step-num">1</div><h3>Upload Resume</h3><p>Upload your resume as PDF, DOCX, ODT or TXT.</p></div>
+    <div class="step"><div class="step-num">1</div><h3>Upload Resume</h3><p>Upload your resume as PDF, DOCX, ODT, RTF or TXT.</p></div>
     <div class="step"><div class="step-num">2</div><h3>AI Analysis</h3><p>Our intelligent AI analyzes your resume against industry standards and hiring patterns.</p></div>
     <div class="step"><div class="step-num">3</div><h3>Get Results</h3><p>Receive detailed feedback, scores, and actionable improvement suggestions instantly.</p></div>
   </div>
@@ -951,6 +951,13 @@
   });
 
   function setFile(f) {
+    // Проверка формата до отправки: тот же список, что принимает сервер (PDF, DOCX, ODT, RTF, TXT)
+    const ext = f.name.indexOf('.') >= 0 ? f.name.split('.').pop().toLowerCase() : '';
+    if (['pdf', 'docx', 'odt', 'rtf', 'txt'].indexOf(ext) === -1) {
+      showError('Unsupported file type. Please upload PDF, DOCX, ODT, RTF or TXT.');
+      fileInput.value = '';
+      return;
+    }
     selectedFile = f;
     fileName.textContent = '📎 ' + f.name;
     analyzeBtn.disabled = false;
