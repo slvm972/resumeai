@@ -1420,6 +1420,13 @@
     });
   }
 
+  // Файл уходит на /api/improve только для DOCX и TXT: сервер читает такой файл напрямую.
+  // PDF, ODT и RTF сервер при улучшении читает как «сырой текст» (получается мусор), поэтому для них
+  // используется текст, уже корректно извлечённый при анализе (lastResumeText).
+  function canImproveFromFile(f) {
+    return !!f && /\.(docx|txt)$/i.test(f.name || '');
+  }
+
   async function improveResume() {
     if (!lastResumeText || !lastAnalysisData) return;
     document.getElementById('improveModal').classList.add('open');
@@ -1449,7 +1456,7 @@
       // JSON с resume_text остаётся fallback-путём на случай, если файл почему-то
       // не выбран (selectedFile не установлен) — чтобы не сломать существующее
       // поведение для таких сценариев.
-      if (selectedFile) {
+      if (canImproveFromFile(selectedFile)) {
         const formData = new FormData();
         formData.append('file', selectedFile);
         formData.append('creativity_mode', selectedCreativityMode);
