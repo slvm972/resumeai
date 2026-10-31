@@ -2630,6 +2630,74 @@ def register_missing_routes(app, _extract_text_from_request, _get_current_user):
 # списания кредитов в app/__init__.py.
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Уровень 1: структура текста без типов блоков (PDF/ODT/RTF/TXT и результат Creative)
+# ---------------------------------------------------------------------------
+# Для DOCX конвейер присваивает блокам тип (HEADING/BULLET/PLAIN). Для остальных форматов
+# и для Creative есть только строки текста. Здесь тип определяется по самому тексту, чтобы
+# экспорт в RTF/ODT/PDF получал жирные заголовки, маркеры списков и интервалы.
+
+_ANY_MARKER_RE = re.compile(r"###ITEM_\d+(?::(\w+))?###")
+_BULLET_PREFIX_RE = re.compile(r"^\s*[-*\u2013\u2014\u00b7\u25cf\u25aa]\s+")
+_TITLE_DATES_RE = re.compile(
+    r"^[^|]{3,90}\|\s*\d{4}\s*[\u2013\u2014-]\s*(?:\d{4}|[^\W\d_]{3,15}\.?)\s*$")
+_LANGUAGE_NAME_LABELS = {"\u05e2\u05d1\u05e8\u05d9\u05ea", "\u05e8\u05d5\u05e1\u05d9\u05ea -",
+                         "\u05d0\u05e0\u05d2\u05dc\u05d9\u05ea", "\u05e8\u05d5\u05e1\u05d9\u05d8"}
+
+
+def _heading_key(line):
+    return re.sub(r"[\s:.\-]+$", "", line.strip()).casefold()
+
+
+_KNOWN_HEADINGS = {_heading_key(h) for h in SECTION_HEADERS_SET if h not in _LANGUAGE_NAME_LABELS}
+
+
+def _looks_like_heading(line):
+    t = line.strip()
+    if not t or len(t) > 90 or "@" in t or "http" in t.lower():
+        return False
+    if _heading_key(t) in _KNOWN_HEADINGS:
+        return True
+    if _TITLE_DATES_RE.match(t):                      # "Должность / Title | 2020-2023"
+        return True
+    words = t.split()
+    letters = [c for c in t if c.isalpha()]
+    # ЗАГЛАВНЫЕ короткие строки без конечной точки: "CORE SKILLS", "ОПЫТ РАБОТЫ"
+    return (len(words) <= 6 and len(letters) >= 3 and not any(c.islower() for c in letters)
+            and not t.endswith((".", ",", ";")) and not any(c.isdigit() for c in t[:1]))
+
+
+def _ensure_typed_markup(text):
+    """
+    Если в тексте уже есть типизированные метки (хотя бы один блок не PLAIN), вернуть его как есть.
+    Иначе (нет меток или все PLAIN) разобрать строки и расставить типы HEADING / BULLET / PLAIN:
+    первая строка (имя) и заголовки разделов, строки "должность | годы" -> HEADING;
+    строки с маркером "- ", "* ", "\u2013 ", "\u2014 " -> BULLET (маркер убирается: генераторы добавляют \u2022 сами,
+    строки с "\u2022" остаются как есть); остальное PLAIN.
+    """
+    if not text:
+        return text
+    found = [(m.group(1) or "PLAIN").upper() for m in _ANY_MARKER_RE.finditer(text)]
+    if any(t != "PLAIN" for t in found):
+        return text
+    lines = [l.strip() for l in _ANY_MARKER_RE.sub("\n", text).replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    lines = [l for l in lines if l]
+    out = []
+    for n, line in enumerate(lines, 1):
+        if _BULLET_PREFIX_RE.match(line):
+            block_type, line = "BULLET", _BULLET_PREFIX_RE.sub("", line)
+        elif line.startswith("\u2022"):
+            block_type = "BULLET"
+        elif n == 1 and len(line.split()) <= 5 and "@" not in line:
+            block_type = "HEADING"
+        elif _looks_like_heading(line):
+            block_type = "HEADING"
+        else:
+            block_type = "PLAIN"
+        out.append("###ITEM_%03d:%s###\n%s" % (n, block_type, line))
+    return "\n\n".join(out)
+
+
 def _generate_odt(text):
     """
     Сгенерировать .odt из текста improved_resume (с маркерами
@@ -2745,6 +2813,7 @@ def _generate_odt(text):
     # _generate_rtf (Цикл B, Шаг 2), переиспользована без изменений.
     # Markerless-вход (без ###ITEM### вообще) даёт parts из одного
     # элемента — весь текст обрабатывается как единственный PLAIN-блок.
+    text = _ensure_typed_markup(text)
     parts = re.split(r"###ITEM_\d+(?::(\w+))?###", text)
     if len(parts) == 1:
         blocks = [("PLAIN", parts[0])]
@@ -3081,6 +3150,7 @@ def _generate_pdf(text):
     # CRLF-нормализация ДО разбора маркера — не трогать (см. докстринг
     # выше и коммит 7336c10 для DOCX-пути, тот же баг/то же решение).
     text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = _ensure_typed_markup(text)
     parts = re.split(r"###ITEM_\d+(?::(\w+))?###", text)
     if len(parts) == 1:
         blocks = [("PLAIN", parts[0])]
@@ -3331,6 +3401,7 @@ def _generate_rtf(text):
     # например напрямую из теста) — parts состоит из одного элемента,
     # и весь текст обрабатывается как единственный PLAIN-блок, что
     # в точности воспроизводит поведение ДО Шага 2 для такого входа.
+    text = _ensure_typed_markup(text)
     parts = re.split(r"###ITEM_\d+(?::(\w+))?###", text)
     if len(parts) == 1:
         blocks = [("PLAIN", parts[0])]
@@ -3369,9 +3440,9 @@ def _generate_rtf(text):
             # вокруг пустоты.
             wrapped = _rtf_type_wrap(escaped, wrap_type) if line else escaped
             if has_hebrew:
-                body.append(f"\\rtlch\\rtlpar\\qr {para_props}{wrapped}\\par")
+                body.append(f"\\pard\\rtlch\\rtlpar\\qr {para_props}{wrapped}\\par")
             else:
-                body.append(f"\\ltrch\\ltrpar\\ql {para_props}{wrapped}\\par")
+                body.append(f"\\pard\\ltrch\\ltrpar\\ql {para_props}{wrapped}\\par")
 
     rtf = (
         r"{\rtf1\ansi\ansicpg1252\uc1\deff0"

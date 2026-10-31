@@ -279,6 +279,9 @@ def _extract_text_from_request():
             raw_rtf = file.read().decode('latin-1')            # RTF - 7-bit ASCII с escape-последовательностями
             if not raw_rtf.lstrip().startswith('{\\rtf'):
                 raise ValueError(rtf_error)
+            # маркеры списка (\bullet) striprtf отбрасывает: превращаем их в символ •, чтобы структура списков не терялась
+            import re as _re
+            raw_rtf = _re.sub(r'\\bullet(?![A-Za-z])\s?', r'\\u8226? ', raw_rtf)
             try:
                 from striprtf.striprtf import rtf_to_text
                 text = rtf_to_text(raw_rtf, errors='ignore').strip()
