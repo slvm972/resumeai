@@ -160,6 +160,21 @@ def create_app(config_name=None):
     def health():
         return {'status': 'ok', 'service': 'ResumeAI'}
 
+    # Серверный лимит размера загрузки (Cycle S2). Заранее проверяем Content-Length,
+    # иначе RequestEntityTooLarge всплывает внутри маршрутов и ловится их
+    # общим except Exception как 500.
+    _too_large_body = {'success': False, 'error': 'File is too large (max 5 MB).'}
+
+    @app.before_request
+    def _reject_oversized_upload():
+        limit = app.config.get('MAX_CONTENT_LENGTH')
+        if limit and request.content_length and request.content_length > limit:
+            return jsonify(_too_large_body), 413
+
+    @app.errorhandler(413)
+    def _request_too_large(e):
+        return jsonify(_too_large_body), 413
+
     
 
     return app
@@ -183,116 +198,10 @@ def _extract_text_from_request():
         if not _is_supported_upload(filename):
             raise ValueError(_UNSUPPORTED_FILE_MESSAGE)
 
-        # DOCX файл
-        if filename.endswith('.docx'):
-            try:
-                from docx import Document
-                import io
-                doc = Document(io.BytesIO(file.read()))
-                parts = []
-                # Читать параграфы
-                for para in doc.paragraphs:
-                    if para.text.strip():
-                        parts.append(para.text)
-                # Читать таблицы (резюме часто хранятся в таблицах!)
-                for table in doc.tables:
-                    for row in table.rows:
-                        row_texts = [cell.text.strip() for cell in row.cells if cell.text.strip()]
-                        # убрать дубликаты ячеек
-                        seen = []
-                        for t in row_texts:
-                            if t not in seen:
-                                seen.append(t)
-                        if seen:
-                            parts.append(' | '.join(seen))
-                text = '\n'.join(parts)
-                return text.strip()
-            except Exception as e:
-                from flask import current_app
-                current_app.logger.error(f"[_extract_text_from_request] DOCX parse failed: {e}")
-                raise ValueError("Cannot read DOCX file. Please check the file is not corrupted.")
-
-        # ODT файл (OpenDocument Text)
-        elif filename.endswith('.odt'):
-            try:
-                from odf.opendocument import load
-                from odf.table import Table, TableRow, TableCell
-                from odf import teletype
-                import io
-                doc = load(io.BytesIO(file.read()))
-                parts = []
-                # Читать параграфы и заголовки верхнего уровня (не внутри
-                # таблиц) — doc.text.childNodes включает и текстовые узлы
-                # таблиц, поэтому фильтруем строго по qname 'p'/'h', чтобы
-                # не задублировать текст, который отдельно читается из
-                # таблиц ниже. 'h' (<text:h>) — это заголовки (Heading 1,
-                # Heading 2 и т.д.), они семантически такой же текстовый
-                # блок верхнего уровня, как обычный параграф, и часто несут
-                # имя резюме / названия секций — без них текст резюме
-                # молча теряет ключевые заголовки.
-                for child in doc.text.childNodes:
-                    qn = getattr(child, 'qname', None)
-                    if qn and qn[1] in ('p', 'h'):
-                        txt = teletype.extractText(child).strip()
-                        if txt:
-                            parts.append(txt)
-                # Читать таблицы (резюме часто хранятся в таблицах!)
-                for table in doc.getElementsByType(Table):
-                    for row in table.getElementsByType(TableRow):
-                        row_texts = []
-                        for cell in row.getElementsByType(TableCell):
-                            t = teletype.extractText(cell).strip()
-                            if t:
-                                row_texts.append(t)
-                        # убрать дубликаты ячеек
-                        seen = []
-                        for t in row_texts:
-                            if t not in seen:
-                                seen.append(t)
-                        if seen:
-                            parts.append(' | '.join(seen))
-                text = '\n'.join(parts)
-                return text.strip()
-            except Exception as e:
-                from flask import current_app
-                current_app.logger.error(f"[_extract_text_from_request] ODT parse failed: {e}")
-                raise ValueError("Cannot read ODT file. Please check the file is not corrupted.")
-
-        # TXT файл
-        elif filename.endswith('.txt'):
-            return file.read().decode('utf-8', errors='ignore').strip()
-
-        # PDF файл (базовая поддержка)
-        elif filename.endswith('.pdf'):
-            try:
-                import PyPDF2
-                import io
-                reader = PyPDF2.PdfReader(io.BytesIO(file.read()))
-                text = '\n'.join([page.extract_text() for page in reader.pages])
-                return text.strip()
-            except Exception:
-                raise ValueError("Cannot read PDF. Please paste text manually.")
-
-        # RTF файл (Rich Text Format): читаем текст через striprtf, служебные коды в ИИ не попадают
-        elif filename.endswith('.rtf'):
-            rtf_error = "Cannot read RTF file. Please check the file is not corrupted."
-            raw_rtf = file.read().decode('latin-1')            # RTF - 7-bit ASCII с escape-последовательностями
-            if not raw_rtf.lstrip().startswith('{\\rtf'):
-                raise ValueError(rtf_error)
-            # маркеры списка (\bullet) striprtf отбрасывает: превращаем их в символ •, чтобы структура списков не терялась
-            import re as _re
-            raw_rtf = _re.sub(r'\\bullet(?![A-Za-z])\s?', r'\\u8226? ', raw_rtf)
-            try:
-                from striprtf.striprtf import rtf_to_text
-                text = rtf_to_text(raw_rtf, errors='ignore').strip()
-            except Exception:
-                raise ValueError(rtf_error)
-            if not text:
-                raise ValueError("The RTF file contains no readable text.")
-            return text
-
-        else:
-            raise ValueError(_UNSUPPORTED_FILE_MESSAGE)
+        # Чтение файла по формату вынесено в app/utils/resume_text.py (Cycle S2):
+        # один извлекатель для маршрутов и для конвейера улучшения.
+        from app.utils.resume_text import extract_resume_text
+        return extract_resume_text(filename, file.read())
 
     return ''
 
@@ -849,10 +758,16 @@ def _register_legacy_routes(app):
                 subscription.credits_used += 1
                 db.session.commit()
 
-            if original_bytes:
+            if original_bytes and (filename or '').lower().endswith('.docx'):
                 from app.missing_routes4 import _save_temp_upload
                 session['original_docx_token'] = _save_temp_upload(original_bytes)
                 session['item_ids'] = result['item_ids']
+            else:
+                # ODT/PDF/RTF/TXT и текст из JSON: исходник как DOCX открыть нельзя,
+                # старые токены не должны пережить запрос (иначе /api/improve/docx даст 500)
+                session.pop('original_docx_token', None)
+                session.pop('original_docx_b64', None)
+                session.pop('item_ids', None)
 
             response_body = {
                 'success': True,

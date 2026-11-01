@@ -80,6 +80,10 @@ class Config:
     SERVER_URL = os.environ.get('SERVER_URL', 'http://localhost:5000')
     FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5000')
 
+    # Максимальный размер загружаемого запроса (Cycle S2): браузер проверяет 5 МБ,
+    # сервер даёт запас на multipart-обвязку
+    MAX_CONTENT_LENGTH = int(os.environ.get('MAX_UPLOAD_MB', 6)) * 1024 * 1024
+
     # Admin
     ADMIN_MODE = os.environ.get('ADMIN_MODE', 'false').lower() == 'true'
     # Creative v2 (улучшение резюме): по умолчанию выключен

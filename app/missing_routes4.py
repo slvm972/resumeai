@@ -1897,9 +1897,20 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
 
     if original_bytes is not None:
         if is_docx:
+            # zip-бомба в DOCX отсекается до разбора (Cycle S2)
+            from app.utils.resume_text import check_zip_safe
+            try:
+                check_zip_safe(original_bytes)
+            except ValueError as e:
+                return {"success": False, "error": str(e), "status": 400}
             resume_text = _extract_full_text_from_docx(original_bytes)
         else:
-            resume_text = original_bytes.decode("utf-8", errors="ignore")
+            # Cycle S2: раньше здесь был decode("utf-8"), для ODT/PDF это двоичный мусор
+            from app.utils.resume_text import extract_resume_text
+            try:
+                resume_text = extract_resume_text(filename, original_bytes)
+            except ValueError as e:
+                return {"success": False, "error": str(e), "status": 400}
     else:
         resume_text = (resume_text_fallback or "").strip()
 
@@ -2502,7 +2513,7 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
         "original_text": resume_text,
         "detected_language": detected_lang,
         "tokens_used": tokens_total,
-        "has_original_docx": original_bytes is not None,
+        "has_original_docx": bool(original_bytes is not None and is_docx),
         "quality_report": quality_report,
         "item_ids": item_ids,
         "creativity_mode": creativity_mode,
@@ -2547,6 +2558,10 @@ def register_missing_routes(app, _extract_text_from_request, _get_current_user):
             if original_bytes and filename and filename.lower().endswith('.docx'):
                 session["original_docx_token"] = _save_temp_upload(original_bytes)
                 session["item_ids"] = result["item_ids"]
+            else:
+                session.pop("original_docx_token", None)
+                session.pop("original_docx_b64", None)
+                session.pop("item_ids", None)
 
             return jsonify(result)
 
