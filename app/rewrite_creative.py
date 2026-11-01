@@ -18,8 +18,8 @@ import json
 import re
 import time
 
-PROMPT_VERSION = "v2.2"
-JUDGE_PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2.4"            # v2.4 (C1a): правило 8 - без выдуманного контекста
+JUDGE_PROMPT_VERSION = "v2"        # v2 (C1a): EMBELLISHMENT включает добавленных людей, места, условия
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -37,6 +37,7 @@ ABSOLUTE RULES (never break them):
 5. No embellishment. Do not add purposes, manners, qualities or conditions that are not in the source, such as "while meeting deadlines", "in compliance with regulations", "efficiently", "accurately", "on time", "effectively", "to ensure quality", or their equivalents in any language.
 6. No evaluative adjectives or self-praise about the candidate (experienced, skilled, reliable, responsible, motivated, professional, dynamic, results-oriented, and their equivalents in any language) unless the same word is in the source. Describe the role and the scope instead.
 7. Prefer plain, precise verbs. Avoid bureaucratic filler verbs ("carried out", "performed", "осуществлял", "обеспечивал") unless the source uses them.
+8. No invented context. Do not add WHO the work was done for or with, WHERE it happened, or UNDER WHAT CONDITIONS, unless the source says so. This covers new people and groups (colleagues, staff, students, customers, end-users, management), new places and settings (on-site, shop floor, classroom, in the field, remotely) and new qualifiers of the work (routine, daily, as needed, according to specifications), or their equivalents in any language. Examples. Source "Fixed computers": NOT "Provided on-site technical assistance to production staff", but "Repaired computers". Source "Configured network devices": NOT "Configured network devices according to project specifications", but "Set up and configured network devices". Source "Taught English": NOT "Taught English to students for classroom use", but "Taught English". If a sentence only sounds richer because of added people, places or conditions, cut them and strengthen the verb or the structure instead.
 
 WHAT YOU ARE ENCOURAGED TO DO (this is where the brightness comes from):
 - Merge related duties into stronger, tighter statements; reorder bullets so that the most significant come first; split overloaded lines.
@@ -45,6 +46,7 @@ WHAT YOU ARE ENCOURAGED TO DO (this is where the brightness comes from):
 - Group the skills by category, using only the listed skills.
 - Write a short summary (2-3 sentences) built only from the source: start with the job title from the source, then the years of experience when derivable, the main areas of work and the key listed skills.
 - Stay concise: the rewrite must not be much longer than the source.
+- The brightness must come from precise verbs, tight structure, merged and well-ordered bullets and a confident summary, never from added people, places or conditions (rule 8).
 
 OUTPUT FORMAT (plain text, no markdown, no extra commentary):
 <the header lines of the source copied exactly: the name and the contact lines, unchanged>
@@ -61,7 +63,7 @@ CHANGELOG
 JUDGE_SYSTEM = """You are a strict fact-checker for resume rewrites. You receive the SOURCE resume and a REWRITE. Check every sentence of the REWRITE, except the DERIVED and CHANGELOG sections, against the SOURCE. Report one issue for each of these types:
 - NEW_FACT: a number, name, tool, duration, employer, title, result or responsibility that is not in the source (arithmetic facts listed in DERIVED with a correct basis are fine).
 - OVERSTATED_ROLE: the candidate's involvement is raised (helped, assisted, participated, took part, was involved becomes resolved, led, managed, ensured, built, delivered, or similar).
-- EMBELLISHMENT: an added purpose, manner, quality or condition that is not in the source (for example "while meeting deadlines", "efficiently").
+- EMBELLISHMENT: an added purpose, manner, quality or condition, OR an added person or group, place or setting, or qualifier of the work, that is not in the source (for example "while meeting deadlines", "efficiently", "on-site", "to production staff", "students", "classroom use", "end-users", "routine", "according to project specifications"). Stronger verbs, tighter structure, merged or reordered bullets are NOT embellishment, report only what was ADDED.
 - TENSE_ERROR: wrong tense for the period (a finished job must be in the past tense, the current job in the present tense).
 - LANGUAGE_ERROR: a grammar, agreement, case or gender mistake, or an unnatural phrase.
 - FLUFF: evaluative adjectives or self-praise that are not in the source.
@@ -696,6 +698,78 @@ _FLUFF_CYR = [
     r"\bцелеустремл[её]нн\w*", r"\bцілеспрямован\w*",
     r"\bхорошее знание", r"\bдобре знання",
 ]
+# ---- v2.4 (C1a): "мягкие домыслы" - добавленные люди, места и условия работы ----
+# (вид, regex в результате, regex в исходнике или None = тот же). Флаг только если в исходнике
+# нет ни самого слова, ни слова из его группы-синонимов. Языки: EN, RU, UK. Иврит и арабский
+# ловит только судья (рубрика EMBELLISHMENT).
+_SOFT_INVENTION = [
+    # --- участники ---
+    ("people", r"\b(?:colleagues?|co-?workers?|teammates?)\b", None),
+    # staff/сотрудник как АДРЕСАТ работы (to/for/with ...). Сам кандидат ("сотрудник склада") - не домысел
+    ("people", r"\b(?:to|for|with|among|from)\s+(?:[\w-]+\s+){0,3}(?:staff|personnel)\b", r"\b(?:staff|personnel|employees?|workers?)\b"),
+    ("people", r"\binternal\s+(?:staff|personnel)\b", r"\b(?:staff|personnel|employees?|workers?)\b"),
+    ("people", r"\b(?:students?|pupils?|learners?)\b", None),
+    ("people", r"\b(?:customers?|clients?|end[- ]users?|users?)\b", r"\b(?:customers?|clients?|end[- ]users?|users?)\b"),
+    ("people", r"\bstakeholders?\b", None),
+    ("people", r"\bколле(?:г|ж)\w*", None),
+    ("people", r"\b(?:для|с|со|среди)\s+(?:\w+\s+){0,2}(?:сотрудник|персонал)\w*|\b(?:сотрудникам|персоналу)\b", r"\b(?:сотрудник|персонал|работник)\w*"),
+    ("people", r"\b(?:студент|учащ|учени(?:к|ц))\w*", r"\b(?:студент|учащ|учени(?:к|ц)|школьник)\w*"),
+    ("people", r"\b(?:клиент|заказчик|пользовател)\w*", r"\b(?:клиент|заказчик|пользовател|покупател)\w*"),
+    ("people", r"\bколег\w*", None),
+    ("people", r"\b(?:для|з|зі|серед)\s+(?:\w+\s+){0,2}(?:співробітник|персонал)\w*|\b(?:співробітникам|персоналу)\b", r"\b(?:співробітник|персонал|працівник)\w*"),
+    ("people", r"\bучн\w*", None),
+    ("people", r"\b(?:клієнт|замовник|користувач)\w*", r"\b(?:клієнт|замовник|користувач|покупц)\w*"),
+    # --- места и контекст ---
+    ("place", r"\bon-?site\b", None),
+    ("place", r"\b(?:shop|production) floor\b", r"\b(?:shop|production|warehouse) floor\b"),
+    ("place", r"\bclassrooms?\b", None),
+    ("place", r"\bin the field\b", None),
+    ("place", r"\bremotely\b", r"\bremote\w*"),
+    ("place", r"\bна месте\b", None),
+    ("place", r"\bв классе\b", r"\b(?:класс|школ|урок)\w*"),
+    ("place", r"\bв полевых условиях\b", None),
+    ("place", r"\bна місці\b", None),
+    ("place", r"\bу класі\b", r"\b(?:клас|школ|урок)\w*"),
+    # --- условия и характер работы ---
+    ("condition", r"\broutine\b", None),
+    ("condition", r"\bday-to-day\b", None),
+    ("condition", r"\bas (?:needed|required)\b", None),
+    ("condition", r"\bon a regular basis\b", None),
+    ("condition", r"\b(?:according to|per|in accordance with) (?:\w+ )?specifications?\b", r"\bspecifications?\b"),
+    ("condition", r"\bрутинн\w*", None),
+    ("condition", r"\bпо мере необходимости\b", None),
+    ("condition", r"\bв соответствии с (?:\w+ )?специфика\w*", r"\bспецифика\w*"),
+    ("condition", r"\b(?:за потреби|за необхідності)\b", None),
+    ("condition", r"\bвідповідно до (?:\w+ )?специфікац\w*", r"\bспецифікац\w*"),
+]
+_SOFT_PER_PATTERN_LIMIT = 3          # не больше стольких замечаний на один шаблон (короткое сообщение для repair)
+_SOFT_COMPILED = [(k, re.compile(o, re.I), re.compile(sr or o, re.I)) for k, o, sr in _SOFT_INVENTION]
+
+
+def soft_invention_issues(source, main):
+    """
+    EMBELLISHMENT-замечания (формат судьи) для слов-"домыслов", добавленных в основной
+    текст: новые участники работы (colleagues, students, end-users ...), места и контекст
+    (on-site, classroom ...), характер работы (routine, according to specifications ...),
+    которых нет в source. Слово, присутствующее в исходнике (или его синоним-группа), не
+    считается. Нужны, чтобы творческий режим менял подачу, а не добавлял содержание.
+    """
+    src = source or ""
+    issues = []
+    for kind, out_rx, src_rx in _SOFT_COMPILED:
+        if src_rx.search(src):
+            continue
+        for n, m in enumerate(out_rx.finditer(main or "")):
+            if n >= _SOFT_PER_PATTERN_LIMIT:
+                break
+            issues.append({
+                "type": "EMBELLISHMENT",
+                "quote": _snippet(main, m.start(), m.end()),
+                "reason": "Added %s '%s' is not in the source" % (kind, m.group(0)),
+            })
+    return issues
+
+
 _OWN_EN = ("managed", "managing", "led", "leading", "owned", "resolved", "resolving",
            "delivered", "ensured", "ensuring", "oversaw", "directed", "spearheaded", "controlled")
 _OWN_CYR_ROOTS = ("управля", "руковод", "контролир", "обеспечива", "оформля", "осуществля",
@@ -854,6 +928,7 @@ def det_issues(source, output):
             issues.append({"type": "OVERSTATED_ROLE", "quote": _snippet(main, m.start(), m.end()),
                            "reason": "Ownership verb '%s' is not in the source; involvement may be overstated" % m.group(0)})
 
+    issues.extend(soft_invention_issues(src, main))
     issues.extend(lost_item_issues(src, main))
     return issues
 
@@ -886,6 +961,10 @@ def build_repair_message(issues):
     if any(i.get("type") == "LOST_ITEM" for i in issues):
         text += (" For LOST_ITEM problems, put the listed item back into the skills section "
                  "(its wording may be inflected to fit the sentence); do not remove it.")
+    if any(str(i.get("reason", "")).startswith("Added ") for i in issues):
+        text += (" For problems about added people, places or conditions, delete exactly those "
+                 "words; if the sentence becomes weaker, make the verb or the structure "
+                 "stronger instead, without adding anything new.")
     return text
 
 

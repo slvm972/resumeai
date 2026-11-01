@@ -348,7 +348,8 @@ def test_45_det_issues_fluff():
     out = "Anna Smith\nExperience\n- Skilled in customer service, cash handling, and teamwork"
     r = pr.det_issues("Anna Smith\nWorked with customers and cash", out)
     assert [i["type"] for i in r] == ["FLUFF"] and "Skilled in" in r[0]["quote"]
-    assert pr.det_issues("Anna Smith\nSkilled cashier", out) == []              # слово есть в source
+    # слово есть в source; C1a: "customer" в этом урезанном source нет, поэтому сверяем только FLUFF
+    assert [i for i in pr.det_issues("Anna Smith\nSkilled cashier", out) if i["type"] == "FLUFF"] == []
     # существительное "Ответственность" из навыков источника не флагуется, прилагательное - флагуется
     noun = pr.det_issues("Навыки: Ответственность, коммуникабельность", "Навыки\nОтветственность, коммуникабельность")
     assert noun == []
@@ -577,7 +578,7 @@ def test_13_call_groq_retries_429_once_with_wait_capped_at_12():
 
 
 def test_19_prompt_version_and_system_prompt_contract():
-    assert pr.PROMPT_VERSION == "v2.2" and pr.JUDGE_PROMPT_VERSION == "v1"
+    assert pr.PROMPT_VERSION == "v2.4" and pr.JUDGE_PROMPT_VERSION == "v2"   # C1a: правило 8 и рубрика судьи v2
     assert pr.SYSTEM_PROMPT.startswith("You are an expert resume writer and career coach.")
     assert pr.SYSTEM_PROMPT.rstrip().endswith("what was merged or reworded and why>")
     msgs = pr.build_messages("CV TEXT", today="2026-10-20")
@@ -651,7 +652,9 @@ def test_90_equivalent_to_prototype(case):
     assert crc.detect_lang(source) == proto.detect_lang(source)
     post_new, post_old = crc.postprocess(source, output), proto.postprocess(source, output)
     assert post_new == post_old
-    assert crc.det_issues(source, post_new) == proto.det_issues(source, post_old)
+    # C1a: приложение добавило проверку "мягких домыслов" (reason начинается с "Added "); остальное прежнее
+    assert [i for i in crc.det_issues(source, post_new) if not i["reason"].startswith("Added ")] \
+        == proto.det_issues(source, post_old)
     main = crc.split_sections(post_new)[0]
     # v2.3: build_changelog отличается от прототипа ТОЛЬКО очисткой цитат (маркер списка в начале,
     # висящая точка в конце, одинаковые «было» и «стало» не выводятся)
@@ -665,8 +668,9 @@ def test_90_equivalent_to_prototype(case):
 def test_91_prototype_constants_and_prompts_identical():
     if proto is None:
         pytest.skip("proto_rewrite is not importable")
-    for name in ("SYSTEM_PROMPT", "JUDGE_SYSTEM", "JUDGE_USER_TEMPLATE", "USER_TEMPLATE",
-                 "PROMPT_VERSION", "JUDGE_PROMPT_VERSION", "JUDGE_ISSUE_TYPES"):
+    # C1a: SYSTEM_PROMPT, JUDGE_SYSTEM и версии приложения ушли вперёд прототипа (правило 8,
+    # рубрика EMBELLISHMENT). Приложение - главный; прототип остаётся архивной копией.
+    for name in ("JUDGE_USER_TEMPLATE", "USER_TEMPLATE", "JUDGE_ISSUE_TYPES"):
         assert getattr(crc, name) == getattr(proto, name), name
     for name in ("_OWN_RE", "_LIST_MARKER_RE", "_NUM_RE", "_EMAIL_RE", "_BULLET_RE", "_SKILL_SPLIT_RE"):
         assert getattr(crc, name).pattern == getattr(proto, name).pattern, name
@@ -694,7 +698,7 @@ def test_100_clean_is_acceptable(monkeypatch):
     assert set(r) == _RESULT_KEYS and set(r["checks"]) == _CHECK_KEYS
     assert r["status"] == "clean" and r["acceptable"] is True and r["error"] is None
     assert r["calls"] == 2 and r["rounds"] == 0 and r["judge_error"] is False
-    assert r["prompt_version"] == "v2.2"
+    assert r["prompt_version"] == "v2.4"
     assert r["checks"]["NEW_NUMBERS"] == [] and r["checks"]["LOST_CONTACTS"] == []
     assert r["checks"]["HEADER_PRESERVED"] is True and r["checks"]["FORBIDDEN"] == 0
     assert r["changelog"].startswith("Changes") and r["changelog"] in r["final_text"]
