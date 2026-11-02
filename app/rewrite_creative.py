@@ -74,7 +74,7 @@ JUDGE_ISSUE_TYPES = ("NEW_FACT", "OVERSTATED_ROLE", "EMBELLISHMENT",
                      "TENSE_ERROR", "LANGUAGE_ERROR", "FLUFF")
 
 # v2.2: LOST_ITEM выдаётся только кодом (det_issues), судья его не возвращает
-ALL_ISSUE_TYPES = JUDGE_ISSUE_TYPES + ("LOST_ITEM",)
+ALL_ISSUE_TYPES = JUDGE_ISSUE_TYPES + ("LOST_ITEM", "LOST_NUMBER")   # LOST_NUMBER (C1b): только код
 
 USER_TEMPLATE = "RESUME:\n{resume}\n\nRewrite it following the rules above."
 
@@ -494,7 +494,7 @@ def issue_counts(judge):
 
 _ISSUE_LETTERS = (("NEW_FACT", "N"), ("OVERSTATED_ROLE", "O"), ("EMBELLISHMENT", "E"),
                   ("TENSE_ERROR", "T"), ("LANGUAGE_ERROR", "L"), ("FLUFF", "F"),
-                  ("LOST_ITEM", "I"))
+                  ("LOST_ITEM", "I"), ("LOST_NUMBER", "M"))
 
 
 def _issues_cell(judge):
@@ -719,6 +719,11 @@ _SOFT_INVENTION = [
     ("people", r"\b(?:для|з|зі|серед)\s+(?:\w+\s+){0,2}(?:співробітник|персонал)\w*|\b(?:співробітникам|персоналу)\b", r"\b(?:співробітник|персонал|працівник)\w*"),
     ("people", r"\bучн\w*", None),
     ("people", r"\b(?:клієнт|замовник|користувач)\w*", r"\b(?:клієнт|замовник|користувач|покупц)\w*"),
+    # --- документы и сертификаты (C1b): "MCSE" в источнике не значит "сертификат MCSE" ---
+    ("credential", r"\b(?:certificat\w*|certified|diplomas?|licen[sc]e[sd]?)\b", None),
+    ("credential", r"\b(?:сертифик|диплом|лиценз|удостоверени)\w*", None),
+    ("credential", r"\b(?:сертифік|диплом|ліценз|посвідчен)\w*", None),
+    ("credential", r"(?:הסמכ|תעודת|תעודה|דיפלומה|רישיון)\w*", None),
     # --- места и контекст ---
     ("place", r"\bon-?site\b", None),
     ("place", r"\b(?:shop|production) floor\b", r"\b(?:shop|production|warehouse) floor\b"),
@@ -744,6 +749,37 @@ _SOFT_INVENTION = [
 ]
 _SOFT_PER_PATTERN_LIMIT = 3          # не больше стольких замечаний на один шаблон (короткое сообщение для repair)
 _SOFT_COMPILED = [(k, re.compile(o, re.I), re.compile(sr or o, re.I)) for k, o, sr in _SOFT_INVENTION]
+
+
+# ---- v2.4 (C1b): потерянные числа ----
+_LOST_NUMBER_LIMIT = 8      # не больше стольких замечаний (по одному на строку исходника)
+
+
+def lost_number_issues(source, main):
+    """
+    LOST_NUMBER-замечания: число (метрика, процент, сумма, размер команды, дата) есть в source,
+    но отсутствует в основном тексте результата. Раньше проверялись только НОВЫЕ числа, а творческий
+    режим молча выбрасывал результаты работы ("cutting reporting time by 35%" -> без цифр).
+    Одно замечание на строку source; quote = строка source (по ней модель восстановит число).
+    """
+    main_nums = _numbers(main or "")
+    issues = []
+    for line in (source or "").split("\n"):
+        if "@" in line:
+            continue    # контактная строка (в том числе с битым email "gmail. com"): контакты проверяются отдельно
+        line_nums = _numbers(line)
+        lost = sorted(n for n in line_nums if n not in main_nums)
+        if not lost:
+            continue
+        quote = re.sub(r"\s+", " ", _LIST_MARKER_RE.sub("", line)).strip()[:160]
+        issues.append({
+            "type": "LOST_NUMBER",
+            "quote": quote,
+            "reason": "number(s) %s from the source line are missing in the output" % ", ".join(lost),
+        })
+        if len(issues) >= _LOST_NUMBER_LIMIT:
+            break
+    return issues
 
 
 def soft_invention_issues(source, main):
@@ -904,6 +940,7 @@ def det_issues(source, output):
       OVERSTATED_ROLE глаголы владения (managed, руковод-, осуществля-, ...),
                       проверка выполняется ТОЛЬКО если в source их нет совсем
       LOST_ITEM       пункт раздела навыков source, которого нет в результате (v2.2)
+      LOST_NUMBER     число из source, которого нет в результате (v2.4, C1b)
     """
     main, _derived, _changelog = split_sections(output or "")
     src = source or ""
@@ -929,6 +966,7 @@ def det_issues(source, output):
                            "reason": "Ownership verb '%s' is not in the source; involvement may be overstated" % m.group(0)})
 
     issues.extend(soft_invention_issues(src, main))
+    issues.extend(lost_number_issues(src, main))
     issues.extend(lost_item_issues(src, main))
     return issues
 
@@ -961,6 +999,10 @@ def build_repair_message(issues):
     if any(i.get("type") == "LOST_ITEM" for i in issues):
         text += (" For LOST_ITEM problems, put the listed item back into the skills section "
                  "(its wording may be inflected to fit the sentence); do not remove it.")
+    if any(i.get("type") == "LOST_NUMBER" for i in issues):
+        text += (" For LOST_NUMBER problems, the quote is the source line: put every listed number back "
+                 "into the matching achievement exactly as written in the source (35% stays 35%, "
+                 "$1.2M stays $1.2M); never drop a figure, you may only reword around it.")
     if any(str(i.get("reason", "")).startswith("Added ") for i in issues):
         text += (" For problems about added people, places or conditions, delete exactly those "
                  "words; if the sentence becomes weaker, make the verb or the structure "
