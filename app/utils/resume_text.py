@@ -205,10 +205,117 @@ def _pdf_text(raw_bytes):
     return text.strip()
 
 
+# fcharset шрифта RTF -> кодовая страница Python. 0 и 1 (ANSI/default) = кодовая страница
+# документа (\\ansicpgN). Символьные и неизвестные наборы не трогаем.
+_RTF_CHARSET_CP = {
+    128: 'cp932', 129: 'cp949', 130: 'cp1361', 134: 'cp936', 136: 'cp950',
+    161: 'cp1253', 162: 'cp1254', 163: 'cp1258', 177: 'cp1255', 178: 'cp1256',
+    186: 'cp1257', 204: 'cp1251', 222: 'cp874', 238: 'cp1250',
+}
+_RTF_TOKEN = re.compile(
+    r"\\([a-zA-Z]+)(-?\d+)? ?|\\'([0-9a-fA-F]{2})|\\([^a-zA-Z'])|([{}])|([^\\{}]+)", re.S)
+
+
+def _rtf_decode_codepages(rtf):
+    """
+    Cycle S3: байты \\'hh в RTF кодируются кодовой страницей ШРИФТА текущего фрагмента
+    (\\fcharsetN из \\fonttbl), а не одной \\ansicpgN документа. Word с русской локалью пишет
+    \\ansicpg1251, а ивритский текст набирает шрифтом с \\fcharset177 (cp1255): striprtf декодировал
+    всё как cp1251, и иврит превращался в кириллический "мусор". Здесь каждая последовательность
+    \\'hh заменяется на \\uN-escape нужной кодировки, дальше обычный разбор striprtf.
+    """
+    tokens = list(_RTF_TOKEN.finditer(rtf))
+    ansicpg = 1252
+    deff = None
+    for m in tokens[:200]:
+        if m.group(1) == 'ansicpg' and m.group(2):
+            ansicpg = int(m.group(2))
+        elif m.group(1) == 'deff' and m.group(2):
+            deff = int(m.group(2))
+
+    # 1-й проход: таблица шрифтов  \\fN -> \\fcharsetM внутри {\\fonttbl ...}
+    fonts, depth, ft_depth, cur_def = {}, 0, None, None
+    for m in tokens:
+        word, arg, hexv, sym, brace = m.group(1), m.group(2), m.group(3), m.group(4), m.group(5)
+        if brace == '{':
+            depth += 1
+        elif brace == '}':
+            if ft_depth is not None and depth == ft_depth:
+                ft_depth = None
+            depth -= 1
+        elif word == 'fonttbl':
+            ft_depth = depth
+        elif ft_depth is not None and word == 'f' and arg:
+            cur_def = int(arg)
+        elif ft_depth is not None and word == 'fcharset' and arg and cur_def is not None:
+            fonts[cur_def] = int(arg)
+
+    def _cp_for(font):
+        cs = fonts.get(font)
+        if cs in _RTF_CHARSET_CP:
+            return _RTF_CHARSET_CP[cs]
+        return 'cp%d' % ansicpg
+
+    # 2-й проход: замена последовательностей \\'hh
+    out, stack = [], []
+    f, uc, depth, ft_depth = deff, 1, 0, None
+    i = 0
+    n = len(tokens)
+    while i < n:
+        m = tokens[i]
+        word, arg, hexv, brace = m.group(1), m.group(2), m.group(3), m.group(5)
+        if brace == '{':
+            stack.append((f, uc))
+            depth += 1
+        elif brace == '}':
+            if ft_depth is not None and depth == ft_depth:
+                ft_depth = None
+            if stack:
+                f, uc = stack.pop()
+            depth -= 1
+        elif word == 'fonttbl':
+            ft_depth = depth
+        elif ft_depth is None and word == 'f' and arg:
+            f = int(arg)
+        elif ft_depth is None and word == 'plain':
+            f = deff
+        elif ft_depth is None and word == 'uc' and arg:
+            uc = int(arg)
+        if hexv is not None and ft_depth is None:
+            run = [int(hexv, 16)]
+            j = i + 1
+            while j < n and tokens[j].group(3) is not None:
+                run.append(int(tokens[j].group(3), 16))
+                j += 1
+            try:
+                chars = bytes(run).decode(_cp_for(f), errors='replace')
+            except LookupError:
+                chars = bytes(run).decode('latin-1')
+            parts = []
+            for ch in chars:
+                cp = ord(ch)
+                if cp > 0xFFFF:                      # суррогатная пара
+                    cp -= 0x10000
+                    for u in (0xD800 + (cp >> 10), 0xDC00 + (cp & 0x3FF)):
+                        parts.append('\\u%d%s' % (u - 65536 if u > 32767 else u, '?' * uc))
+                else:
+                    parts.append('\\u%d%s' % (cp - 65536 if cp > 32767 else cp, '?' * uc))
+            out.append(''.join(parts))
+            i = j
+            continue
+        out.append(m.group(0))
+        i += 1
+    return ''.join(out)
+
+
 def _rtf_text(raw_bytes):
     raw_rtf = raw_bytes.decode('latin-1')  # RTF это 7-bit ASCII с escape-последовательностями
     if not raw_rtf.lstrip().startswith('{\\rtf'):
         raise ValueError(ERR_RTF)
+    try:
+        raw_rtf = _rtf_decode_codepages(raw_rtf)   # Cycle S3: кодовая страница по шрифту
+    except Exception as e:
+        logger.warning("[extract_resume_text] RTF codepage pass failed, using raw text: %s", e)
     # маркеры списка (\bullet) striprtf отбрасывает: превращаем их в символ •,
     # чтобы структура списков не терялась
     raw_rtf = re.sub(r'\\bullet(?![A-Za-z])\s?', r'\\u8226? ', raw_rtf)
