@@ -34,6 +34,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="google-site-verification" content="ru_Wg8HmWB9j06LVV7wYgxZVVqDAC-e5t-lVylSAkmE" />
   <title>ResumeAI v3 - Professional Resume Analysis</title>
   <link rel="icon" type="image/png" href="/static/favicon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -1380,6 +1381,7 @@
     <div id="improveActions" style="display:none;gap:.75rem;flex-wrap:wrap">
       <button class="btn-primary" onclick="copyImproved()" style="flex:1">📋 Copy to Clipboard</button>
       <button id="downloadBtn" class="btn-primary" onclick="downloadImproved()" style="flex:1;background:linear-gradient(135deg,#10b981,#06b6d4)">⬇️ Download as TXT</button>
+      <button id="downloadDocxBtn" class="btn-primary" onclick="downloadDocx()" style="flex:1;background:linear-gradient(135deg,#2563eb,#1d4ed8)">📘 DOCX (Word)</button>
       <button id="downloadOdtBtn" class="btn-primary" onclick="downloadOdt()" style="flex:1;background:linear-gradient(135deg,#8b5cf6,#6366f1)">📄 ODT (Google Docs)</button>
       <button id="downloadRtfBtn" class="btn-primary" onclick="downloadRtf()" style="flex:1;background:linear-gradient(135deg,#f59e0b,#ea580c)">📝 RTF (Word-compatible)</button>
       <button id="downloadPdfBtn" class="btn-primary" onclick="downloadPdf()" style="flex:1;background:linear-gradient(135deg,#3b82f6,#06b6d4)">📕 PDF</button>
@@ -1536,6 +1538,9 @@
         // как TXT — и в подписи, и в обработчике клика ниже (см. downloadImproved).
         const formatName = lastImprovedFormat === 'docx' ? 'DOCX' : 'TXT';
         document.getElementById('downloadBtn').textContent = `⬇️ Download as ${formatName}`;
+        // Cycle F1b: отдельная кнопка DOCX для всех входных форматов, кроме DOCX
+        // (там первая кнопка уже отдаёт DOCX с сохранением форматирования оригинала)
+        document.getElementById('downloadDocxBtn').style.display = (lastImprovedFormat === 'docx') ? 'none' : '';
       } else {
         throw new Error(data.error || 'Unknown error');
       }
@@ -1724,6 +1729,40 @@
       a.click();
       URL.revokeObjectURL(a.href);
       showDownloadSuccess('improved_resume.odt');
+    } catch (e) {
+      const msg = document.getElementById('improveModalMsg');
+      msg.style.display = 'block';
+      msg.style.color = '#f87171';
+      msg.textContent = 'Error: ' + e.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  }
+
+  // ── Скачать улучшенное резюме как DOCX для входов не-DOCX (Cycle F1b) ─────
+  // Исходного .docx нет, поэтому оригинал не отправляется: сервер собирает DOCX из текста
+  // с метками (заголовки, списки, иврит справа налево), как для ODT/RTF/PDF.
+  async function downloadDocx() {
+    const btn = document.getElementById('downloadDocxBtn');
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ Generating...';
+    try {
+      const formData = new FormData();
+      formData.append('improved_resume', lastImprovedRaw || document.getElementById('improvedText').textContent);
+      const response = await fetch('/api/improve/docx', { method: 'POST', body: formData });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || `Server error ${response.status}`);
+      }
+      const blob = await response.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'improved_resume.docx';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      showDownloadSuccess('improved_resume.docx');
     } catch (e) {
       const msg = document.getElementById('improveModalMsg');
       msg.style.display = 'block';
