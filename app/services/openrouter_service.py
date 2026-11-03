@@ -10,6 +10,7 @@ import time
 import langid
 
 from app.services.groq_params import groq_model, post_groq, message_text
+from app.utils.llm_errors import sanitize_error
 
 def _detect_language(text):
     """
@@ -138,7 +139,8 @@ Base scores on actual resume quality. Be honest and constructive."""
 
         if response.status_code != 200:
             error = response.json().get('error', {}).get('message', f'API error {response.status_code}')
-            return {'success': False, 'error': error}
+            logger.warning("Groq analysis error (status %s): %s", response.status_code, str(error)[:500])
+            return {'success': False, 'error': sanitize_error(error, response.status_code)}   # Cycle E1
 
         data = response.json()
         text = message_text(response)   # без <think>...</think>
@@ -182,7 +184,7 @@ Base scores on actual resume quality. Be honest and constructive."""
         return {'success': False, 'error': 'Request timeout. Please try again.'}
     except Exception as e:
         logger.error(f"Groq error: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': sanitize_error(str(e))}   # Cycle E1
 
 
 def _call_groq_text(prompt):
@@ -221,10 +223,12 @@ def _call_groq_text(prompt):
             }
 
         error = response.json().get('error', {}).get('message', f'Error {response.status_code}')
-        return {'success': False, 'error': error}
+        logger.warning("Groq text error (status %s): %s", response.status_code, str(error)[:500])
+        return {'success': False, 'error': sanitize_error(error, response.status_code)}   # Cycle E1
 
     except Exception as e:
-        return {'success': False, 'error': str(e)}
+        logger.error(f"Groq text error: {str(e)}")
+        return {'success': False, 'error': sanitize_error(str(e))}   # Cycle E1
 
 
 class OpenRouterService:

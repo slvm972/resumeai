@@ -1,8 +1,9 @@
 # app/missing_routes4.py
-import os, re, uuid, time, tempfile
+import logging, os, re, uuid, time, tempfile
 import langid
 
 from app.services.groq_params import groq_model, post_groq, message_text
+from app.utils.llm_errors import sanitize_error, is_request_too_large, response_error_message
 
 # ---------------------------------------------------------------------------
 # Токен-маркеры — UUID-based, LLM не может "исправить" их
@@ -2122,23 +2123,34 @@ def _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_ke
             "max_tokens": 6000,   # запас на рассуждение "думающих" моделей
         }
 
+        primary_model = group_payload["model"]
+        primary_429_msg = ""
         group_resp = post_groq(req_lib.post, "https://api.groq.com/openai/v1/chat/completions", {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, group_payload, 90)
 
         if group_resp.status_code == 429:
+            primary_429_msg = response_error_message(group_resp)
             group_payload["model"] = groq_model("GROQ_MODEL_FALLBACK")
             group_resp = post_groq(req_lib.post, "https://api.groq.com/openai/v1/chat/completions", {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, group_payload, 90)
 
-        if group_resp.status_code == 429:
-            # Оба варианта модели упёрлись в rate limit — ждём столько,
-            # сколько сама Groq API просит подождать (bounded, максимум 12с),
-            # и делаем один финальный повтор, прежде чем сдаться.
-            err_msg = group_resp.json().get("error", {}).get("message", "")
-            wait_s = _extract_retry_after_seconds(err_msg)
+        if group_resp.status_code in (413, 429):
+            # Оба варианта модели упёрлись в лимит — ждём столько, сколько сама Groq API просит
+            # подождать (bounded, максимум 12с), и делаем один финальный повтор, прежде чем сдаться.
+            err_msg = response_error_message(group_resp)
+            too_large = is_request_too_large(group_resp.status_code, err_msg)
+            # Cycle E1: запасная модель может иметь малый лимит выходных токенов (OTPM) и не вмещать
+            # большой ответ ("Request too large"). Тогда ждём по подсказке ОСНОВНОЙ модели и
+            # повторяем запрос на ней же, а не на запасной.
+            wait_s = _extract_retry_after_seconds(primary_429_msg if (too_large and primary_429_msg) else err_msg)
             time.sleep(wait_s)
+            if too_large:
+                group_payload["model"] = primary_model
             group_resp = post_groq(req_lib.post, "https://api.groq.com/openai/v1/chat/completions", {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, group_payload, 90)
 
         if group_resp.status_code != 200:
-            err = group_resp.json().get("error", {}).get("message", "Groq API error")
+            raw_err = response_error_message(group_resp, "Groq API error")
+            logging.getLogger(__name__).warning("Groq error (status %s, model %s): %s", group_resp.status_code,
+                                                group_payload.get("model"), raw_err[:500])
+            err = sanitize_error(raw_err, group_resp.status_code)   # Cycle E1: без сырого текста провайдера
             return None, 0, err
 
         group_raw = message_text(group_resp)   # без <think>...</think>
