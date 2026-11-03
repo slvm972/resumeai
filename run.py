@@ -1,3 +1,4 @@
+
 # run.py — точка входа Flask приложения ResumeAI
 import os
 from dotenv import load_dotenv
@@ -8,6 +9,18 @@ load_dotenv()
 from app import create_app
 
 app = create_app()
+
+
+# Google Search Console — подтверждение владения сайтом
+@app.route('/google7590a77faa5fd079.html')
+def google_site_verification():
+    from flask import Response
+    return Response(
+        'google-site-verification: google7590a77faa5fd079.html',
+        status=200,
+        mimetype='text/html'
+    )
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
