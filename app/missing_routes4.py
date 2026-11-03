@@ -2883,6 +2883,133 @@ def _generate_odt(text):
 
 
 # ---------------------------------------------------------------------------
+# DOCX-экспорт из текста (Cycle F1): для любого входного формата, не только DOCX
+# ---------------------------------------------------------------------------
+
+def _generate_docx(text):
+    """
+    Собрать .docx из текста improved_resume (с маркерами ###ITEM_NNN### или ###ITEM_NNN:TYPE###, либо без
+    них). Раньше для входов не-DOCX (ODT, PDF, RTF, TXT) был "простой текстовый DOCX": все строки одним
+    стилем, без заголовков, без списков, иврит слева направо. Теперь тот же разбор и те же типы блоков,
+    что в ODT/RTF/PDF экспортёрах:
+      HEADING  жирный, 13pt, отступ сверху
+      TABLE    жирный, без доп. отступа (пары "должность + годы")
+      BULLET   символ \u2022 + левый отступ
+      PLAIN    обычный абзац
+    Иврит и арабский (RTL): у абзаца <w:bidi/>, у рана <w:rtl/> и шрифт для сложных письменностей,
+    поэтому текст выравнивается по правому краю и знаки препинания стоят правильно.
+    Возвращает BytesIO. Исходного форматирования DOCX здесь нет (оно переносится только когда есть
+    сам исходный DOCX: _apply_improved_text_to_docx).
+    """
+    import io
+    from docx import Document
+    from docx.enum.text import WD_BREAK  # noqa: F401  (зарезервировано под будущие разрывы)
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.shared import Cm, Pt
+
+    FONT = "Arial"
+
+    doc = Document()
+    for section in doc.sections:
+        section.left_margin = section.right_margin = Cm(2)
+        section.top_margin = section.bottom_margin = Cm(2)
+    normal = doc.styles["Normal"]
+    normal.font.name = FONT
+    normal.font.size = Pt(11)
+    rpr = normal.element.get_or_add_rPr()
+    rfonts = rpr.find(qn("w:rFonts"))
+    if rfonts is None:
+        rfonts = OxmlElement("w:rFonts")
+        rpr.append(rfonts)
+    for attr in ("w:ascii", "w:hAnsi", "w:cs", "w:eastAsia"):
+        rfonts.set(qn(attr), FONT)
+    normal.paragraph_format.space_after = Pt(4)
+
+    def _is_rtl(s):
+        return any("\u0590" <= c <= "\u05FF" or "\u0600" <= c <= "\u06FF" for c in s)
+
+    _PPR_AFTER_BIDI = ("adjustRightInd", "snapToGrid", "spacing", "ind", "contextualSpacing", "mirrorIndents",
+                       "suppressOverlap", "jc", "textDirection", "textAlignment", "textboxTightWrap",
+                       "outlineLvl", "divId", "cnfStyle", "rPr", "sectPr", "pPrChange")
+    _RPR_AFTER_BCS = ("i", "iCs", "caps", "smallCaps", "strike", "dstrike", "outline", "shadow", "emboss",
+                      "imprint", "noProof", "snapToGrid", "vanish", "webHidden", "color", "spacing", "w",
+                      "kern", "position", "sz", "szCs", "highlight", "u", "effect", "bdr", "shd", "fitText",
+                      "vertAlign", "rtl", "cs", "em", "lang", "eastAsianLayout", "specVanish", "oMath")
+    _RPR_AFTER_SZCS = _RPR_AFTER_BCS[_RPR_AFTER_BCS.index("highlight"):]
+    _RPR_AFTER_RTL = _RPR_AFTER_BCS[_RPR_AFTER_BCS.index("cs"):]
+
+    def _ins(parent, tag, successors):
+        """Создать элемент tag и вставить его перед первым дочерним из successors (или в конец)."""
+        el = OxmlElement(tag)
+        later = {qn("w:" + name) for name in successors}
+        for child in parent:
+            if child.tag in later:
+                child.addprevious(el)
+                return el
+        parent.append(el)
+        return el
+
+    text = _ensure_typed_markup(text)
+    parts = re.split(r"###ITEM_\d+(?::(\w+))?###", text)
+    if len(parts) == 1:
+        blocks = [("PLAIN", parts[0])]
+    else:
+        blocks = []
+        for i in range(1, len(parts), 2):
+            block_type = (parts[i] or "PLAIN").upper()
+            content = parts[i + 1] if i + 1 < len(parts) else ""
+            blocks.append((block_type, content))
+
+    for block_type, content in blocks:
+        if block_type not in ("HEADING", "TABLE", "BULLET"):
+            block_type = "PLAIN"
+        content = content.strip("\n")
+        for line in content.split("\n"):
+            line = line.strip().lstrip("#").replace("**", "").replace("*", "").strip()
+            if not line:
+                doc.add_paragraph("")
+                continue
+            if block_type == "BULLET" and not line.lstrip().startswith("\u2022"):
+                display_text = "\u2022 " + line
+            else:
+                display_text = line
+            rtl = _is_rtl(line)
+            para = doc.add_paragraph()
+            pf = para.paragraph_format
+            if block_type == "HEADING":
+                pf.space_before = Pt(10)
+                pf.keep_with_next = True
+            elif block_type == "BULLET":
+                pf.left_indent = Cm(0.5)
+            run = para.add_run(display_text)
+            run.font.name = FONT
+            if block_type == "HEADING":
+                run.font.size = Pt(13)
+            if block_type in ("HEADING", "TABLE"):
+                run.bold = True
+            rrpr = run._r.get_or_add_rPr()
+            rf = rrpr.find(qn("w:rFonts"))
+            if rf is not None:
+                rf.set(qn("w:cs"), FONT)
+            if rtl:
+                # Порядок дочерних элементов в pPr/rPr строго задан схемой OOXML (иначе Word может
+                # счесть файл повреждённым), поэтому вставляем каждый элемент перед первым из тех, что
+                # по схеме идут после него.
+                _ins(para._p.get_or_add_pPr(), "w:bidi", _PPR_AFTER_BIDI)
+                if block_type in ("HEADING", "TABLE"):
+                    _ins(rrpr, "w:bCs", _RPR_AFTER_BCS)
+                size_cs = _ins(rrpr, "w:szCs", _RPR_AFTER_SZCS)
+                size_cs.set(qn("w:val"), str(26 if block_type == "HEADING" else 22))
+                _ins(rrpr, "w:rtl", _RPR_AFTER_RTL)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf
+
+
+# ---------------------------------------------------------------------------
 # PDF-экспорт (Cycle P1) — только функция генерации, без Flask-роута.
 # Роут добавляется отдельным циклом (P2), фронтенд (замена текущего
 # фейкового .pdf-пути в downloadImproved()) — циклом (P3).

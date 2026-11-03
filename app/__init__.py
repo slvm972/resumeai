@@ -856,16 +856,10 @@ def _register_legacy_routes(app):
                 return send_file(buf, as_attachment=True, download_name='improved_resume.docx',
                     mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
 
-            # Fallback — простой текстовый DOCX
-            doc = Document()
-            doc.styles['Normal'].font.size = Pt(11)
-            clean = re_lib.sub(_ITEM_MARKER_PATTERN, "", improved_text)
-            for line in clean.split(chr(10)):
-                line = line.strip().lstrip('#').replace('**', '').replace('*', '').strip()
-                doc.add_paragraph(line if line else '')
-            buf = io.BytesIO()
-            doc.save(buf)
-            buf.seek(0)
+            # Fallback (Cycle F1): исходного DOCX нет (вход ODT/PDF/RTF/TXT или creative-текст без меток) ->
+            # DOCX с заголовками, списками и RTL из типизированного текста, как в ODT/RTF/PDF
+            from app.missing_routes4 import _generate_docx
+            buf = _generate_docx(improved_text)
             return send_file(buf, as_attachment=True, download_name='improved_resume.docx',
                 mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
 

@@ -300,7 +300,9 @@ def test_30_docx_text_without_markers_builds_plain_docx_not_original(app_ctx):
         resp = _post_docx(client, text, original=_docx_bytes())
     assert resp.status_code == 200 and apply_.call_count == 0
     paras = [p.text for p in Document(io.BytesIO(resp.get_data())).paragraphs]
-    assert paras == ["Anna Smith", "anna@example.com", "Summary", "Sales associate.", "Served customers"] \
+    # Cycle F1: запасной DOCX теперь типизированный, "- пункт" выводится как буллет "\u2022 пункт"
+    assert paras == ["Anna Smith", "anna@example.com", "Summary", "Sales associate.", "\u2022 Served customers"] \
+        or paras == ["Anna Smith", "anna@example.com", "Summary", "Sales associate.", "Served customers"] \
         or paras == ["Anna Smith", "anna@example.com", "Summary", "Sales associate.", "- Served customers"]
     assert "ORIGINAL TEXT FROM FILE" not in paras
 
