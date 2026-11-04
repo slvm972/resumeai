@@ -59,3 +59,5 @@ test_resumes_real/
 test_weak/
 test_one/
 resume_ua.docx
+
+baseline_out*/
