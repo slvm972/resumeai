@@ -3,7 +3,22 @@ import logging, os, re, uuid, time, tempfile
 import langid
 
 from app.services.groq_params import groq_model, post_groq, message_text
-from app.utils.llm_errors import sanitize_error, is_request_too_large, response_error_message
+from app.utils.llm_errors import sanitize_error, is_request_too_large, response_error_message, MSG_GENERIC
+
+# Признаки внутренних деталей (пути файлов, трассировки), которые sanitize_error не распознаёт
+_INTERNAL_DETAIL_RE = re.compile(
+    r"[A-Za-z]:\\|(?:^|[\s'\"(])/(?:home|usr|app|opt|var|tmp|etc|mnt|srv|root|proc)\b|\.py\b|Traceback|File \"",
+    re.IGNORECASE)
+
+
+def _user_safe_error(exc):
+    """Текст исключения, который можно показать пользователю (Cycle T2).
+    Сначала sanitize_error (убирает детали провайдера), затем отсекаем пути файлов и трассировки.
+    Сырой текст нужно писать в лог отдельно."""
+    text = sanitize_error(str(exc))
+    if _INTERNAL_DETAIL_RE.search(text):
+        return MSG_GENERIC
+    return text
 
 # ---------------------------------------------------------------------------
 # Токен-маркеры — UUID-based, LLM не может "исправить" их
@@ -2580,7 +2595,7 @@ def register_missing_routes(app, _extract_text_from_request, _get_current_user):
         except Exception as e:
             import traceback
             app.logger.error("legacy_admin_improve failed: %s\n%s", e, traceback.format_exc())
-            return jsonify({"success": False, "error": str(e)}), 500
+            return jsonify({"success": False, "error": _user_safe_error(e)}), 500
 
     @app.route("/api/admin/improve/docx", methods=["POST"])
     def legacy_admin_improve_docx():
@@ -2648,7 +2663,8 @@ def register_missing_routes(app, _extract_text_from_request, _get_current_user):
                 mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
         except Exception as e:
-            return jsonify({"success": False, "error": str(e)}), 500
+            app.logger.error("legacy_admin_improve_docx failed: %s", e)
+            return jsonify({"success": False, "error": _user_safe_error(e)}), 500
 
 
 # ---------------------------------------------------------------------------

@@ -629,7 +629,9 @@ def _register_legacy_routes(app):
             })
 
         except ValueError as e:
-            return jsonify({'success': False, 'error': str(e)}), 400
+            from app.missing_routes4 import _user_safe_error
+            app.logger.warning(f"[legacy_analyze] ValueError: {e}")
+            return jsonify({'success': False, 'error': _user_safe_error(e)}), 400
         except Exception as e:
             app.logger.error(f"[legacy_analyze] failed: {e}")
             return jsonify({'success': False, 'error': 'Internal server error. Please try again.'}), 500
