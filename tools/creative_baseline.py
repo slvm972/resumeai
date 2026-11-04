@@ -42,7 +42,7 @@ os.environ.setdefault("JWT_SECRET_KEY", "baseline-tool-not-used")
 from app.rewrite_creative import _line_key, split_sections, rewrite_with_repair  # noqa: E402
 from app.services.groq_params import groq_model  # noqa: E402
 
-MODEL_LABELS = ("main",)     # только основная модель
+MODEL_LABELS = ("main", "fallback")     # только основная модель
 
 
 # ---------------------------------------------------------------------------
