@@ -319,11 +319,17 @@ def _rtf_text(raw_bytes):
     # маркеры списка (\bullet) striprtf отбрасывает: превращаем их в символ •,
     # чтобы структура списков не терялась
     raw_rtf = re.sub(r'\\bullet(?![A-Za-z])\s?', r'\\u8226? ', raw_rtf)
+    # Cycle T1: конец ячейки таблицы (\\cell, \\nestcell) striprtf превращал в символ "|", и он попадал
+    # в улучшаемый текст и результат ("תאריך לידה|"). Теперь ячейка это отдельная строка, как у DOCX-входа.
+    # \\cellx (границы ячеек) и \\cellN не затрагиваются: после слова не должно быть буквы.
+    raw_rtf = re.sub(r'\\(?:nest)?cell(?![A-Za-z])[ ]?', r'\\par ', raw_rtf)
     try:
         from striprtf.striprtf import rtf_to_text
-        text = rtf_to_text(raw_rtf, errors='ignore').strip()
+        text = rtf_to_text(raw_rtf, errors='ignore')
     except Exception:
         raise ValueError(ERR_RTF)
+    text = '\n'.join(line.rstrip() for line in text.split('\n'))   # хвостовые пробелы и табы (\\tab у подписей)
+    text = re.sub(r'\n{3,}', '\n\n', text).strip()
     if not text:
         raise ValueError(ERR_RTF_EMPTY)
     return text
