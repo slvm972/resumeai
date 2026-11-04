@@ -82,3 +82,90 @@ def test_main_survives_api_error_hides_key_and_prints_average(tmp_path, monkeypa
     blob = capsys.readouterr().out + "".join(open(out / f, encoding="utf-8").read() for f in files)
     assert "gsk_SECRET_TEST_KEY_123" not in blob
     assert "AVERAGE" in blob and "50%" in blob   # main: 1 из 2 строк изменена
+
+
+# ---------------------------------------------------------------------------
+# Cycle D2: честная метрика и --recompute (фиктивные данные, без сети)
+# ---------------------------------------------------------------------------
+
+D2_SOURCE = "\n".join([
+    "Anna Smith",
+    "anna@example.com | +1 555 010 2233",
+    "Experience",
+    "Support Specialist, Acme Ltd, 2019 - 2024",
+    "Was responsible for answering questions",
+    "Helped the team with accounts",
+    "Education",
+    "City College, 2015-2019",
+    "Skills",
+    "Windows, troubleshooting",
+])
+
+D2_OUTPUT = "\n".join([
+    "Anna Smith",
+    "anna@example.com | +1 555 010 2233",
+    "",
+    "Summary",
+    "Support Specialist with 5 years of experience answering questions and helping with accounts.",
+    "",
+    "Experience",
+    "Support Specialist, Acme Ltd, 2019 - 2024",
+    "- Answered questions",
+    "- Helped the team with accounts",
+    "",
+    "Education",
+    "City College, 2015-2019",
+    "",
+    "Skills",
+    "Windows, troubleshooting",
+])
+
+
+def test_d2_substantive_lines_exclude_name_contacts_headings_job_and_education():
+    assert cb.substantive_lines(D2_SOURCE) == [
+        "Was responsible for answering questions",
+        "Helped the team with accounts",
+        "Windows, troubleshooting",
+    ]
+
+
+def test_d2_substantive_changed_ratio_and_added_lines():
+    total, changed, ratio = cb.substantive_stats(D2_SOURCE, D2_OUTPUT)
+    assert (total, changed, ratio) == (3, 1, 0.333)       # изменён один буллет из трёх
+    added = cb.added_lines_list(D2_SOURCE, D2_OUTPUT)
+    # резюме и переписанный буллет; заголовок "Summary", имя, контакты, строка работы, образование не считаются
+    assert len(added) == 2
+    assert added[0].startswith("Support Specialist with 5 years")
+    assert added[1] == "- Answered questions"
+
+
+def test_d2_summarize_run_has_new_fields():
+    rr = {"status": "clean", "rounds": 0, "calls": 2, "text": D2_OUTPUT, "final_text": D2_OUTPUT,
+          "final_issues": []}
+    m = cb.summarize_run(D2_SOURCE, rr)
+    assert m["substantive_total"] == 3 and m["substantive_changed"] == 1
+    assert m["substantive_changed_ratio"] == 0.333 and m["added_lines"] == 2
+    assert m["changed_ratio"] == 0.1                       # старое поле остаётся: 1 из 10 строк
+
+
+def test_d2_recompute_without_key_or_network(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    runs, srcs = tmp_path / "runs", tmp_path / "src"
+    runs.mkdir()
+    srcs.mkdir()
+    _write_weak3(str(srcs / "weak3_Z.json"), [str(i).zfill(3) for i in range(1, 11)],
+                 [{"id": str(i + 1).zfill(3), "original_text": l} for i, l in enumerate(D2_SOURCE.splitlines())])
+    ok = {"resume": "weak3_Z", "label": "main", "run": 1, "error": None, "status": "clean", "calls": 2,
+          "unresolved": 0, "lost_number": [], "embellishment": [], "changed_ratio": 0.0,
+          "final_text": D2_OUTPUT + "\n\nDERIVED\n- 5 years = 2019-2024\n\nChanges\nRewritten:\n«x» → «y»"}
+    bad = {"resume": "weak3_Z", "label": "fallback", "run": 1, "error": "RuntimeError: 429", "changed_ratio": None,
+           "lost_number": [], "embellishment": []}
+    (runs / "weak3_Z__main__run1.json").write_text(json.dumps(ok), encoding="utf-8")
+    (runs / "weak3_Z__fallback__run1.json").write_text(json.dumps(bad), encoding="utf-8")
+    rc = cb.main(["--recompute", str(runs), "--sources", str(srcs)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "SUBST_CHG" in out and "ADDED" in out
+    main_row = [l for l in out.splitlines() if l.startswith("weak3_Z") and " main " in l][0]
+    assert "33%" in main_row and main_row.split()[-1] == "2.00"      # новые столбцы пересчитаны
+    assert "NOTE" in out                                             # старое changed_ratio 0.0 != пересчитанного 0.1
