@@ -139,6 +139,12 @@ def create_app(config_name=None):
     def terms_page():
         return send_from_directory(root_dir, 'terms.html')
 
+    # Страница помощи (ссылки в меню и подвале index.html, якоря #quick-start ... #contact)
+    @app.route('/help')
+    @app.route('/help.html')
+    def help_page():
+        return send_from_directory(root_dir, 'help.html')
+
     @app.route('/admin-login.html')
     def admin_login_page():
         # Старый admin использует этот файл

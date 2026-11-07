@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Help - ResumeAI</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <style>
+    html { scroll-behavior: smooth; }
+    body { font-family: 'Sora', 'Segoe UI', system-ui, -apple-system, Arial, sans-serif; background: #0b0f1a; color: #e2e8f0; line-height: 1.7; padding: 2rem; max-width: 800px; margin: auto; }
+    h1 { color: #3b82f6; margin-bottom: 1rem; }
+    h2 { color: #e2e8f0; font-size: 1.25rem; margin: 2.25rem 0 .75rem; scroll-margin-top: 1rem; }
+    p, li { color: #94a3b8; font-size: .95rem; margin-bottom: .75rem; }
+    ul, ol { padding-left: 1.2rem; }
+    strong { color: #e2e8f0; }
+    a { color: #3b82f6; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .back { display: inline-block; margin-bottom: 2rem; color: #60a5fa; }
+    .toc { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; margin-bottom: 1.5rem; padding: 0; list-style: none; }
+    .toc li { margin: 0; }
+    .note { background: #111827; border: 1px solid #1f2d45; border-radius: 10px; padding: .75rem 1rem; }
+    .dot { display: inline-block; width: .7rem; height: .7rem; border-radius: 50%; margin-right: .4rem; vertical-align: middle; }
+  </style>
+</head>
+<body>
+  <a href="/" class="back">← Back to ResumeAI</a>
+  <h1>Help</h1>
+  <ul class="toc">
+    <li><a href="#quick-start">Quick start</a></li>
+    <li><a href="#formats">Formats</a></li>
+    <li><a href="#languages">Languages</a></li>
+    <li><a href="#scores">Scores</a></li>
+    <li><a href="#modes">Modes</a></li>
+    <li><a href="#credits">Credits</a></li>
+    <li><a href="#contact">Contact</a></li>
+  </ul>
+
+  <section id="quick-start">
+    <h2>Quick start</h2>
+    <ol>
+      <li><strong>Upload your resume.</strong> Sign up free (email or Google) or sign in first: without an account the page shows only a sample analysis.</li>
+      <li><strong>Read the analysis:</strong> scores, strengths and improvements.</li>
+      <li><strong>Click Improve My Resume</strong> and pick a mode: Precise or Creative.</li>
+      <li><strong>Download the result</strong> as DOCX, ODT, RTF or PDF, or copy the text.</li>
+    </ol>
+  </section>
+
+  <section id="formats">
+    <h2>Formats</h2>
+    <ul>
+      <li><strong>Input:</strong> PDF, DOCX, ODT, RTF, TXT. Maximum file size is 5 MB.</li>
+      <li><strong>Output:</strong> DOCX, ODT, RTF, PDF.</li>
+    </ul>
+  </section>
+
+  <section id="languages">
+    <h2>Languages</h2>
+    <ul>
+      <li>English, Russian, Ukrainian, Hebrew, Arabic and Chinese. The language is detected automatically, and the analysis and rewrites come back in the same language.</li>
+      <li>Right-to-left layout: Hebrew in DOCX, ODT, RTF and PDF; Arabic in DOCX and PDF.</li>
+      <li><strong>Hebrew and Arabic are in beta:</strong> please review the improved resume carefully before using it.</li>
+      <li>Other languages may work, quality is not guaranteed (the analysis may come back in English).</li>
+    </ul>
+  </section>
+
+  <section id="scores">
+    <h2>Scores</h2>
+    <ul>
+      <li><strong>Overall score (0-100)</strong> is an AI estimate of how strong the resume is. It is not a guarantee of passing any employer's system.</li>
+      <li><strong>ATS score:</strong> how easily automated screening systems can read and match your resume.</li>
+      <li><strong>Formatting:</strong> clarity of layout and structure.</li>
+      <li><strong>Content:</strong> quality of wording and achievements.</li>
+    </ul>
+    <p>The ring around the overall score uses three colors:</p>
+    <ul>
+      <li><span class="dot" style="background:#10b981"></span><strong>Green, 80-100:</strong> strong.</li>
+      <li><span class="dot" style="background:#f59e0b"></span><strong>Amber, 65-79:</strong> good, with gaps.</li>
+      <li><span class="dot" style="background:#ef4444"></span><strong>Red, below 65:</strong> needs work.</li>
+    </ul>
+    <p>Your dashboard and history use the same thresholds with more labels: Excellent 80+, Good 65-79, Fair 50-64, Poor below 50.</p>
+  </section>
+
+  <section id="modes">
+    <h2>Modes</h2>
+    <ul>
+      <li><strong>Precise:</strong> minimal safe edits. It keeps your original layout when you upload a DOCX and download a DOCX (a paragraph with complex inline formatting may be left unchanged to protect it). For other input formats the file is generated from the edited text.</li>
+      <li><strong>Creative:</strong> new wording and a new summary. The layout is rebuilt, so check the change report before sending the resume. If Creative cannot produce a result that passes the safety checks, Precise edits are shown instead.</li>
+    </ul>
+    <p class="note">In both modes automatic checks reject added facts, numbers, employers and certificates. No automatic check is perfect, so always read the result before you send it.</p>
+  </section>
+
+  <section id="credits">
+    <h2>Credits</h2>
+    <ul>
+      <li>New accounts get 2 free credits automatically, no card required (also with Google sign-in).</li>
+      <li>One credit is used for each analysis and each improvement. An improvement is not charged if our safety checks reject the result or nothing was actually improved.</li>
+      <li><strong>Starter Pack:</strong> 10 credits, $9.99 one-time. <strong>Value Pack:</strong> 30 credits, $24.99 one-time.</li>
+      <li>Credits never expire and stack with each purchase. There is no subscription and no auto-renewal.</li>
+      <li>Use the same email at checkout as in your ResumeAI account so the credits are added to it.</li>
+      <li>Refunds are described in the <a href="/terms.html">Terms of Service</a>.</li>
+    </ul>
+  </section>
+
+  <section id="contact">
+    <h2>Contact</h2>
+    <ul>
+      <li>Email: <a href="mailto:slvm972@gmail.com">slvm972@gmail.com</a></li>
+      <li>Response time: within 24 hours on business days.</li>
+      <li>For billing or payment issues, please also contact Lemon Squeezy support.</li>
+    </ul>
+    <p>See also the <a href="/privacy.html">Privacy Policy</a> and the <a href="/terms.html">Terms of Service</a>.</p>
+  </section>
+</body>
+</html>
