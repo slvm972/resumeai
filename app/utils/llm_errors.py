@@ -32,6 +32,10 @@ _TIMEOUT_RE = re.compile(r"timed? ?out|timeout", re.I)
 _PROVIDER_RE = re.compile(
     r"groq|openai|openrouter|anthropic|qwen|llama|gpt-oss|org_[a-z0-9]+|service tier|on_demand|dev tier|"
     r"console\.[a-z]+\.com|https?://|model\s*[`'\"]|max_tokens|api key|\b[TO]?PM\b|\b[TR]PD\b", re.I)
+# Cycle E2: внутренние тексты Python/JSON-разбора не предназначены для пользователя
+_INTERNAL_RE = re.compile(
+    r"Expecting (?:value|property name|'.' delimiter)|line \d+ column \d+|\(char \d+\)|Traceback|Errno|"
+    r"object has no attribute|KeyError|NoneType|JSONDecodeError", re.I)
 
 
 def is_request_too_large(status, message):
@@ -55,6 +59,8 @@ def sanitize_error(message, status=None):
         return MSG_GENERIC
     if is_request_too_large(status, text) or is_rate_limit(status, text):
         return MSG_BUSY
+    if _INTERNAL_RE.search(text):
+        return MSG_UNAVAILABLE   # Cycle E2: "Expecting value: line 2 column 21", Traceback, KeyError ...
     if status in (401, 403) or _AUTH_RE.search(text):
         return MSG_UNAVAILABLE
     if _TIMEOUT_RE.search(text) and not _PROVIDER_RE.search(text):

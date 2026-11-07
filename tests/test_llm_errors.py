@@ -236,3 +236,32 @@ def test_12_analysis_network_exception_is_sanitized(app_ctx, monkeypatch):
     monkeypatch.setattr("requests.post", boom)
     res = OpenRouterService.analyze_resume(U(), "A reasonably long resume text " * 5)
     assert res["success"] is False and _clean(res["error"])
+
+
+# ---------------------------------------------------------------------------
+# Cycle E2: тексты разбора JSON и внутренних исключений Python не доходят до пользователя
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("raw", [
+    "Expecting value: line 2 column 21 (char 22)",
+    "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)",
+    "Traceback (most recent call last): File app.py",
+    "[Errno 2] No such file or directory",
+    "'NoneType' object has no attribute 'get'",
+    "KeyError: 'choices'",
+    "'NoneType' object is not subscriptable",
+])
+def test_e2_sanitize_internal_python_text_becomes_unavailable(raw):
+    from app.utils.llm_errors import sanitize_error, MSG_UNAVAILABLE
+    assert sanitize_error(raw) == MSG_UNAVAILABLE
+
+
+@pytest.mark.parametrize("own", [
+    "Empty response from the AI model. Please try again.",
+    "Resume text is too short",
+    "Cannot read ODT file.",
+    "Request timeout. Please try again.",
+])
+def test_e2_sanitize_keeps_own_messages(own):
+    from app.utils.llm_errors import sanitize_error
+    assert sanitize_error(own) == own

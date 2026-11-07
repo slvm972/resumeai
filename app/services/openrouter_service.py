@@ -10,7 +10,7 @@ import time
 import langid
 
 from app.services.groq_params import groq_model, post_groq, message_text
-from app.utils.llm_errors import sanitize_error
+from app.utils.llm_errors import sanitize_error, MSG_UNAVAILABLE
 
 def _detect_language(text):
     """
@@ -68,6 +68,36 @@ def _extract_retry_after_seconds(error_message, default=2.0, cap=12.0):
         return min(float(m.group(1)), cap)
     except ValueError:
         return default
+
+_TRANSIENT_RETRY_PAUSE = 2.5   # Cycle E2: короткая пауза перед единственным повтором при временном сбое
+
+
+def _safe_json(response):
+    """Тело ответа как dict; {} при ЛЮБОЙ ошибке разбора (страница шлюза, пустое тело, не-JSON). Без исключений."""
+    try:
+        data = response.json()
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _error_message(response, default=''):
+    """Сырой текст ошибки провайдера (для лога и sanitize_error, НЕ для пользователя). Не бросает исключений."""
+    err = _safe_json(response).get('error')
+    if isinstance(err, dict):
+        msg = err.get('message')
+    elif isinstance(err, str):
+        msg = err
+    else:
+        msg = None
+    return str(msg) if msg else default
+
+
+def _is_transient(response):
+    """Временный сбой Groq: 5xx или статус 200 с не-JSON/пустым телом."""
+    status = response.status_code
+    return status >= 500 or (status == 200 and not _safe_json(response))
+
 
 LANGUAGE_NAMES = {
     'he': 'Hebrew',
@@ -132,17 +162,27 @@ Base scores on actual resume quality. Be honest and constructive."""
         if response.status_code == 429:
             # Groq подсказывает точное время ожидания в тексте ошибки —
             # используем его вместо мгновенного отказа.
-            err_msg = response.json().get('error', {}).get('message', '')
+            err_msg = _error_message(response)
             wait_s = _extract_retry_after_seconds(err_msg)
             time.sleep(wait_s)
             response = post_groq(requests.post, GROQ_API_URL, groq_headers, groq_payload, 60)
 
+        # Cycle E2: одна повторная попытка при временном сбое (5xx или не-JSON тело).
+        # Всего запросов на анализ не больше трёх: первый, повтор после 429, повтор после сбоя.
+        if _is_transient(response):
+            logger.warning("Groq analysis transient failure (status %s), retrying once", response.status_code)
+            time.sleep(_TRANSIENT_RETRY_PAUSE)
+            response = post_groq(requests.post, GROQ_API_URL, groq_headers, groq_payload, 60)
+
         if response.status_code != 200:
-            error = response.json().get('error', {}).get('message', f'API error {response.status_code}')
+            error = _error_message(response, f'API error {response.status_code}')
             logger.warning("Groq analysis error (status %s): %s", response.status_code, str(error)[:500])
             return {'success': False, 'error': sanitize_error(error, response.status_code)}   # Cycle E1
 
-        data = response.json()
+        data = _safe_json(response)
+        if not data:
+            logger.warning("Groq analysis: status 200 but body is not valid JSON (len=%s)", len(getattr(response, 'text', '') or ''))
+            return {'success': False, 'error': MSG_UNAVAILABLE}
         text = message_text(response)   # без <think>...</think>
         tokens = data.get('usage', {}).get('total_tokens', 0)
         if not text:
@@ -212,7 +252,10 @@ def _call_groq_text(prompt):
         )
 
         if response.status_code == 200:
-            data = response.json()
+            data = _safe_json(response)
+            if not data:
+                logger.warning("Groq text: status 200 but body is not valid JSON")
+                return {'success': False, 'error': MSG_UNAVAILABLE}
             text = message_text(response)   # без <think>...</think>
             if not text:
                 return {'success': False, 'error': 'Empty response from the AI model. Please try again.'}
@@ -222,7 +265,7 @@ def _call_groq_text(prompt):
                 'tokens': data.get('usage', {}).get('total_tokens', 0),
             }
 
-        error = response.json().get('error', {}).get('message', f'Error {response.status_code}')
+        error = _error_message(response, f'Error {response.status_code}')
         logger.warning("Groq text error (status %s): %s", response.status_code, str(error)[:500])
         return {'success': False, 'error': sanitize_error(error, response.status_code)}   # Cycle E1
 
