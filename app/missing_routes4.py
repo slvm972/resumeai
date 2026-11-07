@@ -642,6 +642,17 @@ def _validate_block(orig_text, new_text):
     if fabricated:
         return False, f"Fabricated claim added: {', '.join(sorted(fabricated)[:3])}"
 
+    # Cycle F2: добавленные "домыслы" (сертификат/תעודת, коллеги, клиенты, on-site, routine ...)
+    # из rewrite_creative.soft_invention_issues. Импорт внутри функции - без циклического импорта.
+    try:
+        from app.rewrite_creative import soft_invention_issues
+        soft = soft_invention_issues(orig_text, new_text)
+    except Exception:
+        soft = []
+    if soft:
+        return False, "Soft invention: " + "; ".join(
+            str(i.get("reason") or i.get("quote") or i.get("type", ""))[:80] for i in soft[:3])
+
     return True, ""
 
 
@@ -688,6 +699,27 @@ _RE_IDENTITY_DASH = re.compile(r"\s[—–-]\s")
 # Короткий label-заголовок таблицы навыков вида "Marketing Tools:", "Design Tools:"
 _RE_COLON_LABEL = re.compile(r":\s*$")
 
+# Cycle F2: образование, курсы, сертификаты. Название курса или учебного заведения -
+# не описание работы: модель превращала "Implementing and Supporting Windows 2000 Server"
+# в "הטמיע ותמך ..." (заявление о работе), а "MCSE" в "תעודת MCSE" (выдуманный сертификат).
+# Маркер УЧЕБНОГО ЗАВЕДЕНИЯ: строка замораживается всегда.
+_RE_EDU_INSTITUTION = re.compile(
+    r"מכללה|מכללת|אוניברסיט|"
+    r"\b(?:college|university|institute|academy)\b|"
+    r"\b(?:колледж|университет|институт)\w*|"
+    r"\b(?:коледж|університет|інститут)\w*",
+    re.IGNORECASE
+)
+# Маркер КУРСА / СЕРТИФИКАТА / ДИПЛОМА: замораживается, только если нет глагола-маркера
+# достижения (_RE_IMPROVABLE): "Developed a Python course for staff" остаётся улучшаемым.
+_RE_EDU_COURSE = re.compile(
+    r"קורס|תעודת|הסמכ|"
+    r"\b(?:certificates?|certifications?|diplomas?|courses?)\b|"
+    r"\b(?:курс|сертификат|диплом)\w*|"
+    r"\b(?:курс|сертифікат|диплом)\w*",
+    re.IGNORECASE
+)
+
 # Слова-маркеры которые указывают что текст — описание работы (нужно улучшать)
 # Слова-маркеры описаний работы — Hebrew и English глаголы
 _RE_IMPROVABLE = re.compile(
@@ -722,6 +754,12 @@ def _classify_item(text, idx, total_items):
 
     # Описание языков (דיבור / קריאה / כתיבה)
     if _RE_LANG_LINE.search(t):
+        return "freeze"
+
+    # Cycle F2: образование, курсы, сертификаты - структурные поля, не описание работы
+    if _RE_EDU_INSTITUTION.search(t):
+        return "freeze"
+    if _RE_EDU_COURSE.search(t) and not _RE_IMPROVABLE.search(t):
         return "freeze"
 
     # Identity-строка "Title — Company, Location" / "Degree — University" —
