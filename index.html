@@ -206,6 +206,9 @@
     .score-ring-fill { fill: none; stroke-width: 7; stroke-linecap: round; transition: stroke-dashoffset .8s ease; }
     .score-ring-num { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 700; }
     .score-label { font-size: .75rem; color: var(--muted); font-weight: 500; }
+    .score-help { font-size: .72rem; color: var(--accent2); text-decoration: underline; }
+    .beta-note { font-size: .72rem; color: var(--muted); line-height: 1.5; margin-top: .6rem; }
+    @media(min-width:901px){ .beta-note { grid-column: 2; } }
 
     /* ── Sub-scores ── */
     .subscores { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .6rem; margin-bottom: 1.25rem; }
@@ -412,6 +415,7 @@
       <li><a href="#pricing">Pricing</a></li>
       <li><a href="dashboard.html">Dashboard</a></li>
       <li><a href="history.html">History</a></li>
+      <li><a href="/help.html">Help</a></li>
     </ul>
     <button class="nav-cta" id="loginBtn" onclick="openModal()">Login</button>
   </div>
@@ -435,7 +439,7 @@
     <!-- Right: upload card -->
     <div id="upload" class="upload-card">
       <h2>📄 Upload Your Resume</h2>
-      <p>Supports PDF, DOCX, ODT, RTF, TXT formats · Max 5 MB</p>
+      <p>Input: PDF, DOCX, ODT, RTF, TXT · Output: DOCX, ODT, RTF, PDF · Max 5 MB</p>
 
       <div class="drop-zone" id="dropZone">
         <input type="file" id="fileInput" accept=".pdf,.docx,.odt,.rtf,.txt" />
@@ -487,6 +491,7 @@
             <div class="score-ring-num" id="scoreNum">—</div>
           </div>
           <div class="score-label">Overall Score</div>
+          <div class="score-label" style="margin-top:.35rem"><a class="score-help" href="/help.html#scores" target="_blank" rel="noopener">What do these scores mean?</a></div>
         </div>
 
         <!-- Sub-scores -->
@@ -571,6 +576,7 @@
         </div>
       </div>
     </div>
+    <p class="beta-note" id="betaNote">Hebrew and Arabic support is in beta — please review the improved resume carefully before using it.</p>
   </div>
 </section>
 
@@ -701,13 +707,12 @@
     <div class="feature-card">
       <div class="feat-icon">📥</div>
       <h3>Output Formats</h3>
-      <p>DOCX, ODT, RTF, PDF — with RTL support for Hebrew and Arabic,
-      plus direct text copying</p>
+      <p>DOCX, ODT, RTF, PDF — plus direct text copying</p>
     </div>
     <div class="feature-card">
       <div class="feat-icon">🌍</div>
-      <h3>97 Languages</h3>
-      <p>From English and Russian to Japanese, Arabic and Swahili</p>
+      <h3>Multiple Languages</h3>
+      <p>English, Russian, Ukrainian, Hebrew, Arabic and Chinese — detected automatically</p>
     </div>
     <div class="feature-card">
       <div class="feat-icon">📊</div>
@@ -776,7 +781,7 @@
     <div class="feature-card" onclick="openFeat('scoring')"><div class="feat-icon">📊</div><h3>Scoring System</h3><p>Understand where you stand with detailed scoring across content, formatting, keywords, and impact.</p></div>
     <div class="feature-card" onclick="openFeat('private')"><div class="feat-icon">🔒</div><h3>Privacy by Design</h3><p>Your resume travels over an encrypted HTTPS connection and is processed by our AI provider (Groq) only to produce your result. We never sell your data.</p></div>
     <div class="feature-card" onclick="openFeat('format')"><div class="feat-icon">🎨</div><h3>Format Guide</h3><p>Learn best practices for resume formatting, layout, fonts, and visual hierarchy.</p></div>
-    <div class="feature-card" onclick="openFeat('languages')"><div class="feat-icon">🌍</div><h3>Multilingual Support</h3><p>Upload your resume in any of 97 supported languages — analysis and rewrites come back in that same language, including full RTL support for Hebrew and Arabic.</p></div>
+    <div class="feature-card" onclick="openFeat('languages')"><div class="feat-icon">🌍</div><h3>Multilingual Support</h3><p>Upload your resume in English, Russian, Ukrainian, Hebrew, Arabic or Chinese — analysis and rewrites come back in the same language, with right-to-left layout for Hebrew and Arabic. Other languages may work, quality is not guaranteed. <span style="font-size:.78rem;opacity:.85">Hebrew and Arabic support is in beta — please review the improved resume carefully before using it.</span></p></div>
   </div>
 </section>
 
@@ -800,8 +805,8 @@
 <!-- ─── MULTILINGUAL ─────────────────────────────────── -->
 <section class="section" id="multilingual">
   <div class="section-title">
-    <h2>Works in 97 Languages — Real Examples</h2>
-    <p>Not made-up reviews — real results produced by the AI</p>
+    <h2>Works in Your Language — Examples</h2>
+    <p>Sample before and after wording in English, Russian and Ukrainian</p>
   </div>
   <div class="reviews-grid">
     <div class="review-card">
@@ -879,6 +884,7 @@
         <li><a href="#pricing">Pricing</a></li>
         <li><a href="dashboard.html">Dashboard</a></li>
         <li><a href="history.html">History</a></li>
+        <li><a href="/help.html">Help</a></li>
       </ul>
     </div>
     <div class="footer-col">
@@ -1071,7 +1077,7 @@
     const offset = circ - (score / 100) * circ;
     const ring = document.getElementById('ringFill');
     ring.style.strokeDashoffset = offset;
-    ring.style.stroke = score >= 80 ? '#10b981' : score >= 60 ? '#f59e0b' : '#ef4444';
+    ring.style.stroke = score >= 80 ? '#10b981' : score >= 65 ? '#f59e0b' : '#ef4444';
 
     // sub-scores
     document.getElementById('atsVal').textContent = d.ats_score ?? '—';
@@ -1303,8 +1309,8 @@
     },
     languages: {
       icon: '🌍', title: 'Multilingual Support',
-      desc: "Your resume doesn't have to be in English to get detailed feedback. ResumeAI automatically detects the language of your resume and keeps every suggestion, score, and rewritten line in that same language — no manual switching, no translation guesswork.",
-      items: ['Supports 97 languages, including English, Russian, Ukrainian, Hebrew, Arabic, and Chinese', 'Automatic language detection — nothing to select manually', 'Right-to-left (RTL) layout support for Hebrew and Arabic', 'AI-rewritten resume returned in the original language, not translated', 'Export as DOCX, PDF, ODT, or RTF — formatting preserved in every language']
+      desc: "ResumeAI detects the language of your resume automatically, and the analysis and rewrites come back in that same language — no manual switching, nothing is translated.",
+      items: ['Supported languages: English, Russian, Ukrainian, Hebrew, Arabic and Chinese', 'Automatic language detection — nothing to select manually', 'Analysis and rewrites come back in the same language', 'Right-to-left (RTL) layout: Hebrew in DOCX, ODT, RTF and PDF; Arabic in DOCX and PDF (beta)', 'Hebrew and Arabic support is in beta — please review the improved resume carefully before using it.', 'Other languages may work, quality is not guaranteed — the analysis may come back in English', 'Export as DOCX, ODT, RTF or PDF. Precise mode keeps your original layout (DOCX in, DOCX out); Creative mode rebuilds it (see the change report).']
     }
   };
 
