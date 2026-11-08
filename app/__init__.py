@@ -875,6 +875,35 @@ def _register_legacy_routes(app):
             app.logger.error(f"[legacy_improve_docx] failed: {e}")
             return jsonify({'success': False, 'error': 'Internal server error. Please try again.'}), 500
 
+    @app.route('/api/improve/apply_selection', methods=['POST'])
+    def legacy_improve_apply_selection():
+        """Вернуть оригинал для отклонённых правок (Cycle SA). Кредиты не списываются, сеть и LLM не используются."""
+        from flask import current_app
+        admin_mode = _admin_mode_enabled(current_app)
+        is_admin = 'admin' in session
+
+        user = _get_current_user()
+        if not user and not (admin_mode or is_admin):
+            return jsonify({'success': False, 'error': 'Please log in first'}), 401
+
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({'success': False, 'error': 'Invalid request body'}), 400
+
+        try:
+            from app.utils.selective_changes import apply_selection
+            result = apply_selection(
+                data.get('improved_resume'), data.get('display_text', ''),
+                data.get('changes', []), data.get('rejected', []))
+            return jsonify({'success': True, **result})
+        except ValueError as e:
+            from app.missing_routes4 import _user_safe_error
+            app.logger.warning(f"[apply_selection] bad input: {e}")
+            return jsonify({'success': False, 'error': _user_safe_error(e)}), 400
+        except Exception as e:
+            app.logger.error(f"[apply_selection] failed: {e}")
+            return jsonify({'success': False, 'error': 'Internal server error. Please try again.'}), 500
+
     @app.route('/api/improve/odt', methods=['POST'])
     def legacy_improve_odt():
         from flask import current_app, send_file
