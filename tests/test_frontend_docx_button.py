@@ -42,7 +42,7 @@ def test_03_button_hidden_only_for_docx_input():
 def test_04_download_docx_sends_text_only_to_docx_endpoint():
     body = _func('downloadDocx')
     assert "fetch('/api/improve/docx'" in body
-    assert "formData.append('improved_resume', lastImprovedRaw ||" in body
+    assert "formData.append('improved_resume', getEffectiveRaw() ||" in body
     assert 'original_file' not in body and 'item_ids' not in body     # оригинала нет, DOCX собирает сервер
     assert "a.download = 'improved_resume.docx'" in body
     assert 'btn.disabled = true' in body and 'btn.disabled = false' in body and 'finally' in body

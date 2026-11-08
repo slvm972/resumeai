@@ -65,7 +65,7 @@ def test_05_item_ids_empty_array_becomes_null_and_last_engine_is_recorded():
 
 
 def test_06_changes_list_handles_added_and_removed_items():
-    body = _function_body("improveResume")
+    body = _function_body("renderChangesList")
     assert "if (!oldText && !newText) return" in body
     assert "if (oldText) {" in body and "if (newText) {" in body
     assert "(oldText ? '' : '+ ') + newText" in body

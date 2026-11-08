@@ -1394,8 +1394,15 @@
     </div>
     <div id="changesReport" style="display:none;margin-top:1rem">
       <h4 style="font-size:.85rem;color:var(--muted);margin-bottom:.5rem">
-        Changes (<span id="changesCount">0</span>)
+        Changes (<span id="changesCount">0</span>) · kept <span id="changesKept">0</span>
       </h4>
+      <div style="display:flex;gap:.5rem;margin-bottom:.5rem">
+        <button type="button" class="btn-secondary" id="keepAllBtn" onclick="keepAllChanges()"
+                style="flex:1;padding:.4rem .6rem;font-size:.8rem">Keep all</button>
+        <button type="button" class="btn-secondary" id="revertAllBtn" onclick="revertAllChanges()"
+                style="flex:1;padding:.4rem .6rem;font-size:.8rem">Revert all</button>
+      </div>
+      <p id="selectionMsg" style="display:none;font-size:.78rem;color:#fbbf24;margin:0 0 .5rem"></p>
       <div id="changesList" style="max-height:300px;overflow-y:auto;
            display:flex;flex-direction:column;gap:.5rem"></div>
       <button class="btn-secondary" onclick="downloadChangeReport()"
@@ -1414,8 +1421,18 @@
   let lastImprovedFormat = 'txt';   // формат для скачивания (обновляется после improve)
   let lastItemIds = null;
   let lastEngine = null;        // data.engine ('creative_v2' | 'precise' | null) - пока только запись
-  let lastImprovedRaw = null;   // сырой текст с ###ITEM_NNN### маркерами — нужен только для /api/improve/docx
   let lastChanges = [];         // quality_report.changes — для отчёта "было → стало"
+  // ── Cycle SB: выбор правок. Исходные ответы /api/improve хранятся без изменений, выбор всегда применяется к ним.
+  let originalRaw = null;       // improved_resume (Precise: блоки ###ITEM_NNN###, Creative: обычный текст)
+  let originalDisplay = '';     // display_text
+  let effectiveRaw = null;      // текст с учётом отклонённых правок (для экспорта)
+  let effectiveDisplay = '';    // текст с учётом отклонённых правок (для показа и копирования)
+  const rejectedSet = new Set();        // индексы правок, которые пользователь отклонил (то, что показывают чекбоксы)
+  let appliedRejected = new Set();      // индексы, подтверждённые сервером
+  const unrevertableNotes = new Set();  // правки, которые сервер вернуть не смог
+  let selTimer = null;                  // таймер задержки 300 мс
+  let selSeq = 0;                       // номер запроса (устаревшие ответы игнорируются)
+  let selActive = null;                 // номер запроса в полёте
 
   function closeImproveModal() {
     document.getElementById('improveModal').classList.remove('open');
@@ -1445,6 +1462,7 @@
     document.getElementById('improveModalMsg').style.display = 'none';
     document.getElementById('creativeNotice').style.display = 'none';
     document.getElementById('creativeNotice').textContent = '';
+    resetSelectionState();
 
     try {
       let res;
@@ -1486,7 +1504,6 @@
       if (data.improved_resume) {
         lastItemIds = (data.item_ids && data.item_ids.length) ? data.item_ids : null;   // [] -> null
         lastEngine = data.engine || null;
-        lastImprovedRaw = data.improved_resume;
         const noticeEl = document.getElementById('creativeNotice');
         if (data.engine === 'creative_v2') {
           noticeEl.textContent = 'Creative result: new text built only from facts in your resume. ' +
@@ -1503,32 +1520,14 @@
         document.getElementById('improvedText').style.display = 'block';
         document.getElementById('improveActions').style.display = 'flex';
 
-        // ── Отчёт об изменениях "было → стало" (только accepted-блоки) ────────
+        // ── Отчёт об изменениях "было → стало" с выбором Keep / Revert (только accepted-блоки) ─────
         lastChanges = (data.quality_report && data.quality_report.changes) || [];
+        originalRaw = data.improved_resume;
+        originalDisplay = data.display_text || '';
+        effectiveRaw = originalRaw;
+        effectiveDisplay = data.display_text || data.improved_resume;
         if (lastChanges.length > 0) {
-          document.getElementById('changesCount').textContent = lastChanges.length;
-          const changesList = document.getElementById('changesList');
-          changesList.innerHTML = '';
-          lastChanges.forEach(c => {
-            const item = document.createElement('div');
-            item.style.cssText = 'background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:.75rem;font-size:.85rem';
-            const oldText = c.original_text || '';
-            const newText = c.improved_text || '';
-            if (!oldText && !newText) return;        // пустая запись - нечего показывать
-            if (oldText) {                           // пустой original_text (добавленная строка) - без зачёркнутой строки
-              const oldLine = document.createElement('div');
-              oldLine.style.cssText = 'color:#f87171;text-decoration:line-through' + (newText ? ';margin-bottom:.3rem' : '');
-              oldLine.textContent = oldText;         // textContent — безопасно от HTML-инъекций
-              item.appendChild(oldLine);
-            }
-            if (newText) {                           // пустой improved_text (удалённая строка) - только старая строка
-              const newLine = document.createElement('div');
-              newLine.style.cssText = 'color:#34d399';
-              newLine.textContent = (oldText ? '' : '+ ') + newText;   // textContent — безопасно от HTML-инъекций
-              item.appendChild(newLine);
-            }
-            changesList.appendChild(item);
-          });
+          renderChangesList();
           document.getElementById('changesReport').style.display = 'block';
         }
         // если lastChanges.length === 0 — changesReport остаётся скрытым
@@ -1558,8 +1557,216 @@
     }
   }
 
+  // ══ Cycle SB: принять или отклонить отдельную правку ═══════════════════════════════
+  function getEffectiveRaw() {
+    return effectiveRaw !== null ? effectiveRaw : originalRaw;
+  }
+  function getEffectiveDisplay() {
+    return effectiveDisplay || effectiveRaw || originalRaw || '';
+  }
+  function showEffectiveText() {
+    document.getElementById('improvedText').textContent = getEffectiveDisplay();
+  }
+  function showSelectionMsg(text) {
+    const el = document.getElementById('selectionMsg');
+    el.textContent = text;
+    el.style.display = 'block';
+  }
+  function hideSelectionMsg() {
+    const el = document.getElementById('selectionMsg');
+    el.textContent = '';
+    el.style.display = 'none';
+  }
+  function selectionPending() {
+    return selTimer !== null || selActive !== null;
+  }
+  function guardSelection() {
+    if (!selectionPending()) return false;
+    showSelectionMsg('Updating your selection — please try again in a moment.');
+    return true;
+  }
+  function resetSelectionState() {
+    if (selTimer !== null) clearTimeout(selTimer);
+    selTimer = null;
+    selSeq++;
+    selActive = null;
+    rejectedSet.clear();
+    appliedRejected = new Set();
+    unrevertableNotes.clear();
+    originalRaw = null;
+    originalDisplay = '';
+    effectiveRaw = null;
+    effectiveDisplay = '';
+    lastChanges = [];
+    document.getElementById('changesList').innerHTML = '';
+    hideSelectionMsg();
+  }
+  function updateChangesCounter() {
+    document.getElementById('changesCount').textContent = lastChanges.length;
+    document.getElementById('changesKept').textContent = lastChanges.length - rejectedSet.size;
+  }
+  function syncCheckboxes() {
+    document.querySelectorAll('#changesList .change-keep').forEach(cb => {
+      cb.checked = !rejectedSet.has(Number(cb.dataset.index));
+    });
+  }
+  function refreshChangeItemStates() {
+    lastChanges.forEach((c, i) => {
+      const item = document.getElementById('change-item-' + i);
+      if (!item) return;
+      const note = item.querySelector('.change-note');
+      const rejected = rejectedSet.has(i);
+      item.style.opacity = rejected ? '.55' : '1';
+      if (rejected) {
+        note.textContent = 'Original will be restored';
+        note.style.color = 'var(--muted)';
+        note.style.display = 'block';
+      } else if (unrevertableNotes.has(i)) {
+        note.textContent = "This change can't be reverted automatically";
+        note.style.color = '#fbbf24';
+        note.style.display = 'block';
+      } else {
+        note.textContent = '';
+        note.style.display = 'none';
+      }
+    });
+  }
+  function renderChangesList() {
+    const list = document.getElementById('changesList');
+    list.innerHTML = '';
+    lastChanges.forEach((c, i) => {
+      const oldText = c.original_text || '';
+      const newText = c.improved_text || '';
+      if (!oldText && !newText) return;        // пустая запись - нечего показывать
+      const item = document.createElement('div');
+      item.id = 'change-item-' + i;
+      item.style.cssText = 'background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:.75rem;font-size:.85rem';
+      const head = document.createElement('label');
+      head.style.cssText = 'display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:var(--muted);margin-bottom:.4rem;cursor:pointer';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'change-keep';
+      cb.dataset.index = String(i);
+      cb.checked = !rejectedSet.has(i);
+      cb.addEventListener('change', () => onChangeToggled(i, cb.checked));
+      const lbl = document.createElement('span');
+      lbl.textContent = 'Keep';
+      head.appendChild(cb);
+      head.appendChild(lbl);
+      item.appendChild(head);
+      if (oldText) {                           // пустой original_text (добавленная строка) - без зачёркнутой строки
+        const oldLine = document.createElement('div');
+        oldLine.style.cssText = 'color:#f87171;text-decoration:line-through' + (newText ? ';margin-bottom:.3rem' : '');
+        oldLine.textContent = oldText;         // textContent — безопасно от HTML-инъекций
+        item.appendChild(oldLine);
+      }
+      if (newText) {                           // пустой improved_text (удалённая строка) - только старая строка
+        const newLine = document.createElement('div');
+        newLine.style.cssText = 'color:#34d399';
+        newLine.textContent = (oldText ? '' : '+ ') + newText;   // textContent — безопасно от HTML-инъекций
+        item.appendChild(newLine);
+      }
+      const note = document.createElement('div');
+      note.className = 'change-note';
+      note.style.cssText = 'font-size:.74rem;margin-top:.3rem;display:none';
+      item.appendChild(note);
+      list.appendChild(item);
+    });
+    updateChangesCounter();
+    refreshChangeItemStates();
+  }
+  function onChangeToggled(i, keep) {
+    if (keep) rejectedSet.delete(i); else rejectedSet.add(i);
+    unrevertableNotes.delete(i);
+    hideSelectionMsg();
+    refreshChangeItemStates();
+    updateChangesCounter();
+    scheduleApplySelection();
+  }
+  function keepAllChanges() {
+    rejectedSet.clear();
+    unrevertableNotes.clear();
+    hideSelectionMsg();
+    syncCheckboxes();
+    refreshChangeItemStates();
+    updateChangesCounter();
+    scheduleApplySelection();
+  }
+  function revertAllChanges() {
+    lastChanges.forEach((c, i) => {
+      if ((c.original_text || c.improved_text) && document.getElementById('change-item-' + i)) rejectedSet.add(i);
+      unrevertableNotes.delete(i);
+    });
+    hideSelectionMsg();
+    syncCheckboxes();
+    refreshChangeItemStates();
+    updateChangesCounter();
+    scheduleApplySelection();
+  }
+  function scheduleApplySelection() {
+    if (selTimer !== null) clearTimeout(selTimer);
+    selTimer = setTimeout(() => { selTimer = null; runApplySelection(); }, 300);
+  }
+  function rollbackSelection(message) {
+    rejectedSet.clear();
+    appliedRejected.forEach(i => rejectedSet.add(i));
+    syncCheckboxes();
+    refreshChangeItemStates();
+    updateChangesCounter();
+    showSelectionMsg(message);
+  }
+  async function runApplySelection() {
+    const rejected = Array.from(rejectedSet).sort((a, b) => a - b);
+    if (rejected.length === 0) {               // ничего не отклонено: исходные тексты, сервер не нужен
+      effectiveRaw = originalRaw;
+      effectiveDisplay = originalDisplay || originalRaw || '';
+      appliedRejected = new Set();
+      showEffectiveText();
+      return;
+    }
+    const mySeq = ++selSeq;
+    selActive = mySeq;
+    try {
+      // всегда ИСХОДНЫЕ ответы улучшения, а не результат прошлого вызова
+      const res = await fetch('/api/improve/apply_selection', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          improved_resume: originalRaw,
+          display_text: originalDisplay,
+          changes: lastChanges,
+          rejected: rejected
+        })
+      });
+      if (mySeq !== selSeq) return;            // устаревший ответ
+      if (res.status === 401) { rollbackSelection('Please sign in to change the selection.'); return; }
+      let data = null;
+      try { data = await res.json(); } catch (e) { data = null; }
+      if (mySeq !== selSeq) return;
+      if (!res.ok || !data || !data.success) {
+        rollbackSelection('Could not update the selection. Please try again.');
+        return;
+      }
+      const unrevertable = Array.isArray(data.unrevertable) ? data.unrevertable : [];
+      unrevertable.forEach(i => { rejectedSet.delete(i); unrevertableNotes.add(i); });
+      effectiveRaw = data.improved_resume;
+      effectiveDisplay = data.display_text || data.improved_resume;
+      appliedRejected = new Set(rejectedSet);
+      syncCheckboxes();
+      refreshChangeItemStates();
+      updateChangesCounter();
+      showEffectiveText();
+      if (unrevertable.length) showSelectionMsg("This change can't be reverted automatically");
+    } catch (e) {
+      if (mySeq === selSeq) rollbackSelection('Could not update the selection. Please try again.');
+    } finally {
+      if (selActive === mySeq) selActive = null;
+    }
+  }
+
   async function copyImproved() {
-    const text = document.getElementById('improvedText').textContent;
+    if (guardSelection()) return;   // выбор правок ещё применяется
+    const text = getEffectiveDisplay();
     await navigator.clipboard.writeText(text);
     const msg = document.getElementById('improveModalMsg');
     msg.style.display = 'block';
@@ -1569,7 +1776,8 @@
   }
 
   async function downloadImproved() {
-    const text = document.getElementById('improvedText').textContent;
+    if (guardSelection()) return;   // выбор правок ещё применяется
+    const text = getEffectiveDisplay();
     const format = lastImprovedFormat || 'txt';
 
     // ── ЕСЛИ DOCX и есть оригинальный .docx файл: сервер собирает docx,
@@ -1579,7 +1787,7 @@
         try {
           const formData = new FormData();
           formData.append('original_file', selectedFile);
-          formData.append('improved_resume', lastImprovedRaw || text);
+          formData.append('improved_resume', getEffectiveRaw() || text);
           if (lastItemIds) {
             formData.append('item_ids', JSON.stringify(lastItemIds));
           }
@@ -1681,25 +1889,32 @@
   // ── Скачать текстовый отчёт "было → стало" по принятым изменениям ────────────
   function downloadChangeReport() {
     if (!lastChanges || !lastChanges.length) return;
+    if (guardSelection()) return;
+    const total = lastChanges.length;
+    const reverted = appliedRejected.size;
+    const kept = total - reverted;
     const lines = [
       'ResumeAI — Change Report',
-      `Blocks changed: ${lastChanges.length}`,
+      `Blocks changed: ${total}`,
       '',
     ];
     lastChanges.forEach((c, i) => {
       const oldText = c.original_text || '';
       const newText = c.improved_text || '';
       if (!oldText && !newText) return;
+      const status = appliedRejected.has(i) ? 'Reverted' : 'Kept';
       if (!oldText) {
-        lines.push(`${i + 1}. ADDED:  ${newText}`);
+        lines.push(`${i + 1}. [${status}] ADDED:  ${newText}`);
       } else if (!newText) {
-        lines.push(`${i + 1}. REMOVED: ${oldText}`);
+        lines.push(`${i + 1}. [${status}] REMOVED: ${oldText}`);
       } else {
-        lines.push(`${i + 1}. BEFORE: ${oldText}`);
+        lines.push(`${i + 1}. [${status}] BEFORE: ${oldText}`);
         lines.push(`   AFTER:  ${newText}`);
       }
       lines.push('');
     });
+    lines.push(`Summary: kept ${kept} of ${total} changes, reverted ${reverted}.`);
+    lines.push('');
     lines.push('Numbers, dates, company names, contacts and certifications');
     lines.push('are protected by a separate mechanism and are checked automatically.');
     downloadAsText(lines.join('\n'), 'change_report.txt');
@@ -1716,13 +1931,14 @@
 
   // ── Скачать улучшенное резюме как ODT (Cycle O3) ──────────────────────────
   async function downloadOdt() {
+    if (guardSelection()) return;   // выбор правок ещё применяется
     const btn = document.getElementById('downloadOdtBtn');
     const originalText = btn.textContent;
     btn.disabled = true;
     btn.textContent = '⏳ Generating...';
     try {
       const formData = new FormData();
-      formData.append('improved_resume', lastImprovedRaw || document.getElementById('improvedText').textContent);
+      formData.append('improved_resume', getEffectiveRaw() || getEffectiveDisplay());
       const response = await fetch('/api/improve/odt', { method: 'POST', body: formData });
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
@@ -1750,13 +1966,14 @@
   // Исходного .docx нет, поэтому оригинал не отправляется: сервер собирает DOCX из текста
   // с метками (заголовки, списки, иврит справа налево), как для ODT/RTF/PDF.
   async function downloadDocx() {
+    if (guardSelection()) return;   // выбор правок ещё применяется
     const btn = document.getElementById('downloadDocxBtn');
     const originalText = btn.textContent;
     btn.disabled = true;
     btn.textContent = '⏳ Generating...';
     try {
       const formData = new FormData();
-      formData.append('improved_resume', lastImprovedRaw || document.getElementById('improvedText').textContent);
+      formData.append('improved_resume', getEffectiveRaw() || getEffectiveDisplay());
       const response = await fetch('/api/improve/docx', { method: 'POST', body: formData });
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
@@ -1782,13 +1999,14 @@
 
   // ── Скачать улучшенное резюме как RTF (Cycle R3) ──────────────────────────
   async function downloadRtf() {
+    if (guardSelection()) return;   // выбор правок ещё применяется
     const btn = document.getElementById('downloadRtfBtn');
     const originalText = btn.textContent;
     btn.disabled = true;
     btn.textContent = '⏳ Generating...';
     try {
       const formData = new FormData();
-      formData.append('improved_resume', lastImprovedRaw || document.getElementById('improvedText').textContent);
+      formData.append('improved_resume', getEffectiveRaw() || getEffectiveDisplay());
       const response = await fetch('/api/improve/rtf', { method: 'POST', body: formData });
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
@@ -1814,13 +2032,14 @@
 
   // ── Скачать улучшенное резюме как PDF (Cycle P-btn) ────────────────────────
   async function downloadPdf() {
+    if (guardSelection()) return;   // выбор правок ещё применяется
     const btn = document.getElementById('downloadPdfBtn');
     const originalText = btn.textContent;
     btn.disabled = true;
     btn.textContent = '⏳ Generating...';
     try {
       const formData = new FormData();
-      formData.append('improved_resume', lastImprovedRaw || document.getElementById('improvedText').textContent);
+      formData.append('improved_resume', getEffectiveRaw() || getEffectiveDisplay());
       const response = await fetch('/api/improve/pdf', { method: 'POST', body: formData });
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
