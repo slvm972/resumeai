@@ -1939,6 +1939,13 @@
     try {
       const formData = new FormData();
       formData.append('improved_resume', getEffectiveRaw() || getEffectiveDisplay());
+      // Cycle X2: вход .docx -> отправляем оригинал и item_ids, сервер соберёт ODT с оформлением
+      if (selectedFile && selectedFile.name.toLowerCase().endsWith('.docx')) {
+        formData.append('original_file', selectedFile);
+        if (lastItemIds) {
+          formData.append('item_ids', JSON.stringify(lastItemIds));
+        }
+      }
       const response = await fetch('/api/improve/odt', { method: 'POST', body: formData });
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
