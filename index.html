@@ -2050,6 +2050,11 @@
     try {
       const formData = new FormData();
       formData.append('improved_resume', getEffectiveRaw() || getEffectiveDisplay());
+      // Cycle X4: как в downloadOdt/downloadRtf
+      if (selectedFile && selectedFile.name.toLowerCase().endsWith('.docx') && Array.isArray(lastItemIds) && lastItemIds.length) {
+        formData.append('original_file', selectedFile);
+        formData.append('item_ids', JSON.stringify(lastItemIds));
+      }
       const response = await fetch('/api/improve/pdf', { method: 'POST', body: formData });
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));

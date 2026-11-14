@@ -980,6 +980,27 @@ def _register_legacy_routes(app):
             if not improved_text:
                 return jsonify({'success': False, 'error': 'No text provided'}), 400
 
+            # Cycle X4: исходный DOCX и непустые item_ids -> PDF с оформлением оригинала (как ODT/RTF).
+            # Creative отдаёт item_ids=[]: тогда прежний путь из текста. Любая ошибка: в лог и прежний путь.
+            import re as _re
+            original_file = request.files.get('original_file')
+            if (original_file and (original_file.filename or '').lower().endswith('.docx')
+                    and _re.search(_ITEM_MARKER_PATTERN, improved_text)):
+                try:
+                    import io as _io
+                    import json as _json
+                    from app.missing_routes4 import _apply_improved_text_to_docx
+                    from app.utils import docx_to_pdf as _d2p
+                    ids_raw = request.form.get('item_ids') or ''
+                    item_ids = _json.loads(ids_raw) if ids_raw else []
+                    if isinstance(item_ids, list) and item_ids:
+                        improved_docx = _apply_improved_text_to_docx(original_file.read(), improved_text, item_ids)
+                        pdf_bytes = _d2p.docx_bytes_to_pdf(improved_docx.getvalue())
+                        return send_file(_io.BytesIO(pdf_bytes), as_attachment=True,
+                                         download_name='improved_resume.pdf', mimetype='application/pdf')
+                except Exception as conv_err:
+                    app.logger.error(f"[legacy_improve_pdf] docx->pdf failed, fallback to text: {conv_err}")
+
             from app.missing_routes4 import _generate_pdf
             buf = _generate_pdf(improved_text)
             return send_file(

@@ -66,10 +66,10 @@ def test_rtf_sends_original_only_with_docx_and_nonempty_item_ids():
     assert 'guardSelection()' in b
 
 
-def test_pdf_and_docx_do_not_use_new_condition():
-    assert 'original_file' not in _body('downloadPdf')
-    assert 'Array.isArray(lastItemIds)' not in _body('downloadPdf')
+def test_docx_does_not_use_new_condition_and_pdf_does_since_x4():
+    # X4: PDF-кнопка получила то же условие, что ODT/RTF; DOCX-кнопка не менялась
     assert 'Array.isArray(lastItemIds)' not in _body('downloadDocx')
+    assert re.search(COND, _body('downloadPdf'))
 
 
 def test_inline_scripts_pass_node_check():
