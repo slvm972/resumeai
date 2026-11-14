@@ -300,3 +300,31 @@ def test_route_bad_item_ids_falls_back_with_200(client):
         'improved_resume': text, 'item_ids': '{not json',
         'original_file': (io.BytesIO(raw), 'resume.docx')}, content_type='multipart/form-data')
     assert r.status_code == 200
+
+
+# --- Creative (X2b): item_ids пуст/отсутствует -> улучшенный текст не должен теряться -----------
+
+@pytest.mark.parametrize('ids_value', [None, '[]'])
+def test_route_creative_empty_item_ids_keeps_improved_text(client, ids_value):
+    raw = make_docx()
+    text, _ = _marked_text_and_ids(raw)
+    assert 'Senior Engineer' in text
+    improved = text.replace('Senior Engineer', 'Principal Engineer')
+    data = {'improved_resume': improved, 'original_file': (io.BytesIO(raw), 'resume.docx')}
+    if ids_value is not None:
+        data['item_ids'] = ids_value
+    r = client.post('/api/improve/odt', data=data, content_type='multipart/form-data')
+    assert r.status_code == 200
+    body = _alltext(_content(r.data))
+    assert 'Principal Engineer' in body and 'Senior Engineer' not in body
+
+
+def test_route_non_list_item_ids_uses_text_path(client):
+    raw = make_docx()
+    text, _ = _marked_text_and_ids(raw)
+    r = client.post('/api/improve/odt', data={
+        'improved_resume': text.replace('Senior Engineer', 'Principal Engineer'), 'item_ids': '{"a": 1}',
+        'original_file': (io.BytesIO(raw), 'resume.docx')}, content_type='multipart/form-data')
+    assert r.status_code == 200
+    body = _alltext(_content(r.data))
+    assert 'Principal Engineer' in body and 'Senior Engineer' not in body

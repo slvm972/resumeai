@@ -31,6 +31,10 @@ def _body(name):
     return src[m.start():i]
 
 
+COND = (r"if \(selectedFile && selectedFile\.name\.toLowerCase\(\)\.endsWith\('\.docx'\)"
+        r" && Array\.isArray\(lastItemIds\) && lastItemIds\.length\) \{")
+
+
 def test_odt_body_appends_original_file_and_item_ids():
     b = _body('downloadOdt')
     assert "append('original_file', selectedFile)" in b
@@ -39,12 +43,10 @@ def test_odt_body_appends_original_file_and_item_ids():
 
 def test_both_appends_are_under_docx_check():
     b = _body('downloadOdt')
-    m = re.search(r"if \(selectedFile && selectedFile\.name\.toLowerCase\(\)\.endsWith\('\.docx'\)\) \{", b)
+    m = re.search(COND, b)
     assert m
     assert m.start() < b.index("append('original_file'") < b.index("append('item_ids'")
     assert b.index("append('item_ids'") < b.index("fetch(")
-    # item_ids только при непустом lastItemIds
-    assert re.search(r"if \(lastItemIds\) \{\s*formData\.append\('item_ids'", b)
 
 
 def test_odt_fetch_target_and_improved_resume_unchanged():
@@ -54,9 +56,20 @@ def test_odt_fetch_target_and_improved_resume_unchanged():
     assert 'guardSelection()' in b and "improved_resume.odt" in b
 
 
-def test_rtf_and_pdf_do_not_send_original():
-    for name in ('downloadRtf', 'downloadPdf'):
-        assert 'original_file' not in _body(name), name
+def test_rtf_sends_original_only_with_docx_and_nonempty_item_ids():
+    b = _body('downloadRtf')
+    m = re.search(COND, b)
+    assert m
+    assert m.start() < b.index("append('original_file', selectedFile)") < b.index("append('item_ids', JSON.stringify(lastItemIds))")
+    assert b.index("append('item_ids'") < b.index("fetch('/api/improve/rtf'")
+    assert "formData.append('improved_resume', getEffectiveRaw() || getEffectiveDisplay());" in b
+    assert 'guardSelection()' in b
+
+
+def test_pdf_and_docx_do_not_use_new_condition():
+    assert 'original_file' not in _body('downloadPdf')
+    assert 'Array.isArray(lastItemIds)' not in _body('downloadPdf')
+    assert 'Array.isArray(lastItemIds)' not in _body('downloadDocx')
 
 
 def test_inline_scripts_pass_node_check():

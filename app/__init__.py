@@ -939,10 +939,13 @@ def _register_legacy_routes(app):
                     from app.utils import docx_to_odt as _d2o
                     ids_raw = request.form.get('item_ids') or ''
                     item_ids = _json.loads(ids_raw) if ids_raw else []
-                    improved_docx = _apply_improved_text_to_docx(original_file.read(), improved_text, item_ids)
-                    odt_buf = _d2o.docx_bytes_to_odt(improved_docx.getvalue())
-                    return send_file(odt_buf, as_attachment=True, download_name='improved_resume.odt',
-                                     mimetype=odt_mime)
+                    # Creative отдаёт item_ids=[]: без id применить текст к DOCX нельзя (улучшения потеряются),
+                    # поэтому конвертер только при непустом списке, иначе прежний путь из текста.
+                    if isinstance(item_ids, list) and item_ids:
+                        improved_docx = _apply_improved_text_to_docx(original_file.read(), improved_text, item_ids)
+                        odt_buf = _d2o.docx_bytes_to_odt(improved_docx.getvalue())
+                        return send_file(odt_buf, as_attachment=True, download_name='improved_resume.odt',
+                                         mimetype=odt_mime)
                 except Exception as conv_err:
                     app.logger.error(f"[legacy_improve_odt] docx->odt failed, fallback to text: {conv_err}")
 
@@ -1008,6 +1011,27 @@ def _register_legacy_routes(app):
 
             if not improved_text:
                 return jsonify({'success': False, 'error': 'No text provided'}), 400
+
+            # Cycle X3: исходный DOCX есть -> применяем текст к нему и переводим в RTF с сохранением
+            # оформления. Любая ошибка: в лог и прежний путь (простой RTF из текста).
+            import re as _re
+            original_file = request.files.get('original_file')
+            if (original_file and (original_file.filename or '').lower().endswith('.docx')
+                    and _re.search(_ITEM_MARKER_PATTERN, improved_text)):
+                try:
+                    import json as _json
+                    from app.missing_routes4 import _apply_improved_text_to_docx
+                    from app.utils import docx_to_rtf as _d2r
+                    ids_raw = request.form.get('item_ids') or ''
+                    item_ids = _json.loads(ids_raw) if ids_raw else []
+                    # Creative отдаёт item_ids=[]: конвертер только при непустом списке (см. ODT выше).
+                    if isinstance(item_ids, list) and item_ids:
+                        improved_docx = _apply_improved_text_to_docx(original_file.read(), improved_text, item_ids)
+                        rtf_bytes = _d2r.docx_bytes_to_rtf(improved_docx.getvalue())
+                        return send_file(io.BytesIO(rtf_bytes), as_attachment=True,
+                                         download_name='improved_resume.rtf', mimetype='application/rtf')
+                except Exception as conv_err:
+                    app.logger.error(f"[legacy_improve_rtf] docx->rtf failed, fallback to text: {conv_err}")
 
             from app.missing_routes4 import _generate_rtf
             buf = _generate_rtf(improved_text)
