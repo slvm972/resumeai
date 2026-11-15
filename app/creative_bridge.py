@@ -126,5 +126,11 @@ def creative_improve(original_bytes, filename, resume_text_fallback, cfg):
             "issues": _short_issues(r.get("final_issues")),
             "error": r.get("error"),
         }
-    except Exception:
+    except Exception as exc:
+        # C3b: причина в журнал сервера: только тип и стек, без сообщения (там могут быть данные резюме)
+        import logging
+        import traceback
+        logging.getLogger(__name__).error(
+            "creative_improve failed: %s\n%s", type(exc).__name__,
+            "".join(traceback.format_tb(exc.__traceback__)))
         return _failure(_ERR_FAILED, attempted=True)

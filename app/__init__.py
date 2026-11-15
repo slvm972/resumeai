@@ -728,7 +728,18 @@ def _register_legacy_routes(app):
                             original_bytes, filename, resume_text_fallback, current_app.config)
                         creative_tried = bool(creative_result.get('attempted'))
                         creative_status = creative_result.get('status') if creative_tried else None
-                except Exception:
+                        if creative_tried and creative_status == 'error':
+                            # C3: причина в самом creative_improve проглочена (creative_improve/creative_rewrite
+                            # возвращают status=error); rounds/calls=0 в таком результате не доказывают,
+                            # что запросов к модели не было: счётчик теряется при исключении.
+                            app.logger.error(
+                                "creative_v2 failed: status=error error=%s (rounds/calls in an error result are not reliable)",
+                                creative_result.get('error'))
+                except Exception as creative_exc:
+                    # C3: тип и стек без текста исключения (в нём могут быть данные резюме)
+                    import traceback as _c3_tb
+                    app.logger.error("creative_v2 raised %s before a result:\n%s", type(creative_exc).__name__,
+                                     ''.join(_c3_tb.format_tb(creative_exc.__traceback__)))
                     creative_tried = True
                     creative_result = None
                     creative_status = 'error'

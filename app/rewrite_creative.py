@@ -1302,6 +1302,7 @@ DEFAULT_MODEL = "openai/gpt-oss-120b"
 _ERR_NO_KEY = "API key is not configured"
 _ERR_NO_TEXT = "Resume text is empty"
 _ERR_FAILED = "Creative rewrite failed"
+_ERR_RATE_LIMITED = "Creative rewrite rate limited"
 
 
 def _empty_checks():
@@ -1316,6 +1317,22 @@ def _error_result(error):
         "rounds": 0, "calls": 0, "final_issues": [], "judge_error": False,
         "checks": _empty_checks(), "error": error, "prompt_version": PROMPT_VERSION,
     }
+
+
+def _log_failure(exc):
+    """
+    C3b: причина ошибки в журнал сервера. Всегда тип исключения и стек (format_tb, без сообщения).
+    Сообщение пишется только у RuntimeError вида "Groq API <status>: ..." (HTTP-статус и текст лимита
+    Groq, без данных резюме), не длиннее 300 символов. Ключ API и текст резюме в журнал не попадают.
+    """
+    import logging
+    import traceback
+    detail = ""
+    if isinstance(exc, RuntimeError) and str(exc).startswith("Groq API "):
+        detail = ": " + str(exc)[:300]
+    logging.getLogger(__name__).error(
+        "creative_rewrite failed: %s%s\n%s", type(exc).__name__, detail,
+        "".join(traceback.format_tb(exc.__traceback__)))
 
 
 def _is_acceptable(status, checks):
@@ -1377,5 +1394,8 @@ def creative_rewrite(source_text, api_key, model=DEFAULT_MODEL, judge_model=DEFA
             "error": None,
             "prompt_version": PROMPT_VERSION,
         }
-    except Exception:
+    except Exception as exc:
+        _log_failure(exc)
+        if isinstance(exc, RuntimeError) and str(exc).startswith("Groq API 429"):
+            return _error_result(_ERR_RATE_LIMITED)   # лимит Groq (токены/запросы в минуту)
         return _error_result(_ERR_FAILED)
