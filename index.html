@@ -1943,6 +1943,8 @@
       if (selectedFile && selectedFile.name.toLowerCase().endsWith('.docx') && Array.isArray(lastItemIds) && lastItemIds.length) {
         formData.append('original_file', selectedFile);
         formData.append('item_ids', JSON.stringify(lastItemIds));
+      } else if (selectedFile && selectedFile.name.toLowerCase().endsWith('.docx') && lastEngine === 'creative_v2') {
+        formData.append('original_file', selectedFile);   // C2: Creative (item_ids пуст): сервер соберёт файл по оригиналу как шаблону
       }
       const response = await fetch('/api/improve/odt', { method: 'POST', body: formData });
       if (!response.ok) {
@@ -2016,6 +2018,8 @@
       if (selectedFile && selectedFile.name.toLowerCase().endsWith('.docx') && Array.isArray(lastItemIds) && lastItemIds.length) {
         formData.append('original_file', selectedFile);
         formData.append('item_ids', JSON.stringify(lastItemIds));
+      } else if (selectedFile && selectedFile.name.toLowerCase().endsWith('.docx') && lastEngine === 'creative_v2') {
+        formData.append('original_file', selectedFile);   // C2: Creative (item_ids пуст): сервер соберёт файл по оригиналу как шаблону
       }
       const response = await fetch('/api/improve/rtf', { method: 'POST', body: formData });
       if (!response.ok) {
@@ -2054,6 +2058,8 @@
       if (selectedFile && selectedFile.name.toLowerCase().endsWith('.docx') && Array.isArray(lastItemIds) && lastItemIds.length) {
         formData.append('original_file', selectedFile);
         formData.append('item_ids', JSON.stringify(lastItemIds));
+      } else if (selectedFile && selectedFile.name.toLowerCase().endsWith('.docx') && lastEngine === 'creative_v2') {
+        formData.append('original_file', selectedFile);   // C2: Creative (item_ids пуст): сервер соберёт файл по оригиналу как шаблону
       }
       const response = await fetch('/api/improve/pdf', { method: 'POST', body: formData });
       if (!response.ok) {

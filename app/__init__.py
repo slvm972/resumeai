@@ -12,6 +12,32 @@ import os
 # (формат пайплайна, missing_routes4: ###ITEM_{id}:{TYPE}###).
 _ITEM_MARKER_PATTERN = r"###ITEM_\d+(?::\w+)?###"
 
+
+def _creative_docx_from_request(improved_text):
+    """Cycle C2: Creative-ветка экспорта. Если пришёл .docx-оригинал, item_ids пуст/отсутствует и в тексте
+    нет меток ###ITEM_ (так отдаёт /api/improve в creative_v2), собирает новый DOCX с оформлением
+    оригинала (build_creative_docx) и возвращает его bytes. Иначе или при любой ошибке возвращает None
+    (ошибка пишется в лог, пользователю не показывается); вызывающий код идёт прежним путём."""
+    try:
+        import re as _re
+        import json as _json
+        original_file = request.files.get('original_file')
+        if not original_file or not (original_file.filename or '').lower().endswith('.docx'):
+            return None
+        if _re.search(_ITEM_MARKER_PATTERN, improved_text or ''):
+            return None
+        ids_raw = (request.form.get('item_ids') or '').strip()
+        if ids_raw:
+            ids = _json.loads(ids_raw)
+            if not (isinstance(ids, list) and not ids):
+                return None
+        from app.utils.creative_docx_builder import build_creative_docx
+        original_file.stream.seek(0)
+        return build_creative_docx(original_file.read(), improved_text)
+    except Exception as creative_err:
+        logging.getLogger(__name__).error(f"[creative_docx] build failed, fallback to text: {creative_err}")
+        return None
+
 db = SQLAlchemy()
 jwt = JWTManager()
 mail = Mail()
@@ -864,6 +890,12 @@ def _register_legacy_routes(app):
                 return send_file(buf, as_attachment=True, download_name='improved_resume.docx',
                     mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
 
+            # Cycle C2: Creative (item_ids пуст, меток нет) + оригинал .docx -> DOCX с оформлением оригинала
+            creative_docx = _creative_docx_from_request(improved_text)
+            if creative_docx is not None:
+                return send_file(io.BytesIO(creative_docx), as_attachment=True, download_name='improved_resume.docx',
+                    mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+
             # Fallback (Cycle F1): исходного DOCX нет (вход ODT/PDF/RTF/TXT или creative-текст без меток) ->
             # DOCX с заголовками, списками и RTL из типизированного текста, как в ODT/RTF/PDF
             from app.missing_routes4 import _generate_docx
@@ -949,6 +981,16 @@ def _register_legacy_routes(app):
                 except Exception as conv_err:
                     app.logger.error(f"[legacy_improve_odt] docx->odt failed, fallback to text: {conv_err}")
 
+            # Cycle C2: Creative-ветка (после Precise): оригинал .docx, item_ids пуст, меток нет
+            creative_docx = _creative_docx_from_request(improved_text)
+            if creative_docx is not None:
+                try:
+                    from app.utils import docx_to_odt as _c2_odt
+                    return send_file(_c2_odt.docx_bytes_to_odt(creative_docx), as_attachment=True,
+                                     download_name='improved_resume.odt', mimetype=odt_mime)
+                except Exception as c2_err:
+                    app.logger.error(f"[legacy_improve_odt] creative docx->odt failed, fallback to text: {c2_err}")
+
             from app.missing_routes4 import _generate_odt
             buf = _generate_odt(improved_text)
             return send_file(
@@ -1000,6 +1042,17 @@ def _register_legacy_routes(app):
                                          download_name='improved_resume.pdf', mimetype='application/pdf')
                 except Exception as conv_err:
                     app.logger.error(f"[legacy_improve_pdf] docx->pdf failed, fallback to text: {conv_err}")
+
+            # Cycle C2: Creative-ветка (после Precise): оригинал .docx, item_ids пуст, меток нет
+            creative_docx = _creative_docx_from_request(improved_text)
+            if creative_docx is not None:
+                try:
+                    import io as _c2_io
+                    from app.utils import docx_to_pdf as _c2_pdf
+                    return send_file(_c2_io.BytesIO(_c2_pdf.docx_bytes_to_pdf(creative_docx)), as_attachment=True,
+                                     download_name='improved_resume.pdf', mimetype='application/pdf')
+                except Exception as c2_err:
+                    app.logger.error(f"[legacy_improve_pdf] creative docx->pdf failed, fallback to text: {c2_err}")
 
             from app.missing_routes4 import _generate_pdf
             buf = _generate_pdf(improved_text)
@@ -1053,6 +1106,17 @@ def _register_legacy_routes(app):
                                          download_name='improved_resume.rtf', mimetype='application/rtf')
                 except Exception as conv_err:
                     app.logger.error(f"[legacy_improve_rtf] docx->rtf failed, fallback to text: {conv_err}")
+
+            # Cycle C2: Creative-ветка (после Precise): оригинал .docx, item_ids пуст, меток нет
+            creative_docx = _creative_docx_from_request(improved_text)
+            if creative_docx is not None:
+                try:
+                    import io as _c2_io
+                    from app.utils import docx_to_rtf as _c2_rtf
+                    return send_file(_c2_io.BytesIO(_c2_rtf.docx_bytes_to_rtf(creative_docx)), as_attachment=True,
+                                     download_name='improved_resume.rtf', mimetype='application/rtf')
+                except Exception as c2_err:
+                    app.logger.error(f"[legacy_improve_rtf] creative docx->rtf failed, fallback to text: {c2_err}")
 
             from app.missing_routes4 import _generate_rtf
             buf = _generate_rtf(improved_text)
