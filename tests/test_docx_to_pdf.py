@@ -326,3 +326,58 @@ def test_inline_scripts_pass_node_check():
             assert r.returncode == 0, 'script %d: %s' % (i, r.stderr[:300])
         finally:
             os.unlink(f.name)
+
+
+# --- Cycle X4b: символы, которых нет в шрифтах (узкие пробелы и т.п.) ---------------------------------
+
+def _plain_docx(text, font=None, bold=False):
+    d = Document()
+    r = d.add_paragraph().add_run(text)
+    if font:
+        r.font.name = font
+    r.bold = bold
+    buf = io.BytesIO()
+    d.save(buf)
+    return buf.getvalue()
+
+
+def test_narrow_spaces_become_plain_spaces_in_pdf():
+    out = docx_bytes_to_pdf(_plain_docx("Fortune\u202f500 and Adobe\u2009XD, Q\u200a1, a\u2003b"))
+    t = _text(out)
+    assert 'Fortune 500' in t and 'Adobe XD' in t and 'Q 1' in t and 'a b' in t
+    assert not any(ch in t for ch in '\u202f\u2009\u200a\u2003')
+
+
+def test_narrow_spaces_in_serif_and_bold_text():
+    out = docx_bytes_to_pdf(_plain_docx("Fortune\u202f500", font='Times New Roman', bold=True))
+    assert 'Fortune 500' in _text(out)
+
+
+def test_non_breaking_hyphen_becomes_hyphen():
+    out = docx_bytes_to_pdf(_plain_docx("e\u2011mail and co\u2010op"))
+    assert 'e-mail' in _text(out) and 'co-op' in _text(out)
+
+
+def test_cleaned_characters_exist_in_all_used_fonts():
+    """Нет .notdef: каждый символ после замены есть в cmap Fira Sans и Liberation Serif (по реальным файлам)."""
+    from fontTools.ttLib import TTFont
+    from app.utils.docx_to_pdf import _clean
+    problem = ''.join(chr(c) for c in (0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2008, 0x2009, 0x200A, 0x202F,
+                                       0x2010, 0x2011, 0x2060, 0xFEFF, 0x2032, 0x2023, 0x25E6, 0x25AA, 0x27A4, 0x2713))
+    cleaned = _clean(problem)
+    for f in ('FiraSans-Regular.ttf', 'FiraSans-Bold.ttf', 'LiberationSerif-Regular.ttf'):
+        cmap = TTFont(os.path.join(ROOT, 'static', 'fonts', f)).getBestCmap()
+        assert [ch for ch in cleaned if ord(ch) not in cmap] == [], f
+
+
+def test_common_punctuation_is_left_unchanged():
+    from app.utils.docx_to_pdf import _clean
+    s = "\u201cquotes\u201d \u2018x\u2019 \u2013 \u2014 \u00a0 \u00ab\u00bb \u2022 \u2026 \u2192 text"
+    assert _clean(s) == s
+    out = docx_bytes_to_pdf(_plain_docx(s))
+    assert '\u201cquotes\u201d' in _text(out)
+
+
+def test_ruble_sign_in_serif_text_is_kept_via_sans_fallback():
+    out = docx_bytes_to_pdf(_plain_docx("Salary 10\u00a0000 \u20bd", font='Times New Roman'))
+    assert '\u20bd' in _text(out)

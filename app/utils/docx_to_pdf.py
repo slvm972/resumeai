@@ -46,6 +46,22 @@ _ARA = re.compile("[\u0600-\u06ff\u0750-\u077f]")
 _CJK = re.compile("[\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef\u3000-\u303f]")
 _TOKEN = re.compile("\t|\n|[ \u00a0]+|[\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef\u3000-\u303f]|[^\t\n \u00a0\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef\u3000-\u303f]+")
 
+# Символы, которых нет в cmap используемых шрифтов (проверено по реальным файлам static/fonts):
+# в Fira Sans нет узких и пунктуационных пробелов U+2002..U+2006, U+2009, U+200A, U+202F, дефисов U+2010/U+2011,
+# U+2032, U+2023, U+25E6, U+25AA, U+27A4, U+2713; в Liberation Serif нет U+2011, U+27A4, U+2713; нигде нет U+2060.
+# Без замены в PDF видны пустые рамки (.notdef). Обычные кавычки, тире и U+00A0 в шрифтах есть, их не трогаем.
+_CHAR_MAP = {}
+for _cp in (0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2008, 0x2009, 0x200A, 0x202F):
+    _CHAR_MAP[_cp] = " "
+_CHAR_MAP.update({0x2010: "-", 0x2011: "-", 0x2060: "", 0xFEFF: "", 0x2032: "'", 0x2023: "\u2022",
+                  0x25E6: "\u2022", 0x25AA: "\u2022", 0x27A4: ">", 0x2713: "\u2022"})
+
+
+def _clean(text):
+    """Заменить символы, отсутствующие в шрифтах PDF, на безопасные (остальной текст не меняется)."""
+    return text.translate(_CHAR_MAP) if text else text
+
+
 _registered = False
 
 
@@ -101,6 +117,14 @@ class _PdfConverter(_Converter):
     def _sw(self, text, font, size):
         return self.pm.stringWidth(text, font, size)
 
+    def _covers(self, font, text):
+        """Все ли символы текста есть в шрифте (по cmap зарегистрированного TTF)."""
+        try:
+            cmap = self.pm.getFont(font).face.charToGlyph
+        except Exception:
+            return True
+        return all(ord(ch) in cmap for ch in text if ch not in "\t\n ")
+
     def _asc_desc(self, font, size):
         return self.pm.getAscent(font, size), -self.pm.getDescent(font, size)
 
@@ -148,6 +172,7 @@ class _PdfConverter(_Converter):
     def _tok(self, kind, text, props, para_runs=None):
         (font, cs_font, size, size_cs, bold, bold_cs, italic, italic_cs,
          underline, color, strike, caps, small, va) = props
+        text = _clean(text)
         if caps or small:
             text = text.upper()
         fsize = size * 0.65 if va in ("superscript", "subscript") else size
@@ -157,6 +182,10 @@ class _PdfConverter(_Converter):
             fb = bold
         else:
             f = _latin_font(font, bold, italic)
+            if f.startswith("X4Serif") and not self._covers(f, text):
+                alt = "X4Sans" + f[len("X4Serif"):]        # например ₽ есть в Fira Sans, но нет в Liberation Serif
+                if self._covers(alt, text):
+                    f = alt
         shift = fsize * 0.5 if va == "superscript" else (-fsize * 0.25 if va == "subscript" else 0)
         return {"k": kind, "t": text, "f": f, "s": fsize, "col": color, "ul": underline, "st": strike,
                 "fb": fb, "sh": shift, "w": self._sw(text, f, fsize) if kind != "t" else 0.0}
@@ -166,7 +195,7 @@ class _PdfConverter(_Converter):
         for item in para.iter_inner_content():
             runs = item.runs if isinstance(item, Hyperlink) else [item]
             for r in runs:
-                text = r.text
+                text = _clean(r.text)
                 if not text:
                     continue
                 rpr = r._r.rPr
@@ -400,7 +429,7 @@ class _PdfConverter(_Converter):
         size = props[3]
         bold = props[5]
         font = self.F_HEB if has_heb else self.F_ARA
-        text = "".join(r.text for r in runs).replace("\t", " ").replace("\n", " ")
+        text = _clean("".join(r.text for r in runs)).replace("\t", " ").replace("\n", " ")
         if is_rtl:
             # старт абзаца справа: левый отступ Word это отступ от правого края
             phys_left, phys_right = right, left
