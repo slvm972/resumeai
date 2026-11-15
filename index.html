@@ -558,7 +558,7 @@
                 <input type="radio" name="creativityMode" value="creative" onchange="updateCreativityModeStyle()" style="margin:0">
                 <strong>Creative</strong>
               </span>
-              <span style="color:var(--muted);font-size:.72rem">New wording and summary - takes up to a minute. Original file layout is not kept; check the change report</span>
+              <span style="color:var(--muted);font-size:.72rem">New wording and summary - takes up to a minute. DOCX layout is kept; for other file types it is not; check the change report</span>
             </label>
           </div>
           <button id="improveBtn" class="btn-primary" style="width:100%" onclick="improveResume()">
@@ -1506,8 +1506,13 @@
         lastEngine = data.engine || null;
         const noticeEl = document.getElementById('creativeNotice');
         if (data.engine === 'creative_v2') {
+          // B1: для входного DOCX оформление сохраняется в скачиваемых файлах (сборка по оригиналу как по шаблону)
+          const isDocxInput = !!(selectedFile && selectedFile.name.toLowerCase().endsWith('.docx'));
           noticeEl.textContent = 'Creative result: new text built only from facts in your resume. ' +
-            'The layout of the original file is not preserved. Please review the changes below before sending.';
+            (isDocxInput
+              ? 'The layout of your DOCX file is kept in the downloads (DOCX, ODT, RTF, PDF); complex elements such as images or columns may differ. '
+              : 'The layout of the original file is not preserved. ') +
+            'Please review the changes below before sending.';
           noticeEl.style.display = 'block';
         } else if (data.engine === 'precise' && data.creative_fallback) {
           noticeEl.textContent = 'Creative mode could not produce a result that passed our safety checks, ' +

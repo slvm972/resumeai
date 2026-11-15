@@ -13,12 +13,15 @@ import pytest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HTML = open(os.path.join(ROOT, 'index.html'), encoding='utf-8').read()
 
-NOTICE_CREATIVE = ("Creative result: new text built only from facts in your resume. "
-                   "The layout of the original file is not preserved. Please review the changes below before sending.")
+NOTICE_HEAD = "Creative result: new text built only from facts in your resume. "
+NOTICE_TAIL = "Please review the changes below before sending."
+NOTICE_DOCX = (NOTICE_HEAD + "The layout of your DOCX file is kept in the downloads (DOCX, ODT, RTF, PDF); "
+               "complex elements such as images or columns may differ. " + NOTICE_TAIL)
+NOTICE_OTHER = NOTICE_HEAD + "The layout of the original file is not preserved. " + NOTICE_TAIL
 NOTICE_FALLBACK = ("Creative mode could not produce a result that passed our safety checks, "
                    "so Precise edits are shown instead.")
 MODE_CAPTION = ("New wording and summary - takes up to a minute. "
-                "Original file layout is not kept; check the change report")
+                "DOCX layout is kept; for other file types it is not; check the change report")
 SPINNER_CREATIVE = "⏳ Rewriting your resume in Creative mode… this can take up to a minute"
 
 
@@ -37,11 +40,51 @@ def test_01_notice_element_exists_and_is_hidden_by_default():
 def test_02_notice_logic_and_texts():
     assert "data.engine === 'creative_v2'" in HTML
     assert "data.engine === 'precise' && data.creative_fallback" in HTML
-    assert NOTICE_CREATIVE in HTML.replace("' +\n            '", "").replace("' +\n          '", "") or \
-        all(part in HTML for part in ("Creative result: new text built only from facts in your resume. ",
-                                      "The layout of the original file is not preserved. Please review the changes below before sending."))
+    assert all(part in HTML for part in (NOTICE_HEAD,
+                                         "The layout of your DOCX file is kept in the downloads (DOCX, ODT, RTF, PDF); ",
+                                         "complex elements such as images or columns may differ. ",
+                                         "The layout of the original file is not preserved. ", NOTICE_TAIL))
     assert all(part in HTML for part in ("Creative mode could not produce a result that passed our safety checks, ",
                                          "so Precise edits are shown instead."))
+
+
+def _creative_branch():
+    body = _function_body("improveResume")
+    start = body.index("if (data.engine === 'creative_v2') {")
+    return body[start:body.index("} else if (data.engine === 'precise' && data.creative_fallback)", start)]
+
+
+def test_02b_docx_input_shows_layout_kept_text_and_other_input_shows_not_preserved():
+    branch = _creative_branch()
+    # вариант выбирается по имени входного файла .docx; оба текста присутствуют, разделены условием
+    assert "const isDocxInput = !!(selectedFile && selectedFile.name.toLowerCase().endsWith('.docx'));" in branch
+    flat = re.sub(r"'\s*\+\s*\n\s*'", "", branch)
+    docx_part = "'The layout of your DOCX file is kept in the downloads (DOCX, ODT, RTF, PDF); complex elements such as images or columns may differ. '"
+    other_part = "'The layout of the original file is not preserved. '"
+    assert "isDocxInput" in branch and docx_part in branch and other_part in branch
+    assert branch.index("? " + docx_part) < branch.index(": " + other_part)      # ? docx : остальные
+    assert branch.index("(isDocxInput") < branch.index(docx_part)
+    assert "Please review the changes below before sending." in branch
+
+
+def test_02c_both_notice_variants_assemble_to_exact_texts():
+    """Собираем текст так же, как страница, для обоих вариантов входа."""
+    def assemble(is_docx):
+        return (NOTICE_HEAD + ("The layout of your DOCX file is kept in the downloads (DOCX, ODT, RTF, PDF); "
+                               "complex elements such as images or columns may differ. " if is_docx
+                               else "The layout of the original file is not preserved. ") + NOTICE_TAIL)
+    assert assemble(True) == NOTICE_DOCX and assemble(False) == NOTICE_OTHER
+    branch = _creative_branch()
+    for piece in (NOTICE_HEAD, NOTICE_TAIL):
+        assert piece in branch
+
+
+def test_02d_fallback_notice_is_not_changed_and_has_no_docx_variant():
+    assert ("Creative mode could not produce a result that passed our safety checks, "
+            "so Precise edits are shown instead.") in HTML.replace("' +\n            '", "")
+    fb = HTML[HTML.index("data.engine === 'precise' && data.creative_fallback"):]
+    fb = fb[:fb.index("} else {")]
+    assert "isDocxInput" not in fb
 
 
 def test_03_notice_is_reset_at_start_of_improve_resume():
@@ -61,7 +104,9 @@ def test_04_mode_caption_and_spinner_texts():
 def test_05_item_ids_empty_array_becomes_null_and_last_engine_is_recorded():
     assert "lastItemIds = (data.item_ids && data.item_ids.length) ? data.item_ids : null" in HTML
     assert "let lastEngine = null" in HTML and "lastEngine = data.engine || null" in HTML
-    assert len(re.findall(r"\blastEngine\b", HTML)) == 2          # объявление и запись; нигде не читается
+    # объявление, запись и (C2) чтение в условии кнопок ODT/RTF/PDF: lastEngine === 'creative_v2'
+    assert len(re.findall(r"\blastEngine\b", HTML)) == 5
+    assert len(re.findall(r"lastEngine === 'creative_v2'", HTML)) == 3
 
 
 def test_06_changes_list_handles_added_and_removed_items():
