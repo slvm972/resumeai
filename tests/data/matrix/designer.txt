@@ -1,0 +1,35 @@
+Sarah Mitchell
+Senior UX/UI Designer
+sarah.mitchell@gmail.com  |  +1 (415) 555-0192  |  linkedin.com/in/sarahmitchell  |  San Francisco, CA
+
+Professional Summary
+Creative and user-focused UX/UI Designer with 7 years of experience designing digital products for Fortune 500 companies and innovative startups. Proven track record of increasing user engagement by 35%+ through data-driven design decisions. Expert in Figma, Adobe XD, and design systems.
+
+Work Experience
+Lead UX Designer — Airbnb, San Francisco, CA
+2021 – 2024
+    • Led redesign of the host onboarding flow, reducing drop-off rate from 62% to 28%
+    • Managed a team of 5 designers across 3 product verticals
+    • Established and maintained Airbnb's design system used by 200+ engineers
+    • Conducted 50+ user research sessions and usability tests per quarter
+
+UX/UI Designer — Stripe, Remote
+2018 – 2021
+    • Designed payment flows for Stripe Dashboard used by 1M+ businesses
+    • Collaborated with engineers to implement responsive designs in React
+    • Improved task completion rate for invoice creation from 71% to 94%
+
+Education
+Bachelor of Fine Arts in Graphic Design — California College of the Arts
+2014 – 2018
+GPA: 3.9/4.0. Graduated with Honors. Thesis: Accessibility in Digital Product Design
+
+Skills
+Design Tools:
+Figma, Adobe XD, Sketch, Illustrator, Photoshop, InVision
+Research:
+User interviews, A/B testing, usability testing, heatmaps, analytics
+Collaboration:
+Jira, Confluence, Notion, Miro, Zeplin
+Languages:
+English (Native), Spanish (Conversational), French (Beginner)

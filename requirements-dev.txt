@@ -1,0 +1,7 @@
+# requirements-dev.txt -- ТОЛЬКО для инструмента измерений tools/format_matrix.py
+# и его теста tests/test_format_matrix_smoke.py (матрица сохранения оформления).
+# На сервере (Render) и в requirements.txt / requirements_full.txt эти пакеты НЕ нужны.
+# Дополнительно инструменту нужна программа LibreOffice (soffice) на машине, где он запускается;
+# без неё и без pdfminer тесты матрицы пропускаются (skip), а не падают.
+# Установка: pip install -r requirements.txt -r requirements-dev.txt
+pdfminer.six

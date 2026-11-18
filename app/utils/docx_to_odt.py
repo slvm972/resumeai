@@ -120,9 +120,32 @@ def _guess_generic(name):
 # Конвертер
 # ---------------------------------------------------------------------------
 
+def _dedupe_styles(doc):
+    """Cycle P1: при повторяющемся w:styleId оставить ПОСЛЕДНЕЕ определение.
+
+    Так поступают Word и LibreOffice, а python-docx берёт первое. Правка делается в
+    памяти на загруженном документе, исходные байты не меняются. Общий код для
+    ODT/RTF/PDF (RTF и PDF наследуют _Converter). Документы без дублей не меняются.
+    """
+    try:
+        styles_el = doc.styles.element
+        seen = {}
+        for st in list(styles_el.findall(qn("w:style"))):
+            sid = st.get(qn("w:styleId"))
+            if not sid:
+                continue
+            key = (st.get(qn("w:type")), sid)
+            if key in seen:
+                styles_el.remove(seen[key])
+            seen[key] = st
+    except Exception:
+        pass
+    return doc
+
+
 class _Converter:
     def __init__(self, docx_bytes):
-        self.doc = Document(io.BytesIO(docx_bytes))
+        self.doc = _dedupe_styles(Document(io.BytesIO(docx_bytes)))
         self.odt = OpenDocumentText()
         self._styles = {}       # ключ -> имя автостиля
         self._counter = {}
@@ -457,7 +480,7 @@ class _Converter:
                 kw["border" + side] = b
                 if space:
                     kw["padding" + side] = _pt(space)
-        st.addElement(ostyle.ParagraphProperties(**kw))
+        pp = ostyle.ParagraphProperties(**kw)
         if ctx["tabs"]:
             tabs = ostyle.TabStops()
             tmap = {"left": "left", "right": "right", "center": "center", "decimal": "char", "start": "left", "end": "right"}
@@ -469,7 +492,10 @@ class _Converter:
                     kwt["leaderstyle"] = "solid"
                     kwt["leadertext"] = {"dot": ".", "hyphen": "-", "underscore": "_"}[leader]
                 tabs.addElement(ostyle.TabStop(**kwt))
-            st.addElement(tabs)
+            # Cycle P1: <style:tab-stops> допустим только внутри <style:paragraph-properties>
+            if tabs.hasChildNodes():
+                pp.addElement(tabs)
+        st.addElement(pp)
         self._fill_text_props(st, props_default)
 
     def _para_style(self, para, ctx, is_rtl, in_list, list_ind):
