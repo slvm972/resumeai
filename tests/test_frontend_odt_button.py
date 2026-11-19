@@ -31,7 +31,8 @@ def _body(name):
     return src[m.start():i]
 
 
-COND = (r"if \(selectedFile && selectedFile\.name\.toLowerCase\(\)\.endsWith\('\.docx'\)"
+# N1b: проверка '.docx' заменена общей функцией isNormalizableFile (список NORMALIZABLE_EXTS = docx, txt)
+COND = (r"if \(isNormalizableFile\(selectedFile\)"
         r" && Array\.isArray\(lastItemIds\) && lastItemIds\.length\) \{")
 
 
@@ -67,8 +68,8 @@ def test_rtf_sends_original_only_with_docx_and_nonempty_item_ids():
 
 
 def test_docx_does_not_use_new_condition_and_pdf_does_since_x4():
-    # X4: PDF-кнопка получила то же условие, что ODT/RTF; DOCX-кнопка не менялась
-    assert 'Array.isArray(lastItemIds)' not in _body('downloadDocx')
+    # X4: PDF-кнопка получила то же условие, что ODT/RTF. N1b: DOCX-кнопка (вход TXT) тоже шлёт оригинал, то же условие
+    assert re.search(COND, _body('downloadDocx'))
     assert re.search(COND, _body('downloadPdf'))
 
 

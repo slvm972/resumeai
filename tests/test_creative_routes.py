@@ -250,7 +250,8 @@ def _body(name):
     return src[m.start():i]
 
 
-CREATIVE_COND = ("else if (selectedFile && selectedFile.name.toLowerCase().endsWith('.docx')"
+# N1b: проверка '.docx' заменена общей функцией isNormalizableFile (NORMALIZABLE_EXTS = docx, txt)
+CREATIVE_COND = ("else if (isNormalizableFile(selectedFile)"
                  " && lastEngine === 'creative_v2') {")
 
 
@@ -267,7 +268,7 @@ def test_buttons_send_original_for_creative_without_item_ids(fn):
 @pytest.mark.parametrize('fn', ['downloadOdt', 'downloadRtf', 'downloadPdf'])
 def test_precise_condition_is_unchanged(fn):
     b = _body(fn)
-    pre = ("if (selectedFile && selectedFile.name.toLowerCase().endsWith('.docx')"
+    pre = ("if (isNormalizableFile(selectedFile)"
            " && Array.isArray(lastItemIds) && lastItemIds.length) {")
     assert pre in b and b.index(pre) < b.index(CREATIVE_COND)
     assert "append('item_ids', JSON.stringify(lastItemIds))" in b
@@ -276,7 +277,7 @@ def test_precise_condition_is_unchanged(fn):
 def test_docx_button_already_sends_original_for_any_docx_input():
     b = _body('downloadImproved')
     assert "formData.append('original_file', selectedFile);" in b
-    assert "selectedFile.name.toLowerCase().endsWith('.docx')" in b
+    assert "isNormalizableFile(selectedFile)" in b          # N1b: было endsWith('.docx')
     assert "if (lastItemIds) {" in b            # item_ids только когда они есть (в Creative их нет)
 
 

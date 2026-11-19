@@ -181,7 +181,7 @@ def test_06_precise_mode_with_flag_on_does_not_call_bridge(app_ctx):
     assert resp.status_code == 200 and bridge.call_count == 0 and pipe.call_args[0][4] == 'precise'
 
 
-@pytest.mark.parametrize("name", ["cv.pdf", "cv.odt", "cv.rtf", "cv.doc", "cv.txt"])
+@pytest.mark.parametrize("name", ["cv.pdf", "cv.odt", "cv.rtf", "cv.doc"])
 def test_07_non_docx_files_skip_creative(app_ctx, name):
     client = app_ctx.test_client()
     _login(app_ctx, client)
@@ -189,6 +189,24 @@ def test_07_non_docx_files_skip_creative(app_ctx, name):
          patch('app.missing_routes4._run_improve_pipeline', return_value=_PRECISE_RESULT) as pipe:
         resp = _file_post(client, name, b'resume text ' * 10)
     assert resp.status_code == 200 and bridge.call_count == 0 and pipe.call_count == 1
+
+
+def test_07b_txt_file_goes_to_bridge_as_normalized_docx(app_ctx):
+    # N1b: TXT нормализуется в DOCX и идёт в Creative как DOCX (resume.docx); не-UTF-8 TXT остаётся на старом пути
+    client = app_ctx.test_client()
+    _login(app_ctx, client)
+    raw = ('Ann Lee\nann@example.com | +1 555 123 4567\nExperience\nDriver, Acme, Chicago\t2018 - 2024\n'
+           '\u2022 Delivered parcels on time across the city every day\n').encode('utf-8')
+    with patch('app.creative_bridge.creative_improve', return_value=_creative_ok()) as bridge, \
+         patch('app.missing_routes4._run_improve_pipeline', return_value=_PRECISE_RESULT) as pipe:
+        resp = _file_post(client, 'cv.txt', raw)
+    assert resp.status_code == 200 and pipe.call_count == 0 and bridge.call_count == 1
+    assert bridge.call_args[0][1] == 'resume.docx' and bridge.call_args[0][0][:2] == b'PK'
+    assert resp.get_json()['original_format'] == 'txt'
+    with patch('app.creative_bridge.creative_improve') as bridge2, \
+         patch('app.missing_routes4._run_improve_pipeline', return_value=_PRECISE_RESULT) as pipe2:
+        resp2 = _file_post(client, 'cv.txt', 'Иван Петров\nИнженер связи с опытом'.encode('cp1251'))
+    assert resp2.status_code == 200 and bridge2.call_count == 0 and pipe2.call_count == 1
 
 
 def test_08_docx_file_goes_to_bridge_and_sets_no_session_tokens(app_ctx):

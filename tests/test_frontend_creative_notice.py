@@ -105,8 +105,9 @@ def test_05_item_ids_empty_array_becomes_null_and_last_engine_is_recorded():
     assert "lastItemIds = (data.item_ids && data.item_ids.length) ? data.item_ids : null" in HTML
     assert "let lastEngine = null" in HTML and "lastEngine = data.engine || null" in HTML
     # объявление, запись и (C2) чтение в условии кнопок ODT/RTF/PDF: lastEngine === 'creative_v2'
-    assert len(re.findall(r"\blastEngine\b", HTML)) == 5
-    assert len(re.findall(r"lastEngine === 'creative_v2'", HTML)) == 3
+    # N1b: четвёртое чтение (кнопка DOCX для входа TXT)
+    assert len(re.findall(r"\blastEngine\b", HTML)) == 6
+    assert len(re.findall(r"lastEngine === 'creative_v2'", HTML)) == 4
 
 
 def test_06_changes_list_handles_added_and_removed_items():

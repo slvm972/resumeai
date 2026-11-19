@@ -1448,6 +1448,13 @@
   // Файл уходит на /api/improve только для DOCX и TXT: сервер читает такой файл напрямую.
   // PDF, ODT и RTF сервер при улучшении читает как «сырой текст» (получается мусор), поэтому для них
   // используется текст, уже корректно извлечённый при анализе (lastResumeText).
+  // Cycle N1b: форматы, которые сервер умеет нормализовать в DOCX (app/utils/normalize_input.py). Для них страница
+  // отправляет original_file на экспорт, и оформление сохраняется. Следующие циклы допишут сюда 'odt', 'pdf', 'rtf'.
+  const NORMALIZABLE_EXTS = ['docx', 'txt'];
+  function isNormalizableFile(f) {
+    const m = /\.([^.]+)$/.exec((f && f.name) || '');
+    return !!m && NORMALIZABLE_EXTS.includes(m[1].toLowerCase());
+  }
   function canImproveFromFile(f) {
     return !!f && /\.(docx|txt)$/i.test(f.name || '');
   }
@@ -1511,7 +1518,9 @@
           noticeEl.textContent = 'Creative result: new text built only from facts in your resume. ' +
             (isDocxInput
               ? 'The layout of your DOCX file is kept in the downloads (DOCX, ODT, RTF, PDF); complex elements such as images or columns may differ. '
-              : 'The layout of the original file is not preserved. ') +
+              : (isNormalizableFile(selectedFile)
+                ? 'A clean default layout is applied in the downloads (DOCX, ODT, RTF, PDF). '
+                : 'The layout of the original file is not preserved. ')) +
             'Please review the changes below before sending.';
           noticeEl.style.display = 'block';
         } else if (data.engine === 'precise' && data.creative_fallback) {
@@ -1788,7 +1797,7 @@
     // ── ЕСЛИ DOCX и есть оригинальный .docx файл: сервер собирает docx,
     //    сохраняя форматирование оригинала, вместо client-side docx.js ──────
     if (format === 'docx' || format === 'doc') {
-      if (selectedFile && selectedFile.name.toLowerCase().endsWith('.docx')) {
+      if (isNormalizableFile(selectedFile)) {
         try {
           const formData = new FormData();
           formData.append('original_file', selectedFile);
@@ -1945,10 +1954,10 @@
       const formData = new FormData();
       formData.append('improved_resume', getEffectiveRaw() || getEffectiveDisplay());
       // Cycle X2/X2b: вход .docx и непустые item_ids -> оригинал и item_ids (в Creative item_ids пуст: только текст)
-      if (selectedFile && selectedFile.name.toLowerCase().endsWith('.docx') && Array.isArray(lastItemIds) && lastItemIds.length) {
+      if (isNormalizableFile(selectedFile) && Array.isArray(lastItemIds) && lastItemIds.length) {
         formData.append('original_file', selectedFile);
         formData.append('item_ids', JSON.stringify(lastItemIds));
-      } else if (selectedFile && selectedFile.name.toLowerCase().endsWith('.docx') && lastEngine === 'creative_v2') {
+      } else if (isNormalizableFile(selectedFile) && lastEngine === 'creative_v2') {
         formData.append('original_file', selectedFile);   // C2: Creative (item_ids пуст): сервер соберёт файл по оригиналу как шаблону
       }
       const response = await fetch('/api/improve/odt', { method: 'POST', body: formData });
@@ -1986,6 +1995,13 @@
     try {
       const formData = new FormData();
       formData.append('improved_resume', getEffectiveRaw() || getEffectiveDisplay());
+      // Cycle N1b: вход TXT (и другие форматы из NORMALIZABLE_EXTS) -> оригинал и item_ids, сервер нормализует файл в DOCX
+      if (isNormalizableFile(selectedFile) && Array.isArray(lastItemIds) && lastItemIds.length) {
+        formData.append('original_file', selectedFile);
+        formData.append('item_ids', JSON.stringify(lastItemIds));
+      } else if (isNormalizableFile(selectedFile) && lastEngine === 'creative_v2') {
+        formData.append('original_file', selectedFile);   // Creative (item_ids пуст): сервер соберёт файл по шаблону
+      }
       const response = await fetch('/api/improve/docx', { method: 'POST', body: formData });
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
@@ -2020,10 +2036,10 @@
       const formData = new FormData();
       formData.append('improved_resume', getEffectiveRaw() || getEffectiveDisplay());
       // Cycle X2b: как в downloadOdt
-      if (selectedFile && selectedFile.name.toLowerCase().endsWith('.docx') && Array.isArray(lastItemIds) && lastItemIds.length) {
+      if (isNormalizableFile(selectedFile) && Array.isArray(lastItemIds) && lastItemIds.length) {
         formData.append('original_file', selectedFile);
         formData.append('item_ids', JSON.stringify(lastItemIds));
-      } else if (selectedFile && selectedFile.name.toLowerCase().endsWith('.docx') && lastEngine === 'creative_v2') {
+      } else if (isNormalizableFile(selectedFile) && lastEngine === 'creative_v2') {
         formData.append('original_file', selectedFile);   // C2: Creative (item_ids пуст): сервер соберёт файл по оригиналу как шаблону
       }
       const response = await fetch('/api/improve/rtf', { method: 'POST', body: formData });
@@ -2060,10 +2076,10 @@
       const formData = new FormData();
       formData.append('improved_resume', getEffectiveRaw() || getEffectiveDisplay());
       // Cycle X4: как в downloadOdt/downloadRtf
-      if (selectedFile && selectedFile.name.toLowerCase().endsWith('.docx') && Array.isArray(lastItemIds) && lastItemIds.length) {
+      if (isNormalizableFile(selectedFile) && Array.isArray(lastItemIds) && lastItemIds.length) {
         formData.append('original_file', selectedFile);
         formData.append('item_ids', JSON.stringify(lastItemIds));
-      } else if (selectedFile && selectedFile.name.toLowerCase().endsWith('.docx') && lastEngine === 'creative_v2') {
+      } else if (isNormalizableFile(selectedFile) && lastEngine === 'creative_v2') {
         formData.append('original_file', selectedFile);   // C2: Creative (item_ids пуст): сервер соберёт файл по оригиналу как шаблону
       }
       const response = await fetch('/api/improve/pdf', { method: 'POST', body: formData });

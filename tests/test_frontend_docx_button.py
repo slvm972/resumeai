@@ -43,7 +43,9 @@ def test_04_download_docx_sends_text_only_to_docx_endpoint():
     body = _func('downloadDocx')
     assert "fetch('/api/improve/docx'" in body
     assert "formData.append('improved_resume', getEffectiveRaw() ||" in body
-    assert 'original_file' not in body and 'item_ids' not in body     # оригинала нет, DOCX собирает сервер
+    # N1b: оригинал шлётся только для форматов, которые сервер нормализует (isNormalizableFile); для остальных текст
+    assert body.count("append('original_file', selectedFile)") == 2 and body.count('isNormalizableFile(selectedFile)') == 2
+    assert "endsWith('.docx')" not in body
     assert "a.download = 'improved_resume.docx'" in body
     assert 'btn.disabled = true' in body and 'btn.disabled = false' in body and 'finally' in body
 

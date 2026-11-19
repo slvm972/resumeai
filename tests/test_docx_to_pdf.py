@@ -300,7 +300,7 @@ def _body(name):
 
 def test_download_pdf_sends_original_only_with_docx_and_item_ids():
     b = _body('downloadPdf')
-    cond = ("if (selectedFile && selectedFile.name.toLowerCase().endsWith('.docx')"
+    cond = ("if (isNormalizableFile(selectedFile)"          # N1b: было endsWith('.docx')
             " && Array.isArray(lastItemIds) && lastItemIds.length) {")
     assert cond in b
     assert b.index(cond) < b.index("append('original_file', selectedFile)") < b.index("append('item_ids', JSON.stringify(lastItemIds))")
@@ -310,7 +310,8 @@ def test_download_pdf_sends_original_only_with_docx_and_item_ids():
 
 
 def test_docx_button_unchanged_by_x4():
-    assert 'Array.isArray(lastItemIds)' not in _body('downloadDocx')
+    # N1b: кнопка DOCX (вход TXT) теперь шлёт оригинал по условию isNormalizableFile; остальные условия X4 не менялись
+    assert "endsWith('.docx')" not in _body('downloadDocx')
 
 
 def test_inline_scripts_pass_node_check():

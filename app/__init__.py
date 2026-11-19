@@ -13,6 +13,29 @@ import os
 _ITEM_MARKER_PATTERN = r"###ITEM_\d+(?::\w+)?###"
 
 
+def _original_docx_from_upload(file_storage):
+    """Cycle N1b: загруженный файл как DOCX-байты для цепочки DOCX (Precise, Creative, экспорт).
+
+    DOCX возвращается как есть, TXT нормализуется в DOCX по шаблону (app/utils/normalize_input.py), для остальных
+    форматов (ODT, RTF, PDF пока) и при любой ошибке возвращается None. Указатель файла после чтения
+    возвращается в начало, исходный файл остаётся доступным. Тексты исключений в журнал не пишутся."""
+    try:
+        if file_storage is None:
+            return None
+        data = file_storage.read()
+        try:
+            file_storage.stream.seek(0)
+        except Exception:
+            pass
+        if not data:
+            return None
+        from app.utils.normalize_input import normalize_to_docx
+        return normalize_to_docx(data, file_storage.filename)
+    except Exception as norm_err:
+        logging.getLogger(__name__).error("[normalize] upload normalization failed: %s", type(norm_err).__name__)
+        return None
+
+
 def _creative_docx_from_request(improved_text):
     """Cycle C2: Creative-ветка экспорта. Если пришёл .docx-оригинал, item_ids пуст/отсутствует и в тексте
     нет меток ###ITEM_ (так отдаёт /api/improve в creative_v2), собирает новый DOCX с оформлением
@@ -22,7 +45,7 @@ def _creative_docx_from_request(improved_text):
         import re as _re
         import json as _json
         original_file = request.files.get('original_file')
-        if not original_file or not (original_file.filename or '').lower().endswith('.docx'):
+        if not original_file:
             return None
         if _re.search(_ITEM_MARKER_PATTERN, improved_text or ''):
             return None
@@ -32,8 +55,11 @@ def _creative_docx_from_request(improved_text):
             if not (isinstance(ids, list) and not ids):
                 return None
         from app.utils.creative_docx_builder import build_creative_docx
-        original_file.stream.seek(0)
-        return build_creative_docx(original_file.read(), improved_text)
+        # Cycle N1b: .docx как есть, .txt нормализуется в DOCX; другие форматы -> None (прежний путь)
+        original_docx = _original_docx_from_upload(original_file)
+        if original_docx is None:
+            return None
+        return build_creative_docx(original_docx, improved_text)
     except Exception as creative_err:
         logging.getLogger(__name__).error(f"[creative_docx] build failed, fallback to text: {creative_err}")
         return None
@@ -691,11 +717,16 @@ def _register_legacy_routes(app):
             resume_text_fallback = None
             original_format = 'txt'
 
+            # Cycle N1b: внутренние байты и имя для пайплайна. Для .txt это нормализованный DOCX (resume.docx),
+            # иначе исходные: item_ids считаются по абзацам нормализованного DOCX, has_original_docx станет true.
+            pipe_bytes = None
+            pipe_name = None
             file = request.files.get('file') or request.files.get('resume')
             if file:
                 filename = file.filename
-                original_bytes = file.read()
                 fname_lower = filename.lower()
+                _n1b_norm = None if fname_lower.endswith('.docx') else _original_docx_from_upload(file)
+                original_bytes = file.read()
                 if fname_lower.endswith('.docx'):
                     original_format = 'docx'
                 elif fname_lower.endswith('.pdf'):
@@ -703,11 +734,15 @@ def _register_legacy_routes(app):
                 elif fname_lower.endswith('.doc'):
                     original_format = 'doc'
                 creativity_mode = request.form.get('creativity_mode', 'precise')
+                if _n1b_norm is not None:
+                    pipe_bytes, pipe_name = _n1b_norm, 'resume.docx'
             else:
                 data = request.get_json() or {}
                 resume_text_fallback = data.get('resume_text', '').strip()
                 original_format = data.get('original_format', 'txt')
                 creativity_mode = data.get('creativity_mode', 'precise')
+            if pipe_bytes is None:
+                pipe_bytes, pipe_name = original_bytes, filename
 
             if not original_bytes and not resume_text_fallback:
                 return jsonify({'success': False, 'error': 'resume_text is required'}), 400
@@ -717,15 +752,15 @@ def _register_legacy_routes(app):
             creative_result = None
             creative_status = None
             creative_source_ok = (
-                (original_bytes is not None and (filename or '').lower().endswith('.docx'))
-                or (original_bytes is None and bool(resume_text_fallback))
+                (pipe_bytes is not None and (pipe_name or '').lower().endswith('.docx'))
+                or (pipe_bytes is None and bool(resume_text_fallback))
             )
             if creativity_mode == 'creative' and creative_source_ok:
                 try:
                     from app.creative_bridge import is_creative_v2_enabled, creative_improve
                     if is_creative_v2_enabled(current_app.config):
                         creative_result = creative_improve(
-                            original_bytes, filename, resume_text_fallback, current_app.config)
+                            pipe_bytes, pipe_name, resume_text_fallback, current_app.config)
                         creative_tried = bool(creative_result.get('attempted'))
                         creative_status = creative_result.get('status') if creative_tried else None
                         if creative_tried and creative_status == 'error':
@@ -782,7 +817,7 @@ def _register_legacy_routes(app):
                                 (creative_result or {}).get('rounds'), (creative_result or {}).get('calls'))
 
             api_key = current_app.config.get('GROQ_API_KEY')
-            result = _run_improve_pipeline(original_bytes, filename, resume_text_fallback, api_key, creativity_mode)
+            result = _run_improve_pipeline(pipe_bytes, pipe_name, resume_text_fallback, api_key, creativity_mode)
 
             if not result.get('success'):
                 return jsonify({'success': False, 'error': result.get('error')}), result.get('status', 500)
@@ -803,9 +838,9 @@ def _register_legacy_routes(app):
                 subscription.credits_used += 1
                 db.session.commit()
 
-            if original_bytes and (filename or '').lower().endswith('.docx'):
+            if pipe_bytes and (pipe_name or '').lower().endswith('.docx'):
                 from app.missing_routes4 import _save_temp_upload
-                session['original_docx_token'] = _save_temp_upload(original_bytes)
+                session['original_docx_token'] = _save_temp_upload(pipe_bytes)
                 session['item_ids'] = result['item_ids']
             else:
                 # ODT/PDF/RTF/TXT и текст из JSON: исходник как DOCX открыть нельзя,
@@ -890,9 +925,15 @@ def _register_legacy_routes(app):
             has_markers = bool(re_lib.search(_ITEM_MARKER_PATTERN, improved_text))
 
             if original_file and has_markers:
-                buf = _apply_improved_text_to_docx(original_file.read(), improved_text, item_ids)
-                return send_file(buf, as_attachment=True, download_name='improved_resume.docx',
-                    mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+                # Cycle N1b: TXT нормализуется в DOCX заново (детерминированно), .docx и прочее как раньше
+                _n1b_docx = _original_docx_from_upload(original_file)
+                if _n1b_docx is None and (original_file.filename or '').lower().endswith('.docx'):
+                    _n1b_docx = original_file.read()      # .docx как раньше (в том числе повреждённый)
+                if _n1b_docx is not None:
+                    buf = _apply_improved_text_to_docx(_n1b_docx, improved_text, item_ids)
+                    return send_file(buf, as_attachment=True, download_name='improved_resume.docx',
+                        mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+                # TXT не в UTF-8 и прочие ненормализуемые файлы: прежний текстовый путь ниже
 
             token = _dbg_token
             file_bytes = _load_temp_upload(token) if has_markers else None
@@ -974,8 +1015,10 @@ def _register_legacy_routes(app):
             # Cycle X1: исходный DOCX есть -> применяем текст к нему и переводим в ODT с сохранением
             # оформления. Любая ошибка конвертера: в лог и прежний путь (простой ODT из текста).
             original_file = request.files.get('original_file')
-            if (original_file and (original_file.filename or '').lower().endswith('.docx')
-                    and _re.search(_ITEM_MARKER_PATTERN, improved_text)):
+            # Cycle N1b: .docx как есть, .txt нормализуется в DOCX; ODT/RTF/PDF -> None (прежний путь)
+            _n1b_docx = (_original_docx_from_upload(original_file)
+                         if original_file and _re.search(_ITEM_MARKER_PATTERN, improved_text) else None)
+            if _n1b_docx is not None:
                 try:
                     import json as _json
                     from app.missing_routes4 import _apply_improved_text_to_docx
@@ -985,7 +1028,7 @@ def _register_legacy_routes(app):
                     # Creative отдаёт item_ids=[]: без id применить текст к DOCX нельзя (улучшения потеряются),
                     # поэтому конвертер только при непустом списке, иначе прежний путь из текста.
                     if isinstance(item_ids, list) and item_ids:
-                        improved_docx = _apply_improved_text_to_docx(original_file.read(), improved_text, item_ids)
+                        improved_docx = _apply_improved_text_to_docx(_n1b_docx, improved_text, item_ids)
                         odt_buf = _d2o.docx_bytes_to_odt(improved_docx.getvalue())
                         return send_file(odt_buf, as_attachment=True, download_name='improved_resume.odt',
                                          mimetype=odt_mime)
@@ -1037,8 +1080,10 @@ def _register_legacy_routes(app):
             # Creative отдаёт item_ids=[]: тогда прежний путь из текста. Любая ошибка: в лог и прежний путь.
             import re as _re
             original_file = request.files.get('original_file')
-            if (original_file and (original_file.filename or '').lower().endswith('.docx')
-                    and _re.search(_ITEM_MARKER_PATTERN, improved_text)):
+            # Cycle N1b: .docx как есть, .txt нормализуется в DOCX; ODT/RTF/PDF -> None (прежний путь)
+            _n1b_docx = (_original_docx_from_upload(original_file)
+                         if original_file and _re.search(_ITEM_MARKER_PATTERN, improved_text) else None)
+            if _n1b_docx is not None:
                 try:
                     import io as _io
                     import json as _json
@@ -1047,7 +1092,7 @@ def _register_legacy_routes(app):
                     ids_raw = request.form.get('item_ids') or ''
                     item_ids = _json.loads(ids_raw) if ids_raw else []
                     if isinstance(item_ids, list) and item_ids:
-                        improved_docx = _apply_improved_text_to_docx(original_file.read(), improved_text, item_ids)
+                        improved_docx = _apply_improved_text_to_docx(_n1b_docx, improved_text, item_ids)
                         pdf_bytes = _d2p.docx_bytes_to_pdf(improved_docx.getvalue())
                         return send_file(_io.BytesIO(pdf_bytes), as_attachment=True,
                                          download_name='improved_resume.pdf', mimetype='application/pdf')
@@ -1101,8 +1146,10 @@ def _register_legacy_routes(app):
             # оформления. Любая ошибка: в лог и прежний путь (простой RTF из текста).
             import re as _re
             original_file = request.files.get('original_file')
-            if (original_file and (original_file.filename or '').lower().endswith('.docx')
-                    and _re.search(_ITEM_MARKER_PATTERN, improved_text)):
+            # Cycle N1b: .docx как есть, .txt нормализуется в DOCX; ODT/RTF/PDF -> None (прежний путь)
+            _n1b_docx = (_original_docx_from_upload(original_file)
+                         if original_file and _re.search(_ITEM_MARKER_PATTERN, improved_text) else None)
+            if _n1b_docx is not None:
                 try:
                     import json as _json
                     from app.missing_routes4 import _apply_improved_text_to_docx
@@ -1111,7 +1158,7 @@ def _register_legacy_routes(app):
                     item_ids = _json.loads(ids_raw) if ids_raw else []
                     # Creative отдаёт item_ids=[]: конвертер только при непустом списке (см. ODT выше).
                     if isinstance(item_ids, list) and item_ids:
-                        improved_docx = _apply_improved_text_to_docx(original_file.read(), improved_text, item_ids)
+                        improved_docx = _apply_improved_text_to_docx(_n1b_docx, improved_text, item_ids)
                         rtf_bytes = _d2r.docx_bytes_to_rtf(improved_docx.getvalue())
                         return send_file(io.BytesIO(rtf_bytes), as_attachment=True,
                                          download_name='improved_resume.rtf', mimetype='application/rtf')

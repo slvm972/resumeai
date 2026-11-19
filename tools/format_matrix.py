@@ -700,22 +700,41 @@ def precise_generate(client, doc, inp):
             "item_ids": j.get("item_ids") or [], "text_for_export": j["improved_resume"]}
 
 
+def page_normalizable_exts():
+    """Какие входные форматы страница считает «оформление сохраняется»: константа NORMALIZABLE_EXTS из index.html
+    (читается заново при каждом запуске). Старая страница без константы: только docx."""
+    try:
+        with open(os.path.join(ROOT, "index.html"), encoding="utf-8") as fh:
+            m = re.search(r"const NORMALIZABLE_EXTS\s*=\s*\[(.*?)\]", fh.read(), re.S)
+        if m:
+            return set(re.findall(r"['\"]([A-Za-z0-9]+)['\"]", m.group(1)))
+    except OSError:
+        pass
+    return {"docx"}
+
+
 def export(client, out_fmt, doc, inp, state):
     """Вызвать маршрут экспорта с теми полями, которые отправляет index.html (по текущим условиям страницы)."""
     src_name = doc + "." + inp
     src = open(os.path.join(DATA, src_name), "rb").read()
-    is_docx = inp == "docx"
+    is_docx = inp in page_normalizable_exts()      # N1b: условие страницы isNormalizableFile (docx, txt, позже odt/pdf/rtf)
     item_ids = state["item_ids"]
     creative = state["engine"] == "creative_v2"
     data = {"improved_resume": state["improved_resume"]}
     if out_fmt == "docx":
-        # downloadImproved (вход .docx): original_file + item_ids, если они есть; иначе downloadDocx: только текст
-        if is_docx:
+        # вход .docx (downloadImproved): original_file + item_ids, если они есть. Вход TXT и др. (downloadDocx, N1b):
+        # original_file при непустых item_ids (Precise) или engine creative_v2; иначе только текст
+        if inp == "docx":
             data["original_file"] = (io.BytesIO(src), src_name)
             if item_ids:
                 data["item_ids"] = json.dumps(item_ids)
+        elif is_docx and item_ids:
+            data["original_file"] = (io.BytesIO(src), src_name)
+            data["item_ids"] = json.dumps(item_ids)
+        elif is_docx and creative:
+            data["original_file"] = (io.BytesIO(src), src_name)
     else:
-        # downloadOdt/Rtf/Pdf: original_file только для .docx, если item_ids непусты (Precise) или engine creative_v2
+        # downloadOdt/Rtf/Pdf: original_file только для форматов страницы (docx, txt), если item_ids непусты (Precise) или engine creative_v2
         if is_docx and item_ids:
             data["original_file"] = (io.BytesIO(src), src_name)
             data["item_ids"] = json.dumps(item_ids)
@@ -954,22 +973,21 @@ RELIABILITY = """
 """
 
 FINDINGS = """
-## Комментарий автора к провалам (на момент прогона M1; не пересчитывается автоматически)
+## Комментарий автора к результатам (актуален после цикла N1b)
 
-Гипотезы с доказательствами из прогона, ничего не исправлялось:
+Исправлено и больше не относится к провалам: дубли стиля Heading1 в styles.xml (P1), падение ODT на правом табе (P1),
+шрифт по умолчанию (P2), маркеры и зеркалирование таблиц в PDF для иврита (P2), ивритские заголовки в сборщике Creative
+(P2), оформление для входа TXT (N1a, N1b: TXT превращается в DOCX по шаблону по умолчанию).
 
-1. Вход DOCX, выходы ODT/RTF/PDF: M4 (цвет заголовков) и M9 (шрифт у ua) не проходят у резюме, где стиль заголовка
-   объявлен в styles.xml дважды (оригиналы designer/engineer: два определения Heading1, в первом цвет 2E74B5, во втором
-   1F4E79 + Arial + интервалы). LibreOffice берёт последнее, конвертеры продукта (python-docx) берут первое.
-2. Вход DOCX -> ODT, резюме tabdates (правый таб): конвертер падает с ошибкой «<style:tab-stops> is not allowed in
-   <style:style>» (в журнале), маршрут откатывается на простой ODT из текста: поэтому у tabdates пропали имя, линии и даты.
-3. Вход DOCX -> PDF, иврит: у RTL-абзацев не рисуются маркеры списка, а таблица не зеркалится (даты справа, а не слева).
-4. Вход ODT, RTF, PDF, TXT: original_file не отправляется (страница шлёт его только для .docx), выходные файлы строятся
-   из текста со стандартными стилями: не выполняются M2-M5, M7, M8 почти везде.
-5. Creative, вход DOCX, иврит: сборщик не распознаёт ивритские заголовки как образец HEADING (нет словаря иврита и стиля
-   Heading), поэтому заголовки и основной текст получают чужие образцы (кегль имени/основного 1.71 против 2.29, линия
-   у 50% заголовков).
-6. Вход RTF на иврите: извлечение текста даёт «י?ו?ס?י?» (escape-последовательности \\uN? читаются как текст с «?»).
+Что остаётся:
+
+1. Вход ODT, RTF, PDF: страница не отправляет original_file (в NORMALIZABLE_EXTS в index.html только docx и txt), файлы
+   строятся из текста со стандартными стилями: не выполняются M2-M5, M7, M8 почти везде. Закрывают циклы N2-N4.
+2. Вход TXT: оформление берётся из шаблона по умолчанию, а в самом TXT цвета, шрифта и таблиц оригинала нет, поэтому
+   M4 (цвет заголовков) и M9 (шрифтовой класс) у части резюме не совпадают с эталоном. Это свойство шаблона, не ошибка.
+3. Вход RTF на иврите: извлечение текста даёт «י?ו?ס?י?» (последовательности \\uN? читаются как текст с «?»).
+4. RTF с ивритом: цвет заголовков после отрисовки LibreOffice нестабилен (шум самой метрики, виден в калибровке).
+5. Креатив-текст для TXT с таблицами (иврит): текст из нормализованного DOCX собирается «абзацы, потом таблицы».
 """
 
 
