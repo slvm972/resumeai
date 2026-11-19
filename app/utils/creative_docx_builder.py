@@ -111,7 +111,7 @@ def _split_inline_date(s):
 # ---------------------------------------------------------------------------
 
 
-def parse_creative_text(text):
+def parse_creative_text(text, extra_headings=None, extra_skill_headings=None):
     """Разобрать текст Creative в блоки. Блок: {'role', 'text', ...}.
 
     JOB может содержать 'date' (дата в конце строки отделена) и 'raw' (исходная строка);
@@ -120,6 +120,10 @@ def parse_creative_text(text):
     """
     if text is None:
         return []
+    # Cycle N1a: необязательные дополнительные заголовки (нормализованные через _norm_heading), по умолчанию пусто:
+    # поведение для текстов Creative не меняется.
+    extra_h = frozenset(extra_headings or ())
+    extra_s = frozenset(extra_skill_headings or ())
     raw_lines = str(text).replace("\r\n", "\n").replace("\r", "\n").split("\n")
     lines = [l.rstrip() for l in raw_lines]
     n = len(lines)
@@ -164,9 +168,9 @@ def parse_creative_text(text):
             structural = (prev_blank and len(s) <= 40 and len(s.split()) <= 5 and immediate_next_nonblank
                           and not re.search(r"[\d,@|:.\u2014\u2013]", s))
             label_like = section == "skills" and s.endswith(":") and nxt is not None   # «Языки:» внутри навыков
-            if (low in _HEADINGS or structural) and not label_like:
+            if (low in _HEADINGS or low in extra_h or low in extra_s or structural) and not label_like:
                 block = {"role": "HEADING", "text": s}
-                section = "skills" if low in _SKILL_HEADINGS else "other"
+                section = "skills" if (low in _SKILL_HEADINGS or low in extra_s) else "other"
             elif _DATE_ONLY.match(s):
                 block = {"role": "DATE", "text": s}
             else:
@@ -494,13 +498,13 @@ def _doc_texts(doc):
     return out
 
 
-def build_creative_docx(original_docx_bytes, creative_text):
+def build_creative_docx(original_docx_bytes, creative_text, extra_headings=None, extra_skill_headings=None):
     """Собрать новый DOCX: оригинал как шаблон, текст из creative_text. Возвращает bytes."""
     if creative_text is None or not str(creative_text).strip():
         raise CreativeDocxError("empty_text", "Creative text is empty")
     if sum(ch.isalnum() for ch in str(creative_text)) < 5:
         raise CreativeDocxError("garbage_text", "Creative text has no usable content")
-    blocks = parse_creative_text(creative_text)
+    blocks = parse_creative_text(creative_text, extra_headings, extra_skill_headings)
     if not [b for b in blocks if b["role"] != "BLANK"]:
         raise CreativeDocxError("garbage_text", "Creative text has no usable content")
 
