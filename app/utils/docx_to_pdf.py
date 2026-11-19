@@ -285,7 +285,9 @@ class _PdfConverter(_Converter):
             return {"h": h, "asc": asc2, "items": items}
 
         if has_heb or has_ara:
-            lines = self._layout_rtl(para, ctx, width, left, right, first, is_rtl, has_heb, jc, make_line)
+            label_tok = self._tok("w", self._label(num_id, ilvl, info), base) if in_list else None
+            lines = self._layout_rtl(para, ctx, width, left, right, first, is_rtl, has_heb, jc, make_line,
+                                     label_x=label_x, label_tok=label_tok)
         else:
             lines = self._layout_ltr(para, ctx, width, left, right, first, jc, label_x, in_list,
                                      info, num_id, ilvl, base, make_line)
@@ -412,7 +414,8 @@ class _PdfConverter(_Converter):
             out.append(make_line(items, asc, desc))
         return out
 
-    def _layout_rtl(self, para, ctx, width, left, right, first, is_rtl, has_heb, jc, make_line):
+    def _layout_rtl(self, para, ctx, width, left, right, first, is_rtl, has_heb, jc, make_line,
+                    label_x=None, label_tok=None):
         from bidi.algorithm import get_display
         import arabic_reshaper
         runs = []
@@ -474,7 +477,12 @@ class _PdfConverter(_Converter):
                 x = left_edge
             tok = {"k": "w", "t": disp, "f": font, "s": size, "col": props[9], "ul": props[8], "st": props[10],
                    "fb": bold, "sh": 0.0, "w": w}
-            out.append(make_line([(x, tok)], a, d))
+            items = [(x, tok)]
+            if label_tok is not None and li == 0 and label_x is not None:
+                # Cycle P2: маркер/номер списка стоит на стороне начала абзаца: справа у RTL-абзаца
+                lx = (width - label_x - label_tok["w"]) if is_rtl else label_x
+                items.insert(0, (lx, label_tok))
+            out.append(make_line(items, a, d))
         return out
 
     # ---------------- рисование ----------------
@@ -548,13 +556,25 @@ class _PdfConverter(_Converter):
         jc = _val(pr.find(qn("w:jc"))) if pr is not None and pr.find(qn("w:jc")) is not None else None
         ind = pr.find(qn("w:tblInd")) if pr is not None else None
         ind_w = self._tw(ind.get(qn("w:w")) or 0) if ind is not None and ind.get(qn("w:type")) in (None, "dxa") else 0.0
+        bidi = pr is not None and pr.find(qn("w:bidiVisual")) is not None and _on(pr.find(qn("w:bidiVisual"))) is True
         if jc == "center":
             x0 = self.m_left + (self.text_w - total) / 2
+        elif bidi:
+            # Cycle P2: в таблице bidiVisual начало это правый край: left/start = справа, right/end = слева
+            if jc in ("right", "end"):
+                x0 = self.m_left - ind_w
+            else:
+                x0 = self.m_left + self.text_w - total - ind_w
         elif jc in ("right", "end"):
             x0 = self.m_left + self.text_w - total
         else:
             x0 = self.m_left + ind_w
         return grid, total, x0
+
+    @staticmethod
+    def _tbl_bidi(tbl):
+        pr = tbl._tbl.tblPr
+        return pr is not None and pr.find(qn("w:bidiVisual")) is not None and _on(pr.find(qn("w:bidiVisual"))) is True
 
     def _pad(self, tbl_chain):
         left = right = 5.4
@@ -626,6 +646,7 @@ class _PdfConverter(_Converter):
         def place_table(tbl):
             grid, total, x0 = self._table_geometry(tbl)
             ncols = len(grid)
+            bidi_tbl = self._tbl_bidi(tbl)
             tbl_borders, tbl_chain = self._table_borders(tbl)
             try:
                 self._tbl_ppr = _style_chain_props(tbl.style, "pPr")
@@ -648,7 +669,7 @@ class _PdfConverter(_Converter):
                         if tcpr is not None and tcpr.find(qn("w:gridSpan")) is not None:
                             span = max(1, int(_val(tcpr.find(qn("w:gridSpan"))) or 1))
                         span = min(span, max(1, ncols - c_idx))
-                        cx = x0 + sum(grid[:c_idx])
+                        cx = x0 + (total - sum(grid[:c_idx + span]) if bidi_tbl else sum(grid[:c_idx]))
                         cw = sum(grid[c_idx:c_idx + span])
                         lays = []
                         for ch in tc.iterchildren():

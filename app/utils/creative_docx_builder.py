@@ -79,10 +79,14 @@ _HEADINGS = {
     # uk
     "профіль", "професійний профіль", "про себе", "мета", "досвід роботи", "освіта", "навички",
     "ключові навички", "мови", "сертифікати", "проєкти", "досягнення", "додатково", "інтереси",
+    # he
+    "תקציר", "פרופיל", "ניסיון תעסוקתי", "ניסיון מקצועי", "השכלה", "כישורים", "מיומנויות", "שפות",
+    "תעודות", "קורסים", "פרויקטים", "הישגים", "פרטי קשר", "תחומי עניין", "המלצות",
 }
 _SKILL_HEADINGS = {
     "skills", "key skills", "technical skills", "core skills", "languages", "навыки", "ключевые навыки",
     "профессиональные навыки", "языки", "навички", "ключові навички", "мови",
+    "כישורים", "מיומנויות", "שפות",
 }
 
 
@@ -307,6 +311,51 @@ def _cell_texts(tr_el):
 # ---------------------------------------------------------------------------
 
 
+def _first_run_size(p_el):
+    """Размер шрифта первого фрагмента с текстом в полупунктах (только прямое форматирование) или None."""
+    for r in p_el.iter(qn("w:r")):
+        if not "".join(t.text or "" for t in r.iter(qn("w:t"))).strip():
+            continue
+        rpr = r.find(qn("w:rPr"))
+        if rpr is not None and rpr.find(qn("w:sz")) is not None:
+            try:
+                return int(rpr.find(qn("w:sz")).get(qn("w:val")))
+            except (TypeError, ValueError):
+                return None
+        return None
+    return None
+
+
+def _body_size(elems):
+    """Типичный размер основного текста (медиана размеров длинных абзацев) или None."""
+    sizes = []
+    for e in elems:
+        if e.tag == qn("w:p") and len(_par_text(e).strip()) > 40:
+            sz = _first_run_size(e)
+            if sz:
+                sizes.append(sz)
+    sizes.sort()
+    return sizes[len(sizes) // 2] if sizes else None
+
+
+def _looks_like_heading(el, s, body_sz):
+    """Cycle P2: заголовок раздела по ОФОРМЛЕНИЮ образца, а не по словарю слов (иврит, арабский и др.).
+
+    Короткая строка без знаков предложения и двоеточия на конце, у которой есть нижняя линия абзаца
+    либо жирный шрифт заметно крупнее основного текста (на 2 пт и больше).
+    """
+    if len(s) > 60 or len(s.split()) > 6 or s.endswith(":") or re.search(r"[.!?;@|]\s*$", s):
+        return False
+    if _is_contact(s) or _DATE_ONLY.match(s) or _BULLET.match(s):
+        return False
+    ppr = el.find(qn("w:pPr"))
+    bdr = ppr.find(qn("w:pBdr")) if ppr is not None else None
+    if bdr is not None and bdr.find(qn("w:bottom")) is not None:
+        return True
+    sz = _first_run_size(el)
+    return bool(_first_run_bold(el) and sz and body_sz and sz >= body_sz + 4)
+
+
 def _analyze(doc):
     """Вернуть (samples, report). report: список (kind, текст, роль) в порядке документа."""
     body = doc.element.body
@@ -316,6 +365,7 @@ def _analyze(doc):
     n_nonblank = 0
     section = ""
     seen_heading = False
+    body_sz = _body_size(elems)
 
     def put(role, el, **extra):
         if role not in samples:
@@ -362,7 +412,7 @@ def _analyze(doc):
             role = "CONTACT"
         elif (n_nonblank == 1 and not seen_heading and _jc(el) == "center" and not _is_contact(s) and len(s) <= 90):
             role = "TITLE"
-        elif sid.lower().startswith("heading") or low in _HEADINGS:
+        elif sid.lower().startswith("heading") or low in _HEADINGS or _looks_like_heading(el, s, body_sz):
             role = "HEADING"
             seen_heading = True
             section = "skills" if low in _SKILL_HEADINGS else "other"

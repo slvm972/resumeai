@@ -446,7 +446,7 @@ class _RtfConverter(_Converter):
         except Exception:
             page = ""
         if not self._rfonts:
-            self._font_idx("Calibri")
+            self._font_idx(self._default_font)
         fonts = []
         for name, idx in sorted(self._rfonts.items(), key=lambda kv: kv[1]):
             fam = {"roman": "froman", "modern": "fmodern"}.get(_guess_generic(name), "fswiss")

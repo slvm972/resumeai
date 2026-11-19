@@ -152,6 +152,9 @@ class _Converter:
         self._fonts = set()
         self._list_styles = {}
         self._theme = self._load_theme_fonts()
+        # Cycle P2: шрифт, когда он нигде не задан (нет rFonts в прямом форматировании, стилях и docDefaults):
+        # Word и LibreOffice берут шрифт темы, а без темы Times New Roman (раньше тут был Calibri).
+        self._default_font = self._theme.get("minor") or "Times New Roman"
         self._numbering = self._load_numbering()
         self._defaults_ppr, self._defaults_rpr = self._doc_defaults()
         self._first_in_paragraph = True
@@ -250,7 +253,7 @@ class _Converter:
         for rf in rfonts_all:
             font = font or self._font_name(rf, "ascii", "asciiTheme") or self._font_name(rf, "hAnsi", "hAnsiTheme")
             cs_font = cs_font or self._font_name(rf, "cs", "cstheme")
-        font = font or "Calibri"
+        font = font or self._default_font
         cs_font = cs_font or font
 
         sz = _val(_first(chain, "w:sz"))
