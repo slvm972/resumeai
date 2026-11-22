@@ -15,7 +15,7 @@ HTML = open(os.path.join(ROOT, 'index.html'), encoding='utf-8').read()
 
 NOTICE_HEAD = "Creative result: new text built only from facts in your resume. "
 NOTICE_TAIL = "Please review the changes below before sending."
-NOTICE_DOCX = (NOTICE_HEAD + "The layout of your DOCX file is kept in the downloads (DOCX, ODT, RTF, PDF); "
+NOTICE_DOCX = (NOTICE_HEAD + "The layout of your file is kept in the downloads (DOCX, ODT, RTF, PDF); "
                "complex elements such as images or columns may differ. " + NOTICE_TAIL)
 NOTICE_OTHER = NOTICE_HEAD + "The layout of the original file is not preserved. " + NOTICE_TAIL
 NOTICE_FALLBACK = ("Creative mode could not produce a result that passed our safety checks, "
@@ -41,7 +41,7 @@ def test_02_notice_logic_and_texts():
     assert "data.engine === 'creative_v2'" in HTML
     assert "data.engine === 'precise' && data.creative_fallback" in HTML
     assert all(part in HTML for part in (NOTICE_HEAD,
-                                         "The layout of your DOCX file is kept in the downloads (DOCX, ODT, RTF, PDF); ",
+                                         "The layout of your file is kept in the downloads (DOCX, ODT, RTF, PDF); ",
                                          "complex elements such as images or columns may differ. ",
                                          "The layout of the original file is not preserved. ", NOTICE_TAIL))
     assert all(part in HTML for part in ("Creative mode could not produce a result that passed our safety checks, ",
@@ -57,9 +57,9 @@ def _creative_branch():
 def test_02b_docx_input_shows_layout_kept_text_and_other_input_shows_not_preserved():
     branch = _creative_branch()
     # вариант выбирается по имени входного файла .docx; оба текста присутствуют, разделены условием
-    assert "const isDocxInput = !!(selectedFile && selectedFile.name.toLowerCase().endsWith('.docx'));" in branch
+    assert "const isDocxInput = !!(selectedFile && isNormalizableFile(selectedFile) && !/\\.txt$/i.test(selectedFile.name));" in branch
     flat = re.sub(r"'\s*\+\s*\n\s*'", "", branch)
-    docx_part = "'The layout of your DOCX file is kept in the downloads (DOCX, ODT, RTF, PDF); complex elements such as images or columns may differ. '"
+    docx_part = "'The layout of your file is kept in the downloads (DOCX, ODT, RTF, PDF); complex elements such as images or columns may differ. '"
     other_part = "'The layout of the original file is not preserved. '"
     assert "isDocxInput" in branch and docx_part in branch and other_part in branch
     assert branch.index("? " + docx_part) < branch.index(": " + other_part)      # ? docx : остальные
@@ -70,7 +70,7 @@ def test_02b_docx_input_shows_layout_kept_text_and_other_input_shows_not_preserv
 def test_02c_both_notice_variants_assemble_to_exact_texts():
     """Собираем текст так же, как страница, для обоих вариантов входа."""
     def assemble(is_docx):
-        return (NOTICE_HEAD + ("The layout of your DOCX file is kept in the downloads (DOCX, ODT, RTF, PDF); "
+        return (NOTICE_HEAD + ("The layout of your file is kept in the downloads (DOCX, ODT, RTF, PDF); "
                                "complex elements such as images or columns may differ. " if is_docx
                                else "The layout of the original file is not preserved. ") + NOTICE_TAIL)
     assert assemble(True) == NOTICE_DOCX and assemble(False) == NOTICE_OTHER

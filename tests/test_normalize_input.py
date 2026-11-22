@@ -89,7 +89,7 @@ def test_no_extension_sniffing():
 
 
 def test_registry_is_a_table_that_next_cycles_can_extend(monkeypatch):
-    assert set(ni.ADAPTERS) == {'docx', 'txt'}
+    assert {'docx', 'txt'} <= set(ni.ADAPTERS)          # N2a: добавлен 'odt'; N3, N4 допишут pdf, rtf
     monkeypatch.setitem(ni.ADAPTERS, 'odt', lambda b: b'FAKE-DOCX')
     assert normalize_to_docx(b'x', 'cv.odt') == b'FAKE-DOCX'
 

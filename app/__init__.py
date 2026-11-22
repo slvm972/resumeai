@@ -733,6 +733,12 @@ def _register_legacy_routes(app):
                     original_format = 'pdf'
                 elif fname_lower.endswith('.doc'):
                     original_format = 'doc'
+                elif fname_lower.endswith('.odt'):
+                    original_format = 'odt'            # Cycle N2b: явный формат (раньше для odt, rtf, txt было 'txt')
+                elif fname_lower.endswith('.rtf'):
+                    original_format = 'rtf'
+                elif fname_lower.endswith('.txt'):
+                    original_format = 'txt'
                 creativity_mode = request.form.get('creativity_mode', 'precise')
                 if _n1b_norm is not None:
                     pipe_bytes, pipe_name = _n1b_norm, 'resume.docx'

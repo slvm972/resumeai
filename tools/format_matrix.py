@@ -686,13 +686,42 @@ def make_client():
     return c
 
 
+def page_can_improve_exts():
+    """Для каких входных форматов страница шлёт ФАЙЛ в /api/improve (условие canImproveFromFile из index.html,
+    читается заново при каждом запуске). Если функция опирается на isNormalizableFile, берётся константа
+    NORMALIZABLE_EXTS; если на регулярное выражение вида /\\.(docx|txt)$/i, берутся его расширения."""
+    try:
+        with open(os.path.join(ROOT, "index.html"), encoding="utf-8") as fh:
+            html = fh.read()
+        m = re.search(r"function canImproveFromFile\(f\) \{(.*?)\n\s*\}", html, re.S)
+        if m:
+            body = m.group(1)
+            if "isNormalizableFile" in body:
+                return page_normalizable_exts()
+            rx = re.search(r"/\\\.\(([A-Za-z|]+)\)\$/", body)
+            if rx:
+                return {e.lower() for e in rx.group(1).split("|")}
+    except OSError:
+        pass
+    return {"docx", "txt"}
+
+
 def precise_generate(client, doc, inp):
-    """Как /api/improve в режиме Precise (модель подменена). Возвращает dict или {'error': ...}."""
+    """Как /api/improve в режиме Precise (модель подменена) при том запросе, который отправляет страница:
+    файл, если canImproveFromFile, иначе JSON с текстом, извлечённым при анализе (lastResumeText).
+    Возвращает dict или {'error': ...}."""
     from unittest.mock import patch
     raw = open(os.path.join(DATA, doc + "." + inp), "rb").read()
     with patch("requests.post", side_effect=_fake_model):
-        r = client.post("/api/improve", data={"file": (io.BytesIO(raw), doc + "." + inp), "creativity_mode": "precise"},
-                        content_type="multipart/form-data")
+        if inp in page_can_improve_exts():
+            r = client.post("/api/improve", data={"file": (io.BytesIO(raw), doc + "." + inp), "creativity_mode": "precise"},
+                            content_type="multipart/form-data")
+        else:
+            from app.utils.resume_text import extract_resume_text
+            text = extract_resume_text((doc + "." + inp).lower(), raw)
+            fmt = inp if inp in ("docx", "pdf", "doc") else "txt"          # как /api/analyze: original_format
+            r = client.post("/api/improve", json={"resume_text": text, "analysis": {}, "original_format": fmt,
+                                                  "creativity_mode": "precise"})
     j = r.get_json(silent=True) or {}
     if r.status_code != 200 or not j.get("improved_resume"):
         return {"error": "improve %s: %s" % (r.status_code, (j.get("error") or "")[:80])}
@@ -972,22 +1001,22 @@ RELIABILITY = """
   подстановки шрифта в LibreOffice.
 """
 
-FINDINGS = """
-## Комментарий автора к результатам (актуален после цикла N1b)
+FINDINGS = """## Комментарий автора к результатам (актуален после цикла N2b)
 
 Исправлено и больше не относится к провалам: дубли стиля Heading1 в styles.xml (P1), падение ODT на правом табе (P1),
 шрифт по умолчанию (P2), маркеры и зеркалирование таблиц в PDF для иврита (P2), ивритские заголовки в сборщике Creative
-(P2), оформление для входа TXT (N1a, N1b: TXT превращается в DOCX по шаблону по умолчанию).
+(P2), оформление для входа TXT (N1a, N1b: TXT превращается в DOCX по шаблону по умолчанию), оформление для входа ODT
+(N2a, N2b: адаптер ODT в DOCX, страница шлёт original_file для .odt).
 
 Что остаётся:
 
-1. Вход ODT, RTF, PDF: страница не отправляет original_file (в NORMALIZABLE_EXTS в index.html только docx и txt), файлы
-   строятся из текста со стандартными стилями: не выполняются M2-M5, M7, M8 почти везде. Закрывают циклы N2-N4.
+1. Вход RTF и PDF: страница не отправляет original_file (в NORMALIZABLE_EXTS в index.html docx, txt и odt), файлы
+   строятся из текста со стандартными стилями: не выполняются M2-M5, M7, M8 почти везде. Закрывают циклы N3 и N4.
 2. Вход TXT: оформление берётся из шаблона по умолчанию, а в самом TXT цвета, шрифта и таблиц оригинала нет, поэтому
-   M4 (цвет заголовков) и M9 (шрифтовой класс) у части резюме не совпадают с эталоном. Это свойство шаблона, не ошибка.
+   M4 (цвет заголовков), M8 (таблицы) и M9 (шрифтовой класс) у части резюме не совпадают с эталоном. Это свойство шаблона.
 3. Вход RTF на иврите: извлечение текста даёт «י?ו?ס?י?» (последовательности \\uN? читаются как текст с «?»).
 4. RTF с ивритом: цвет заголовков после отрисовки LibreOffice нестабилен (шум самой метрики, виден в калибровке).
-5. Креатив-текст для TXT с таблицами (иврит): текст из нормализованного DOCX собирается «абзацы, потом таблицы».
+5. Креатив-текст для TXT и ODT с таблицами (иврит): текст из нормализованного DOCX собирается «абзацы, потом таблицы».
 """
 
 

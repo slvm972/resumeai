@@ -292,10 +292,10 @@ def _html():
 
 def test_page_uses_single_constant_for_normalizable_formats():
     h = _html()
-    assert "const NORMALIZABLE_EXTS = ['docx', 'txt'];" in h
+    assert "const NORMALIZABLE_EXTS = ['docx', 'txt', 'odt'];" in h          # N2b: добавлен odt
     assert h.count('isNormalizableFile(selectedFile)') >= 9
     # проверка по расширению .docx осталась только в баннере Creative (текст для входа DOCX), а не в условиях кнопок
-    assert h.count("selectedFile.name.toLowerCase().endsWith('.docx')") == 1
+    assert h.count("selectedFile.name.toLowerCase().endsWith('.docx')") == 0       # N2b: баннер тоже через isNormalizableFile
 
 
 def test_page_helper_in_node_txt_in_odt_pdf_rtf_out():
@@ -304,7 +304,7 @@ def test_page_helper_in_node_txt_in_odt_pdf_rtf_out():
         pytest.skip('node не найден')
     h = _html()
     src = re.search(r"const NORMALIZABLE_EXTS = .*?;\n\s*function isNormalizableFile\(f\) \{.*?\n\s*\}\n", h, re.S).group(0)
-    cases = {'cv.docx': True, 'CV.DOCX': True, 'cv.txt': True, 'My Resume.Txt': True, 'cv.pdf': False, 'cv.odt': False,
+    cases = {'cv.docx': True, 'CV.DOCX': True, 'cv.txt': True, 'My Resume.Txt': True, 'cv.pdf': False, 'cv.odt': True,
              'cv.rtf': False, 'cv.doc': False, 'cv.docx.pdf': False, 'docx': False, '': False}
     script = src + '\nconst cases = %s;\nconst out = {};\nfor (const k of Object.keys(cases)) out[k] = isNormalizableFile({name: k});\n' \
                    'out.__null = isNormalizableFile(null);\nconsole.log(JSON.stringify(out));\n' % json.dumps(cases)
@@ -321,7 +321,7 @@ def test_page_helper_in_node_txt_in_odt_pdf_rtf_out():
 
 def test_page_creative_notice_variants_and_node_check():
     h = _html()
-    assert 'The layout of your DOCX file is kept' in h and 'A clean default layout is applied' in h
+    assert 'The layout of your file is kept' in h and 'A clean default layout is applied' in h
     assert 'The layout of the original file is not preserved.' in h
     node = shutil.which('node')
     if not node:

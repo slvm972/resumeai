@@ -53,10 +53,12 @@ def test_helper_decides_by_extension_in_node():
     if not node:
         pytest.skip('node не найден в окружении: проверка функции canImproveFromFile пропущена')
     html = _index()
-    src = re.search(r'function canImproveFromFile\(f\) \{.*?\n\s*\}\n', html, re.S).group(0)
+    # N2c: canImproveFromFile опирается на isNormalizableFile и константу NORMALIZABLE_EXTS, берём их вместе
+    src = re.search(r'const NORMALIZABLE_EXTS = .*?;\n\s*function isNormalizableFile\(f\) \{.*?\n\s*\}\n\s*'
+                    r'(?:\s*//[^\n]*\n)*\s*function canImproveFromFile\(f\) \{.*?\n\s*\}\n', html, re.S).group(0)
     cases = {
         'cv.docx': True, 'CV.DOCX': True, 'cv.txt': True, 'My Resume.Txt': True,
-        'cv.pdf': False, 'cv.odt': False, 'cv.rtf': False, 'cv.doc': False,
+        'cv.pdf': False, 'cv.odt': True, 'cv.rtf': False, 'cv.doc': False,       # N2c: odt теперь тоже файлом
         'cv.docx.pdf': False, 'docx': False, '': False,
     }
     script = src + '\nconst cases = %s;\nconst out = {};\nfor (const k of Object.keys(cases)) out[k] = canImproveFromFile({name: k});\n' \

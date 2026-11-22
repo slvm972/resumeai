@@ -1446,17 +1446,19 @@
   }
 
   // Файл уходит на /api/improve только для DOCX и TXT: сервер читает такой файл напрямую.
-  // PDF, ODT и RTF сервер при улучшении читает как «сырой текст» (получается мусор), поэтому для них
+  // PDF и RTF сервер при улучшении читает как «сырой текст» (получается мусор), поэтому для них
   // используется текст, уже корректно извлечённый при анализе (lastResumeText).
   // Cycle N1b: форматы, которые сервер умеет нормализовать в DOCX (app/utils/normalize_input.py). Для них страница
-  // отправляет original_file на экспорт, и оформление сохраняется. Следующие циклы допишут сюда 'odt', 'pdf', 'rtf'.
-  const NORMALIZABLE_EXTS = ['docx', 'txt'];
+  // отправляет original_file на экспорт, и оформление сохраняется. Следующие циклы допишут сюда 'pdf', 'rtf'.
+  const NORMALIZABLE_EXTS = ['docx', 'txt', 'odt'];
   function isNormalizableFile(f) {
     const m = /\.([^.]+)$/.exec((f && f.name) || '');
     return !!m && NORMALIZABLE_EXTS.includes(m[1].toLowerCase());
   }
+  // N2c: в /api/improve файл отправляется для тех же форматов, что и original_file на экспорте (одна константа):
+  // item_ids считаются по абзацам нормализованного DOCX и совпадают при экспорте
   function canImproveFromFile(f) {
-    return !!f && /\.(docx|txt)$/i.test(f.name || '');
+    return isNormalizableFile(f);
   }
 
   async function improveResume() {
@@ -1514,10 +1516,11 @@
         const noticeEl = document.getElementById('creativeNotice');
         if (data.engine === 'creative_v2') {
           // B1: для входного DOCX оформление сохраняется в скачиваемых файлах (сборка по оригиналу как по шаблону)
-          const isDocxInput = !!(selectedFile && selectedFile.name.toLowerCase().endsWith('.docx'));
+          // N2b: оформление исходного файла сохраняется для DOCX и ODT; для TXT применяется шаблон по умолчанию
+          const isDocxInput = !!(selectedFile && isNormalizableFile(selectedFile) && !/\.txt$/i.test(selectedFile.name));
           noticeEl.textContent = 'Creative result: new text built only from facts in your resume. ' +
             (isDocxInput
-              ? 'The layout of your DOCX file is kept in the downloads (DOCX, ODT, RTF, PDF); complex elements such as images or columns may differ. '
+              ? 'The layout of your file is kept in the downloads (DOCX, ODT, RTF, PDF); complex elements such as images or columns may differ. '
               : (isNormalizableFile(selectedFile)
                 ? 'A clean default layout is applied in the downloads (DOCX, ODT, RTF, PDF). '
                 : 'The layout of the original file is not preserved. ')) +

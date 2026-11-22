@@ -35,6 +35,11 @@ from app.utils.creative_docx_builder import (
 logger = logging.getLogger(__name__)
 
 
+class NormalizeRejected(Exception):
+    """Ожидаемый отказ адаптера (неподдерживаемый или повреждённый вход): в журнал пишется WARNING, а не ERROR.
+    Текст исключения в журнал не попадает, поэтому в сообщение кладут только короткий код причины."""
+
+
 # ---------------------------------------------------------------------------
 # Шаблон по умолчанию для TXT (образцы всех ролей), LTR и RTL
 # ---------------------------------------------------------------------------
@@ -287,9 +292,12 @@ def _is_rtl_text(text):
 
 def txt_to_docx(file_bytes):
     """TXT (UTF-8, с BOM или без) -> DOCX по шаблону по умолчанию. Исключение при любой проблеме."""
-    text = file_bytes.decode("utf-8-sig")          # другие кодировки в N1 не поддерживаются: исключение
+    try:
+        text = file_bytes.decode("utf-8-sig")      # другие кодировки не поддерживаются (cp1251, utf-16): отказ
+    except UnicodeDecodeError:
+        raise NormalizeRejected("not_utf8")
     if "\x00" in text:
-        raise ValueError("binary_data")
+        raise NormalizeRejected("binary_data")
     clean, extra_h, extra_s = prepare_raw_text(text)
     template = default_template(_is_rtl_text(clean))
     return build_creative_docx(template, clean, extra_h, extra_s)
@@ -299,10 +307,17 @@ def _passthrough(file_bytes):
     return file_bytes
 
 
+def _odt_adapter(file_bytes):
+    """ODT -> DOCX (app/utils/odt_to_docx.py); импорт отложен, чтобы не было циклической зависимости."""
+    from app.utils.odt_to_docx import odt_to_docx
+    return odt_to_docx(file_bytes)
+
+
 # Таблица адаптеров: {расширение без точки: функция(bytes) -> bytes DOCX}. N2-N4 добавляют odt, pdf, rtf.
 ADAPTERS = {
     "docx": _passthrough,
     "txt": txt_to_docx,
+    "odt": _odt_adapter,
 }
 
 
@@ -339,6 +354,9 @@ def normalize_to_docx(file_bytes, filename):
     try:
         result = adapter(file_bytes)
         return result if result else None
+    except NormalizeRejected as exc:
+        logger.warning("normalize_to_docx rejected: adapter=%s reason=%s", ext, exc)
+        return None
     except Exception as exc:
         # в журнал: тип исключения и стек вызовов, без текста исключения (он может содержать текст резюме)
         frames = " <- ".join("%s:%d in %s" % (os.path.basename(f.filename), f.lineno, f.name)
